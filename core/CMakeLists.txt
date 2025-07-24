@@ -1,5 +1,4 @@
 add_library(corelib
-    MovementCommand.cpp
     BusinessLogic.cpp
     Motor.cpp
     IMotor.h
