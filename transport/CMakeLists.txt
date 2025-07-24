@@ -3,3 +3,5 @@ add_library(transportlib
 )
 
 target_include_directories(transportlib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_link_libraries(driverslib PRIVATE spdlog::spdlog)
