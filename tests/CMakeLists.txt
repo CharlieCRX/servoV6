@@ -8,7 +8,8 @@ set_property(TARGET test_businesslogic PROPERTY AUTOUIC OFF)
 target_link_libraries(test_businesslogic PRIVATE
   gtest_main     # 包含 main 函数的 GTest 库
   gmock          # Google Mock 库
-  corelib        # 链接核心业务逻辑库 + 日志
+  utilslib       # 日志库
+  corelib        # 链接核心业务逻辑库
 )
 
 add_executable(test_motor test_motor.cpp)
@@ -19,6 +20,7 @@ target_link_libraries(test_motor PRIVATE
   Qt6::Core
   gtest_main
   gmock
+  utilslib
   corelib
   driverslib
 )
@@ -30,9 +32,9 @@ set_property(TARGET test_adapter PROPERTY AUTOUIC OFF)
 target_link_libraries(test_adapter PRIVATE
   gtest_main
   gmock
+  utilslib
   driverslib
   transportlib
-  corelib
 )
 
 

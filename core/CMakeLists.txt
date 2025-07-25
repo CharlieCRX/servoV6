@@ -1,7 +1,6 @@
 add_library(corelib
     BusinessLogic.cpp
     Motor.cpp
-    Logger.cpp
 )
 
 
@@ -9,7 +8,6 @@ add_library(corelib
 # 任何链接 corelib 的目标都可以通过 #include <BusinessLogic.h> 等方式找到头文件
 target_include_directories(corelib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# 链接 spdlog 到 corelib
-# corelib 内部的代码（如 BusinessLogic 和 Logger）会使用 spdlog
-# 外部依赖  corelib 的使用者也间接依赖 spdlog 的头文件，所以将其改为 PUBLIC
-target_link_libraries(corelib PUBLIC spdlog::spdlog)
+# 链接 utilslib
+# corelib 现在依赖 utilslib 来获取日志功能。
+target_link_libraries(corelib PRIVATE utilslib)

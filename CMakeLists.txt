@@ -13,6 +13,7 @@ qt_standard_project_setup(REQUIRES 6.8)
 
 # 添加子模块
 add_subdirectory(external/spdlog)
+add_subdirectory(utils)
 add_subdirectory(core)
 add_subdirectory(drivers)
 add_subdirectory(transport)
