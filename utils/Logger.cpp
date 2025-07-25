@@ -4,6 +4,7 @@
 #include <spdlog/sinks/basic_file_sink.h> // 用于文件输出的sink
 #include <spdlog/sinks/stdout_color_sinks.h> // 用于控制台输出的sink（带颜色）
 #include <iostream> // 用于在日志系统初始化失败时输出到cerr
+#include <vector> // 用于存储 sinks
 
 // Logger的私有构造函数
 // 初始化initialized_标记为false
@@ -22,7 +23,7 @@ Logger& Logger::getInstance() {
 }
 
 // 初始化日志系统
-void Logger::init(const std::string& logFilePath, const std::string& logLevel) {
+void Logger::init(const std::string& logFilePath, const std::string& logLevel, bool enableConsoleOutput) {
     // 如果日志系统已经初始化过，则直接返回，避免重复初始化
     if (initialized_) {
         return;
@@ -31,51 +32,55 @@ void Logger::init(const std::string& logFilePath, const std::string& logLevel) {
     try {
         // 创建文件输出 sink
         // logFilePath: 日志文件的完整路径
-        // false: 设置为追加模式，每次程序启动都会在文件末尾添加新日志，而不是覆盖
-        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logFilePath, false);
-        // 设置文件日志的格式
-        // [%Y-%m-%d %H:%M:%S.%e] : 年-月-日 时:分:秒.毫秒
-        // [%l]                    : 日志级别 (如 info, debug)
-        // (%s:%#)                 : 源文件名:行号
-        // %!                      : 函数名
-        // %v                      : 实际的日志消息内容
+        // true: 设置为追加模式，每次程序启动都会在文件末尾添加新日志，而不是覆盖（根据你上一个反馈修正为true，如果需要覆盖请改为false）
+        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(logFilePath, true);
+        // 设置文件日志的格式（包含详细信息）
         file_sink->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%l] (%s:%#) %! - %v");
 
-        // 创建控制台输出 sink (带颜色，便于在终端查看)
-        auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-        // 设置控制台日志的格式
-        // [%^%l%$]                : 带颜色的日志级别
-        // (%s:%#)                 : 源文件名:行号
-        // %!                      : 函数名
-        // %v                      : 实际的日志消息内容
-        console_sink->set_pattern("[%^%l%$] (%s:%#) %! - %v");
+        // 创建一个 sink 列表
+        std::vector<spdlog::sink_ptr> sinks;
+        sinks.push_back(file_sink); // 文件 sink 总是被添加
 
-        // 将文件sink和控制台sink添加到主logger中
-        logger_ = std::make_shared<spdlog::logger>("main_logger", spdlog::sinks_init_list{file_sink, console_sink});
-
-        // 根据传入的字符串设置日志级别
-        if (logLevel == "trace") {
-            logger_->set_level(spdlog::level::trace);
-        } else if (logLevel == "debug") {
-            logger_->set_level(spdlog::level::debug);
-        } else if (logLevel == "info") {
-            logger_->set_level(spdlog::level::info);
-        } else if (logLevel == "warn") {
-            logger_->set_level(spdlog::level::warn);
-        } else if (logLevel == "error") {
-            logger_->set_level(spdlog::level::err);
-        } else if (logLevel == "critical") {
-            logger_->set_level(spdlog::level::critical);
-        } else {
-            logger_->set_level(spdlog::level::info); // 如果级别字符串无效，默认为info级别
-            std::cerr << "Warning: Unknown log level '" << logLevel << "'. Defaulting to 'info'." << std::endl;
+        // 根据 enableConsoleOutput 参数决定是否添加控制台 sink
+        if (enableConsoleOutput) {
+            auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+            // 设置控制台日志的格式（更简洁，只显示级别和消息）
+            // 移除了文件名、行号和函数名，避免与 Google Test 输出冲突
+            console_sink->set_pattern("[%^%l%$] %v");
+            sinks.push_back(console_sink);
         }
 
-        // 设置在INFO级别及以上时，立即将日志刷新到输出（避免日志丢失，但可能略微影响性能）
+        // 使用 sinks 列表初始化 logger
+        logger_ = std::make_shared<spdlog::logger>("main_logger", sinks.begin(), sinks.end());
+
+        // 根据传入的字符串设置日志级别
+        spdlog::level::level_enum level = spdlog::level::info; // 默认 info
+        if (logLevel == "trace") {
+            level = spdlog::level::trace;
+        } else if (logLevel == "debug") {
+            level = spdlog::level::debug;
+        } else if (logLevel == "info") {
+            level = spdlog::level::info;
+        } else if (logLevel == "warn") {
+            level = spdlog::level::warn;
+        } else if (logLevel == "error") {
+            level = spdlog::level::err;
+        } else if (logLevel == "critical") {
+            level = spdlog::level::critical;
+        } else {
+            std::cerr << "Warning: Unknown log level '" << logLevel << "'. Defaulting to 'info'." << std::endl;
+        }
+        logger_->set_level(level);
+        // 确保全局 spdlog 级别也被设置，影响所有 logger
+        spdlog::set_level(level);
+
+        // 设置在 INFO 级别及以上时，立即将日志刷新到输出
         logger_->flush_on(spdlog::level::info);
-        // 将这个logger设置为spdlog的默认logger，这样可以直接使用spdlog::info()等全局函数（尽管我们定义了LOG_宏）
+
+        // 将这个logger设置为spdlog的默认logger
         spdlog::set_default_logger(logger_);
-        // 设置spdlog的错误处理函数，当spdlog内部发生错误时会调用
+
+        // 设置spdlog的错误处理函数
         spdlog::set_error_handler([](const std::string& msg) {
             std::cerr << "SPDLOG ERROR: " << msg << std::endl;
         });

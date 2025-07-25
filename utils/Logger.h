@@ -21,7 +21,8 @@ public:
 
     // 初始化日志系统：设置日志文件路径和级别
     // logLevel参数应为"trace", "debug", "info", "warn", "error", "critical"之一
-    void init(const std::string& logFilePath, const std::string& logLevel = "info");
+    // enableConsoleOutput: 是否同时将日志输出到控制台，默认为 true
+    void init(const std::string& logFilePath, const std::string& logLevel = "info", bool enableConsoleOutput = true);
 
     // 获取日志器
     std::shared_ptr<spdlog::logger> getLogger() const;

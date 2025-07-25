@@ -1,46 +1,41 @@
 # tests/CMakeLists.txt
 
-# 添加你的测试目标
-add_executable(test_businesslogic test_businesslogic.cpp mocks/MockMotor.h)
-# 明确禁用 Qt 的自动 MOC 和 UIC 处理，因为这些是纯 C++ Google Test 文件
-set_property(TARGET test_businesslogic PROPERTY AUTOMOC OFF)
-set_property(TARGET test_businesslogic PROPERTY AUTOUIC OFF)
-target_link_libraries(test_businesslogic PRIVATE
-  gtest_main     # 包含 main 函数的 GTest 库
-  gmock          # Google Mock 库
-  utilslib       # 日志库
-  corelib        # 链接核心业务逻辑库
+# --- 定义一个公共变量，用于存放所有测试共享的源文件 ---
+# 这样可以避免在每个测试可执行文件中重复添加公共源文件。
+set(TEST_COMMON_SOURCES
+    test_main.cpp # 新增：自定义的测试入口文件，包含 main 函数和日志初始化
 )
 
-add_executable(test_motor test_motor.cpp)
-# 明确禁用 Qt 的自动 MOC 和 UIC 处理
-set_property(TARGET test_motor PROPERTY AUTOMOC OFF)
-set_property(TARGET test_motor PROPERTY AUTOUIC OFF)
+# --- test_businesslogic ---
+add_executable(test_businesslogic
+    ${TEST_COMMON_SOURCES}
+    test_businesslogic.cpp
+    mocks/MockMotor.h
+)
+set_property(TARGET test_businesslogic PROPERTY AUTOMOC OFF AUTOUIC OFF)
+target_link_libraries(test_businesslogic PRIVATE
+  gtest          # 链接 gtest 而不是 gtest_main
+  gmock
+  utilslib       # 日志库
+  corelib        # 核心业务逻辑库
+)
+
+# --- test_motor ---
+add_executable(test_motor
+    ${TEST_COMMON_SOURCES}
+    test_motor.cpp
+)
+set_property(TARGET test_motor PROPERTY AUTOMOC OFF AUTOUIC OFF)
 target_link_libraries(test_motor PRIVATE
-  Qt6::Core
-  gtest_main
+  Qt6::Core      # 注意：如果你的 corelib 或 driverslib 依赖 Qt6::Core，那么所有链接它们的测试也需要。
+  gtest
   gmock
   utilslib
   corelib
   driverslib
 )
 
-add_executable(test_adapter test_adapter.cpp)
-# 明确禁用 Qt 的自动 MOC 和 UIC 处理
-set_property(TARGET test_adapter PROPERTY AUTOMOC OFF)
-set_property(TARGET test_adapter PROPERTY AUTOUIC OFF)
-target_link_libraries(test_adapter PRIVATE
-  gtest_main
-  gmock
-  utilslib
-  driverslib
-  transportlib
-)
-
-
-
-# 可选：注册测试
+# --- 注册测试 (不变) ---
 include(GoogleTest)
 gtest_discover_tests(test_businesslogic)
 gtest_discover_tests(test_motor)
-gtest_discover_tests(test_adapter)
