@@ -17,7 +17,6 @@ target_link_libraries(servoV6
         corelib
         driverslib
         transportlib
-        spdlog::spdlog # 链接日志库
 )
 
 # 设置平台特定属性

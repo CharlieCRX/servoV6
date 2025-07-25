@@ -4,6 +4,7 @@
 #include "BusinessLogic.h"
 #include "MovementCommand.h"
 #include "mocks/MockMotor.h" // 确保路径正确
+#include <Logger.h>
 
 using ::testing::_;
 using ::testing::InSequence;

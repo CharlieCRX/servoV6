@@ -8,8 +8,7 @@ set_property(TARGET test_businesslogic PROPERTY AUTOUIC OFF)
 target_link_libraries(test_businesslogic PRIVATE
   gtest_main     # 包含 main 函数的 GTest 库
   gmock          # Google Mock 库
-  corelib        # 链接你的核心业务逻辑库
-  spdlog::spdlog # 链接日志库
+  corelib        # 链接核心业务逻辑库 + 日志
 )
 
 add_executable(test_motor test_motor.cpp)
@@ -22,7 +21,6 @@ target_link_libraries(test_motor PRIVATE
   gmock
   corelib
   driverslib
-  spdlog::spdlog
 )
 
 add_executable(test_adapter test_adapter.cpp)
@@ -34,7 +32,7 @@ target_link_libraries(test_adapter PRIVATE
   gmock
   driverslib
   transportlib
-  spdlog::spdlog
+  corelib
 )
 
 
