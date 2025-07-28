@@ -31,17 +31,14 @@ bool RotaryServoAdapter::setAngularJogSpeed(double degreesPerSec) {
 }
 bool RotaryServoAdapter::angularMove(double degrees) {
     double revolutions = degrees / degreesPerRevolution_;
-    motor_->setRPM(currentAngularPositionSpeedRPM_); // 确保速度已设置
     LOG_DEBUG("Rotary: Move {} degrees -> {} revolutions.", degrees, revolutions);
     return motor_->relativeMoveRevolutions(revolutions); // 角度移动通常是相对的
 }
 bool RotaryServoAdapter::startPositiveAngularJog() {
-    motor_->setRPM(currentAngularJogSpeedRPM_); // 设置点动速度
     LOG_DEBUG("Rotary: Start positive angular jog.");
     return motor_->startPositiveRPMJog();
 }
 bool RotaryServoAdapter::startNegativeAngularJog() {
-    motor_->setRPM(currentAngularJogSpeedRPM_); // 设置点动速度
     LOG_DEBUG("Rotary: Start negative jog.");
     return motor_->startNegativeRPMJog();
 }

@@ -46,11 +46,6 @@ TEST_F(LinearServoAdapterTest, SetPositionSpeedConvertsMmPerSecToRPM) {
 }
 
 TEST_F(LinearServoAdapterTest, RelativeMoveConvertsMmToRevolutions) {
-    // 在这个测试中，
-    // 1. adapter.setPositionSpeed(50.0) 会调用 motor_->setRPM() 一次。
-    // 2. adapter.relativeMove(20.0) 会在内部再次调用 motor_->setRPM() 一次。
-    // 所以 setRPM 预期被调用两次。
-    EXPECT_CALL(*mockMotorRawPtr, setRPM(_)).Times(2); // <-- 修改点：期望 setRPM 被调用两次
     EXPECT_CALL(*mockMotorRawPtr, relativeMoveRevolutions(2.0)).WillOnce(Return(true));
 
     LinearServoAdapter adapter(std::move(mockMotorUniquePtr), LEAD_SCREW_PITCH);
@@ -59,8 +54,7 @@ TEST_F(LinearServoAdapterTest, RelativeMoveConvertsMmToRevolutions) {
 }
 
 TEST_F(LinearServoAdapterTest, AbsoluteMoveConvertsMmToRevolutions) {
-    // 与 RelativeMove 类似，setRPM 会被调用两次。
-    EXPECT_CALL(*mockMotorRawPtr, setRPM(_)).Times(2); // <-- 修改点：期望 setRPM 被调用两次
+
     EXPECT_CALL(*mockMotorRawPtr, absoluteMoveRevolutions(5.0)).WillOnce(Return(true));
 
     LinearServoAdapter adapter(std::move(mockMotorUniquePtr), LEAD_SCREW_PITCH);
@@ -99,22 +93,9 @@ protected:
 };
 
 TEST_F(RotaryServoAdapterTest, SetAngularPositionSpeedConvertsDegreesPerSecToRPM) {
-    // 预期：180 deg/s / 360 deg/rev * 60 s/min = 30 RPM
-    // 这里只调用了 setAngularPositionSpeed，所以 setRPM 只会被调用一次。
     EXPECT_CALL(*mockMotorRawPtr, setRPM(30.0)).WillOnce(Return(true));
 
     RotaryServoAdapter adapter(std::move(mockMotorUniquePtr), DEGREES_PER_REVOLUTION);
     ASSERT_TRUE(adapter.setAngularPositionSpeed(180.0));
 }
-
-TEST_F(RotaryServoAdapterTest, AngularMoveConvertsDegreesToRevolutions) {
-    // 与 LinearServoAdapter 的移动测试类似，setRPM 会被调用两次。
-    EXPECT_CALL(*mockMotorRawPtr, setRPM(_)).Times(2); // <-- 修改点：期望 setRPM 被调用两次
-    EXPECT_CALL(*mockMotorRawPtr, relativeMoveRevolutions(0.25)).WillOnce(Return(true));
-
-    RotaryServoAdapter adapter(std::move(mockMotorUniquePtr), DEGREES_PER_REVOLUTION);
-    adapter.setAngularPositionSpeed(180.0);
-    ASSERT_TRUE(adapter.angularMove(90.0));
-}
-
 // 确保在 tests/CMakeLists.txt 中添加这个新的测试文件

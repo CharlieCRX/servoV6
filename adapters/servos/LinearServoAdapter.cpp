@@ -31,23 +31,19 @@ bool LinearServoAdapter::setJogSpeed(double mmPerSec) {
 }
 bool LinearServoAdapter::relativeMove(double mm) {
     double revolutions = mm / leadScrewPitchMmPerRev_;
-    motor_->setRPM(currentPositionSpeedRPM_); // 确保速度已设置
     LOG_DEBUG("Linear: Relative move {} mm -> {} revolutions.", mm, revolutions);
     return motor_->relativeMoveRevolutions(revolutions);
 }
 bool LinearServoAdapter::absoluteMove(double targetMm) {
     double targetRevolutions = targetMm / leadScrewPitchMmPerRev_;
-    motor_->setRPM(currentPositionSpeedRPM_); // 确保速度已设置
     LOG_DEBUG("Linear: Absolute move {} mm -> {} revolutions.", targetMm, targetRevolutions);
     return motor_->absoluteMoveRevolutions(targetRevolutions);
 }
 bool LinearServoAdapter::startPositiveJog() {
-    motor_->setRPM(currentJogSpeedRPM_); // 设置点动速度
     LOG_DEBUG("Linear: Start positive jog.");
     return motor_->startPositiveRPMJog();
 }
 bool LinearServoAdapter::startNegativeJog() {
-    motor_->setRPM(currentJogSpeedRPM_); // 设置点动速度
     LOG_DEBUG("Linear: Start negative jog.");
     return motor_->startNegativeRPMJog();
 }

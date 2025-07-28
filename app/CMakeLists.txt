@@ -15,8 +15,6 @@ target_link_libraries(servoV6
         Qt6::Gui
         Qt6::Quick
         utilslib
-        corelib
-        driverslib
         infrastructure_transport_lib
 )
 

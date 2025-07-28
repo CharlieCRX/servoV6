@@ -11,7 +11,7 @@ target_link_libraries(test_businesslogic PRIVATE
   gtest
   gmock
   utilslib
-  corelib
+  application_lib
 )
 target_precompile_headers(test_businesslogic PRIVATE <gtest/gtest.h> <gmock/gmock.h>)
 set_property(TARGET test_businesslogic PROPERTY AUTOMOC OFF AUTOUIC OFF)
@@ -24,8 +24,7 @@ target_link_libraries(test_motor PRIVATE
   gtest
   gmock
   utilslib
-  corelib
-  driverslib
+  application_lib
 )
 target_precompile_headers(test_motor PRIVATE <gtest/gtest.h> <gmock/gmock.h>)
 set_property(TARGET test_motor PROPERTY AUTOMOC OFF AUTOUIC OFF)
@@ -42,7 +41,8 @@ target_link_libraries(test_adapter PRIVATE
   gtest
   gmock
   utilslib          # 适配器可能依赖日志
-  corelib           # 适配器是核心库的一部分，需要链接 corelib
+  application_lib
+  adapters_servos_lib
 )
 # 添加 mocks 目录，让测试文件能找到 mocks 的头文件
 target_include_directories(test_adapter PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/mocks)
