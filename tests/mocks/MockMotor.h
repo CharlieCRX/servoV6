@@ -12,6 +12,7 @@ public:
     MOCK_METHOD(bool, relativeMove, (double mm), (override));
     MOCK_METHOD(void, wait, (int ms), (override));
     MOCK_METHOD(bool, goHome, (), (override));
+    MOCK_METHOD(bool, absoluteMove, (double targetMm), (override));
 };
 
 #endif // MOCK_MOTOR_H

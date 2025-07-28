@@ -92,3 +92,32 @@ TEST_F(BusinessLogicTest, ReturnsFalseOnMotorOperationFailure) {
     // 断言执行失败
     ASSERT_FALSE(result);
 }
+
+TEST_F(BusinessLogicTest, ExecutesAbsoluteMovement) {
+    // 预期行为：设置速度 -> 绝对移动 -> 回原点
+    InSequence s;
+
+    // 1. 期望 setSpeed(10.0) 被调用一次，并返回 true
+    EXPECT_CALL(*mockMotorRawPtr, setSpeed(10.0)).WillOnce(Return(true));
+
+    // 2. 期望 absoluteMove(50.0) 被调用一次，并返回 true
+    // 在 BusinessLogic 中尚未处理 AbsoluteMove 时，这个 EXPECT_CALL 将不会被触发
+    // 或者，如果 BusinessLogic::executeCommandSequence 遇到未处理的 variant 变体，它可能会崩溃或返回 false
+    EXPECT_CALL(*mockMotorRawPtr, absoluteMove(50.0)).WillOnce(Return(true));
+
+    // 3. 期望 goHome() 被调用一次，并返回 true
+    EXPECT_CALL(*mockMotorRawPtr, goHome()).WillOnce(Return(true));
+
+    // 准备命令序列，包含新的 AbsoluteMove 命令
+    CommandSequence commands;
+    commands.push_back(SetSpeed{10.0});
+    commands.push_back(AbsoluteMove{50.0}); // 移动到绝对位置 50mm
+    commands.push_back(GoHome{});
+
+    // 调用被测试的业务逻辑方法
+    bool result = businessLogic->executeCommandSequence("main_motor", commands);
+
+    // 断言整个命令序列执行成功
+    ASSERT_TRUE(result);
+    LOG_INFO("Test 'ExecutesAbsoluteMovement' finished successfully.");
+}

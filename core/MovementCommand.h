@@ -14,6 +14,10 @@ struct RelativeMove {
     double delta_mm;
 };
 
+struct AbsoluteMove {
+    double target_mm; // 目标绝对位置（毫米）
+};
+
 struct Wait {
     long milliseconds;
 };
@@ -21,7 +25,8 @@ struct Wait {
 struct GoHome {};  // 无参数
 
 // 使用 std::variant 定义 Command 类型
-using Command = std::variant<SetSpeed, RelativeMove, Wait, GoHome>;
+using Command = std::variant<SetSpeed, RelativeMove, AbsoluteMove, Wait, GoHome>;
+
 
 // 定义命令序列
 using CommandSequence = std::vector<Command>;

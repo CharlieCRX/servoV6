@@ -15,6 +15,7 @@ BusinessLogic::~BusinessLogic() {
 }
 
 bool BusinessLogic::executeCommandSequence(const std::string& motorId, const CommandSequence& commands) {
+
     auto it = motorMap.find(motorId);
     if (it == motorMap.end()) {
         LOG_ERROR("Motor '{}' not found for command sequence execution.", motorId);
@@ -44,6 +45,12 @@ bool BusinessLogic::executeCommandSequence(const std::string& motorId, const Com
                 if (!motor->relativeMove(arg.delta_mm)) {
 
                     LOG_ERROR("Failed to move motor '{}'.", motorId);
+                    success = false;
+                }
+            } else if constexpr (std::is_same_v<T, AbsoluteMove>) {
+                LOG_DEBUG("Moving motor '{}' to absolute position {} mm.", motorId, arg.target_mm);
+                if (!motor->absoluteMove(arg.target_mm)) {
+                    LOG_ERROR("Failed to move motor '{}' to absolute position {}.", motorId, arg.target_mm);
                     success = false;
                 }
             } else if constexpr (std::is_same_v<T, Wait>) {
