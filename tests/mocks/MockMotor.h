@@ -8,7 +8,8 @@
 class MockMotor : public IMotor {
 public:
     // 使用 MOCK_METHOD 定义虚函数的 Mock
-    MOCK_METHOD(bool, setSpeed, (double mmPerSecond), (override));
+    MOCK_METHOD(bool, SetPositionSpeed, (double mmPerSecond), (override));
+    MOCK_METHOD(bool, setJogSpeed, (double mmPerSecond), (override));
     MOCK_METHOD(bool, relativeMove, (double mm), (override));
     MOCK_METHOD(void, wait, (int ms), (override));
     MOCK_METHOD(bool, goHome, (), (override));

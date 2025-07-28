@@ -42,8 +42,8 @@ TEST_F(BusinessLogicTest, ExecutesComplexMovementSequence) {
     // 预期行为：设置速度 -> 相对移动 -> 停顿 -> 回原点
     InSequence s;
 
-    // 1. 期望 setSpeed(20.0) 被调用一次，并返回 true
-    EXPECT_CALL(*mockMotorRawPtr, setSpeed(20.0)).WillOnce(Return(true));
+    // 1. 期望 SetPositionSpeed(20.0) 被调用一次，并返回 true
+    EXPECT_CALL(*mockMotorRawPtr, SetPositionSpeed(20.0)).WillOnce(Return(true));
 
     // 2. 期望 relativeMove(30.0) 被调用一次，并返回 true
     EXPECT_CALL(*mockMotorRawPtr, relativeMove(30.0)).WillOnce(Return(true));
@@ -56,7 +56,7 @@ TEST_F(BusinessLogicTest, ExecutesComplexMovementSequence) {
 
     // 准备命令序列
     CommandSequence commands;
-    commands.push_back(SetSpeed{20.0});        // 设置速度 20mm/s
+    commands.push_back(SetPositionSpeed{20.0});        // 设置速度 20mm/s
     commands.push_back(RelativeMove{30.0});    // 相对移动 30mm
     commands.push_back(Wait{2000});            // 停顿 2000ms
     commands.push_back(GoHome{});              // 回原点
@@ -72,7 +72,7 @@ TEST_F(BusinessLogicTest, ReturnsFalseOnMotorOperationFailure) {
 
     InSequence s;
 
-    EXPECT_CALL(*mockMotorRawPtr, setSpeed(20.0)).WillOnce(Return(true));
+    EXPECT_CALL(*mockMotorRawPtr, SetPositionSpeed(20.0)).WillOnce(Return(true));
 
     // 模拟 relativeMove 失败
     EXPECT_CALL(*mockMotorRawPtr, relativeMove(30.0)).WillOnce(Return(false));
@@ -82,7 +82,7 @@ TEST_F(BusinessLogicTest, ReturnsFalseOnMotorOperationFailure) {
     EXPECT_CALL(*mockMotorRawPtr, goHome()).Times(0);
 
     CommandSequence commands;
-    commands.push_back(SetSpeed{20.0});
+    commands.push_back(SetPositionSpeed{20.0});
     commands.push_back(RelativeMove{30.0});
     commands.push_back(Wait{2000});
     commands.push_back(GoHome{});
@@ -97,8 +97,8 @@ TEST_F(BusinessLogicTest, ExecutesAbsoluteMovement) {
     // 预期行为：设置速度 -> 绝对移动 -> 回原点
     InSequence s;
 
-    // 1. 期望 setSpeed(10.0) 被调用一次，并返回 true
-    EXPECT_CALL(*mockMotorRawPtr, setSpeed(10.0)).WillOnce(Return(true));
+    // 1. 期望 SetPositionSpeed(10.0) 被调用一次，并返回 true
+    EXPECT_CALL(*mockMotorRawPtr, SetPositionSpeed(10.0)).WillOnce(Return(true));
 
     // 2. 期望 absoluteMove(50.0) 被调用一次，并返回 true
     // 在 BusinessLogic 中尚未处理 AbsoluteMove 时，这个 EXPECT_CALL 将不会被触发
@@ -110,7 +110,7 @@ TEST_F(BusinessLogicTest, ExecutesAbsoluteMovement) {
 
     // 准备命令序列，包含新的 AbsoluteMove 命令
     CommandSequence commands;
-    commands.push_back(SetSpeed{10.0});
+    commands.push_back(SetPositionSpeed{10.0});
     commands.push_back(AbsoluteMove{50.0}); // 移动到绝对位置 50mm
     commands.push_back(GoHome{});
 
@@ -191,3 +191,23 @@ TEST_F(BusinessLogicTest, StartJogFailureAbortsSequence) {
     ASSERT_FALSE(result);
     LOG_INFO("Test 'StartJogFailureAbortsSequence' finished successfully (expected failure).");
 }
+
+// 新增测试：验证 SetJogSpeed 命令
+TEST_F(BusinessLogicTest, ExecutesSetJogSpeed) {
+    InSequence s;
+
+    // 1. 期望 setJogSpeed(5.5) 被调用一次，并返回 true
+    EXPECT_CALL(*mockMotorRawPtr, setJogSpeed(5.5)).WillOnce(Return(true));
+
+    // 准备命令序列
+    CommandSequence commands;
+    commands.push_back(SetJogSpeed{5.5}); // 设置点动速度为 5.5 mm/s
+
+    // 调用被测试的业务逻辑方法
+    bool result = businessLogic->executeCommandSequence("main_motor", commands);
+
+    // 断言命令执行成功
+    ASSERT_TRUE(result);
+    LOG_INFO("Test 'ExecutesSetJogSpeed' finished successfully.");
+}
+

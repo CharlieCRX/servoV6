@@ -1,6 +1,8 @@
 add_library(corelib
     BusinessLogic.cpp
     Motor.cpp
+    CommandVisitor.h
+    MotorCommandExecutor.h MotorCommandExecutor.cpp
 )
 
 

@@ -6,8 +6,12 @@
 #include <vector>
 
 // 定义各种命令的结构体
-struct SetSpeed {
+struct SetPositionSpeed {
     double mm_per_sec;
+};
+
+struct SetJogSpeed {
+    double mm_per_sec; // 点动速度（毫米/秒）
 };
 
 struct RelativeMove {
@@ -31,7 +35,7 @@ struct Wait {
 struct GoHome {};  // 无参数
 
 // 使用 std::variant 定义 Command 类型
-using Command = std::variant<SetSpeed, RelativeMove, AbsoluteMove, StartJog, StopJog, Wait, GoHome>;
+using Command = std::variant<SetPositionSpeed, SetJogSpeed, RelativeMove, AbsoluteMove, StartJog, StopJog, Wait, GoHome>;
 
 
 // 定义命令序列
