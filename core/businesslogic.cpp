@@ -1,9 +1,7 @@
 // core/BusinessLogic.cpp
 #include "BusinessLogic.h"
-// 不再需要 <iostream>，因为我们将使用 Logger
-// #include <iostream>    // 用于演示日志
 #include <variant>     // 用于 std::visit
-#include <Logger.h> // 包含我们的 Logger 头文件
+#include <Logger.h>
 
 BusinessLogic::BusinessLogic(std::map<std::string, std::unique_ptr<IMotor>> motors)
     : motorMap(std::move(motors)) {
@@ -19,7 +17,6 @@ BusinessLogic::~BusinessLogic() {
 bool BusinessLogic::executeCommandSequence(const std::string& motorId, const CommandSequence& commands) {
     auto it = motorMap.find(motorId);
     if (it == motorMap.end()) {
-        // 使用 LOG_ERROR 替代 std::cerr
         LOG_ERROR("Motor '{}' not found for command sequence execution.", motorId);
         return false;
     }
@@ -35,30 +32,29 @@ bool BusinessLogic::executeCommandSequence(const std::string& motorId, const Com
             using T = std::decay_t<decltype(arg)>;
 
             if constexpr (std::is_same_v<T, SetSpeed>) {
-                // 使用 LOG_DEBUG 替代 std::cout
+
                 LOG_DEBUG("Setting speed for motor '{}' to {} mm/s", motorId, arg.mm_per_sec);
+
                 if (!motor->setSpeed(arg.mm_per_sec)) {
-                    // 使用 LOG_ERROR 替代 std::cerr
                     LOG_ERROR("Failed to set speed for motor '{}'.", motorId);
                     success = false;
                 }
             } else if constexpr (std::is_same_v<T, RelativeMove>) {
-                // 使用 LOG_DEBUG 替代 std::cout
                 LOG_DEBUG("Moving motor '{}' by {} mm", motorId, arg.delta_mm);
                 if (!motor->relativeMove(arg.delta_mm)) {
-                    // 使用 LOG_ERROR 替代 std::cerr
+
                     LOG_ERROR("Failed to move motor '{}'.", motorId);
                     success = false;
                 }
             } else if constexpr (std::is_same_v<T, Wait>) {
-                // 使用 LOG_DEBUG 替代 std::cout
+
                 LOG_DEBUG("Waiting for {} ms...", arg.milliseconds);
                 motor->wait(arg.milliseconds); // IMotor 已经提供了 wait 方法
             } else if constexpr (std::is_same_v<T, GoHome>) {
-                // 使用 LOG_DEBUG 替代 std::cout
+
                 LOG_DEBUG("Homing motor '{}'...", motorId);
                 if (!motor->goHome()) {
-                    // 使用 LOG_ERROR 替代 std::cerr
+
                     LOG_ERROR("Failed to home motor '{}'.", motorId);
                     success = false;
                 }
