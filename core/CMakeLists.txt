@@ -1,8 +1,11 @@
 add_library(corelib
     BusinessLogic.cpp
     Motor.cpp
-    CommandVisitor.h
-    MotorCommandExecutor.h MotorCommandExecutor.cpp
+    MotorCommandExecutor.cpp
+    LinearServoAdapter.cpp
+    RotaryServoAdapter.cpp
+    LinearServoAdapter.h LinearServoAdapter.cpp
+    RotaryServoAdapter.h RotaryServoAdapter.cpp
 )
 
 
