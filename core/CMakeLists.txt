@@ -4,8 +4,8 @@ add_library(corelib
     MotorCommandExecutor.cpp
     LinearServoAdapter.cpp
     RotaryServoAdapter.cpp
-    LinearServoAdapter.h LinearServoAdapter.cpp
-    RotaryServoAdapter.h RotaryServoAdapter.cpp
+    LinearServoAdapter.cpp
+    RotaryServoAdapter.cpp
 )
 
 
@@ -15,4 +15,4 @@ target_include_directories(corelib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # 链接 utilslib
 # corelib 现在依赖 utilslib 来获取日志功能。
-target_link_libraries(corelib PRIVATE utilslib)
+target_link_libraries(corelib PUBLIC domain_lib PRIVATE utilslib)
