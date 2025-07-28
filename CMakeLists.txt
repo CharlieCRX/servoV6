@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.16)
 
 project(servoV6 VERSION 0.1 LANGUAGES CXX)
 
+include(ProcessorCount)
+ProcessorCount(N)
+if(NOT N EQUAL 0)
+  set(CMAKE_BUILD_PARALLEL_LEVEL ${N})  # 自动设置为CPU核心数
+  message(STATUS "Build parallel level: ${N}")
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 

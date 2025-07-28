@@ -9,6 +9,7 @@ public:
     virtual bool setSpeed(double mmPerSec) = 0;
     virtual bool relativeMove(double mm) = 0;
     virtual bool absoluteMove(double targetMm) = 0;
+    virtual bool jog(double speedMmPerSec, bool positiveDirection) = 0;
     virtual void wait(int ms) = 0;
     virtual bool goHome() = 0;
 };
