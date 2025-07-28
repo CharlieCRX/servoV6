@@ -53,11 +53,17 @@ bool BusinessLogic::executeCommandSequence(const std::string& motorId, const Com
                     LOG_ERROR("Failed to move motor '{}' to absolute position {}.", motorId, arg.target_mm);
                     success = false;
                 }
-            } else if constexpr (std::is_same_v<T, Jog>) {
+            }  else if constexpr (std::is_same_v<T, StartJog>) {
                 const char* direction = arg.positiveDirection ? "positive" : "negative";
-                LOG_DEBUG("Jogging motor '{}' in {} direction at {} mm/s.", motorId, direction, arg.speed_mm_per_sec);
-                if (!motor->jog(arg.speed_mm_per_sec, arg.positiveDirection)) {
-                    LOG_ERROR("Failed to jog motor '{}' in {} direction at {} mm/s.", motorId, direction, arg.speed_mm_per_sec);
+                LOG_DEBUG("Starting jog for motor '{}' in {} direction at {} mm/s.", motorId, direction, arg.speed_mm_per_sec);
+                if (!motor->startJog(arg.speed_mm_per_sec, arg.positiveDirection)) {
+                    LOG_ERROR("Failed to start jog for motor '{}' in {} direction.", motorId, direction);
+                    success = false;
+                }
+            } else if constexpr (std::is_same_v<T, StopJog>) {
+                LOG_DEBUG("Stopping jog for motor '{}'.", motorId);
+                if (!motor->stopJog()) {
+                    LOG_ERROR("Failed to stop jog for motor '{}'.", motorId);
                     success = false;
                 }
             } else if constexpr (std::is_same_v<T, Wait>) {

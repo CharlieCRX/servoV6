@@ -122,40 +122,72 @@ TEST_F(BusinessLogicTest, ExecutesAbsoluteMovement) {
     LOG_INFO("Test 'ExecutesAbsoluteMovement' finished successfully.");
 }
 
-TEST_F(BusinessLogicTest, ExecutesPositiveJog) {
-    // 预期行为：点动正向 (速度 5.0 mm/s)
-    InSequence s;
+// 测试启动正向点动然后停止
+TEST_F(BusinessLogicTest, ExecutesStartPositiveJogThenStop) {
+    // 预期行为：启动正向点动 (速度 5.0 mm/s) -> 停止点动
+    InSequence s; // 确保调用顺序
 
-    // 期望 jog(5.0, true) 被调用一次，并返回 true
-    EXPECT_CALL(*mockMotorRawPtr, jog(5.0, true)).WillOnce(Return(true));
+    // 1. 期望 startJog(5.0, true) 被调用一次，并返回 true
+    EXPECT_CALL(*mockMotorRawPtr, startJog(5.0, true)).WillOnce(Return(true));
 
-    // 准备命令序列，包含 Jog 命令
+    // 2. 期望 stopJog() 被调用一次，并返回 true
+    EXPECT_CALL(*mockMotorRawPtr, stopJog()).WillOnce(Return(true));
+
+    // 准备命令序列
     CommandSequence commands;
-    commands.push_back(Jog{5.0, true}); // 正向点动 5.0 mm/s
+    commands.push_back(StartJog{5.0, true}); // 启动正向点动
+    commands.push_back(StopJog{});          // 停止点动
 
     // 调用被测试的业务逻辑方法
     bool result = businessLogic->executeCommandSequence("main_motor", commands);
 
     // 断言整个命令序列执行成功
     ASSERT_TRUE(result);
-    LOG_INFO("Test 'ExecutesPositiveJog' finished successfully.");
+    LOG_INFO("Test 'ExecutesStartPositiveJogThenStop' finished successfully.");
 }
 
-TEST_F(BusinessLogicTest, ExecutesNegativeJog) {
-    // 预期行为：点动负向 (速度 3.0 mm/s)
+// 测试启动负向点动然后停止
+TEST_F(BusinessLogicTest, ExecutesStartNegativeJogThenStop) {
+    // 预期行为：启动负向点动 (速度 3.0 mm/s) -> 停止点动
     InSequence s;
 
-    // 期望 jog(3.0, false) 被调用一次，并返回 true
-    EXPECT_CALL(*mockMotorRawPtr, jog(3.0, false)).WillOnce(Return(true));
+    // 1. 期望 startJog(3.0, false) 被调用一次，并返回 true
+    EXPECT_CALL(*mockMotorRawPtr, startJog(3.0, false)).WillOnce(Return(true));
 
-    // 准备命令序列，包含 Jog 命令
+    // 2. 期望 stopJog() 被调用一次，并返回 true
+    EXPECT_CALL(*mockMotorRawPtr, stopJog()).WillOnce(Return(true));
+
+    // 准备命令序列
     CommandSequence commands;
-    commands.push_back(Jog{3.0, false}); // 负向点动 3.0 mm/s
+    commands.push_back(StartJog{3.0, false}); // 启动负向点动
+    commands.push_back(StopJog{});            // 停止点动
 
     // 调用被测试的业务逻辑方法
     bool result = businessLogic->executeCommandSequence("main_motor", commands);
 
     // 断言整个命令序列执行成功
-    ASSERT_TRUE(result); // 无用的注释
-    LOG_INFO("Test 'ExecutesNegativeJog' finished successfully.");
+    ASSERT_TRUE(result);
+    LOG_INFO("Test 'ExecutesStartNegativeJogThenStop' finished successfully.");
+}
+
+// 考虑一个场景：启动点动失败，后续命令不执行
+TEST_F(BusinessLogicTest, StartJogFailureAbortsSequence) {
+    InSequence s;
+
+    // 期望 startJog 失败
+    EXPECT_CALL(*mockMotorRawPtr, startJog(5.0, true)).WillOnce(Return(false));
+    // 期望后续的 stopJog 不会被调用
+    EXPECT_CALL(*mockMotorRawPtr, stopJog()).Times(0);
+    // 期望 GoHome 也不会被调用
+    EXPECT_CALL(*mockMotorRawPtr, goHome()).Times(0);
+
+    CommandSequence commands;
+    commands.push_back(StartJog{5.0, true});
+    commands.push_back(StopJog{});
+    commands.push_back(GoHome{}); // 这个命令不应该被执行
+
+    bool result = businessLogic->executeCommandSequence("main_motor", commands);
+
+    ASSERT_FALSE(result);
+    LOG_INFO("Test 'StartJogFailureAbortsSequence' finished successfully (expected failure).");
 }
