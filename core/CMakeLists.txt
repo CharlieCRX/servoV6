@@ -1,7 +1,5 @@
 add_library(corelib
-    BusinessLogic.cpp
     Motor.cpp
-    MotorCommandExecutor.cpp
     LinearServoAdapter.cpp
     RotaryServoAdapter.cpp
     LinearServoAdapter.cpp
@@ -15,4 +13,4 @@ target_include_directories(corelib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # 链接 utilslib
 # corelib 现在依赖 utilslib 来获取日志功能。
-target_link_libraries(corelib PUBLIC domain_lib PRIVATE utilslib)
+target_link_libraries(corelib PUBLIC domain_lib application_lib PRIVATE utilslib)
