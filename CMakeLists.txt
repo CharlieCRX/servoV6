@@ -26,7 +26,6 @@ add_subdirectory(domain)
 add_subdirectory(infrastructure)
 add_subdirectory(adapters)
 add_subdirectory(application)
-add_subdirectory(drivers)
 add_subdirectory(app)
 add_subdirectory(tests)
 
