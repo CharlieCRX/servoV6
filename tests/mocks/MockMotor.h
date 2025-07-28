@@ -14,7 +14,8 @@ public:
     MOCK_METHOD(void, wait, (int ms), (override));
     MOCK_METHOD(bool, goHome, (), (override));
     MOCK_METHOD(bool, absoluteMove, (double targetMm), (override));
-    MOCK_METHOD(bool, startJog, (double speedMmPerSec, bool positiveDirection), (override));
+    MOCK_METHOD(bool, startPositiveJog, (), (override));
+    MOCK_METHOD(bool, startNegativeJog, (), (override));
     MOCK_METHOD(bool, stopJog, (), (override));
 };
 

@@ -40,7 +40,8 @@ bool BusinessLogic::executeCommandSequence(const std::string& motorId, const Com
                           std::is_same_v<T, Wait> ||
                           std::is_same_v<T, GoHome> ||
                           std::is_same_v<T, AbsoluteMove> ||
-                          std::is_same_v<T, StartJog> ||
+                          std::is_same_v<T, StartPositiveJog> ||
+                          std::is_same_v<T, StartNegativeJog> ||
                           std::is_same_v<T, StopJog>)
             {
                 // 将具体的命令结构体传递给访问者处理

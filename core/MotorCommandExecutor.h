@@ -60,11 +60,23 @@ public:
         return true;
     }
 
-    bool visit(IMotor* motor, const StartJog& cmd) override {
-        const char* direction = cmd.positiveDirection ? "positive" : "negative";
-        LOG_DEBUG("Starting jog for motor in {} direction at {} mm/s.", direction, cmd.speed_mm_per_sec);
-        if (!motor->startJog(cmd.speed_mm_per_sec, cmd.positiveDirection)) {
-            LOG_ERROR("Failed to start jog in {} direction.", direction);
+    // 新增 visit(StartPositiveJog)
+    bool visit(IMotor* motor, const StartPositiveJog& cmd) override {
+        // 调用 IMotor 的新接口，不需要传入速度参数
+        LOG_DEBUG("Starting positive jog for motor.");
+        if (!motor->startPositiveJog()) {
+            LOG_ERROR("Failed to start positive jog.");
+            return false;
+        }
+        return true;
+    }
+
+    // 新增 visit(StartNegativeJog)
+    bool visit(IMotor* motor, const StartNegativeJog& cmd) override {
+        // 调用 IMotor 的新接口，不需要传入速度参数
+        LOG_DEBUG("Starting negative jog for motor.");
+        if (!motor->startNegativeJog()) {
+            LOG_ERROR("Failed to start negative jog.");
             return false;
         }
         return true;

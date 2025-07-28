@@ -12,7 +12,8 @@ public:
     virtual bool relativeMove(double mm) = 0;
     virtual bool absoluteMove(double targetMm) = 0;
 
-    virtual bool startJog(double speedMmPerSec, bool positiveDirection) = 0;
+    virtual bool startPositiveJog() = 0;
+    virtual bool startNegativeJog() = 0;
     virtual bool stopJog() = 0;
 
     virtual void wait(int ms) = 0;

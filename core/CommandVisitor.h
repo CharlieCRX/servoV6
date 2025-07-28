@@ -16,7 +16,8 @@ public:
     virtual bool visit(IMotor* motor, const Wait& cmd) = 0;
     virtual bool visit(IMotor* motor, const GoHome& cmd) = 0;
     virtual bool visit(IMotor* motor, const AbsoluteMove& cmd) = 0;
-    virtual bool visit(IMotor* motor, const StartJog& cmd) = 0;
+    virtual bool visit(IMotor* motor, const StartPositiveJog& cmd) = 0;
+    virtual bool visit(IMotor* motor, const StartNegativeJog& cmd) = 0;
     virtual bool visit(IMotor* motor, const StopJog& cmd) = 0;
     // ... 未来添加新命令时，这里也要新增对应的 visit 方法
 };

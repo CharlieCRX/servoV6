@@ -22,10 +22,10 @@ struct AbsoluteMove {
     double target_mm; // 目标绝对位置（毫米）
 };
 
-struct StartJog {
-    double speed_mm_per_sec; // 点动速度
-    bool positiveDirection;  // true 为正向，false 为负向
-};
+struct StartPositiveJog {};
+
+struct StartNegativeJog {};
+
 struct StopJog {}; // 无参数
 
 struct Wait {
@@ -35,7 +35,8 @@ struct Wait {
 struct GoHome {};  // 无参数
 
 // 使用 std::variant 定义 Command 类型
-using Command = std::variant<SetPositionSpeed, SetJogSpeed, RelativeMove, AbsoluteMove, StartJog, StopJog, Wait, GoHome>;
+using Command = std::variant<SetPositionSpeed, SetJogSpeed, RelativeMove, AbsoluteMove,
+                             StartPositiveJog, StartNegativeJog,StopJog, Wait, GoHome>;
 
 
 // 定义命令序列
