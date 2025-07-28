@@ -17,7 +17,7 @@ target_link_libraries(servoV6
         utilslib
         corelib
         driverslib
-        transportlib
+        infrastructure_transport_lib
 )
 
 # 设置平台特定属性
