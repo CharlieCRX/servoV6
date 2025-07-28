@@ -1,45 +1,39 @@
-// core/MovementCommand.h
+// core/MovementCommand.h (保持业务单位)
 #ifndef MOVEMENT_COMMAND_H
 #define MOVEMENT_COMMAND_H
 
 #include <variant>
 #include <vector>
 
-// 定义各种命令的结构体
-struct SetPositionSpeed {
-    double mm_per_sec;
-};
-
-struct SetJogSpeed {
-    double mm_per_sec; // 点动速度（毫米/秒）
-};
-
-struct RelativeMove {
-    double delta_mm;
-};
-
-struct AbsoluteMove {
-    double target_mm; // 目标绝对位置（毫米）
-};
-
+// 现有命令结构体 (与之前的保持一致，都是业务单位)
+struct SetPositionSpeed { double mm_per_sec; };
+struct SetJogSpeed { double mm_per_sec; };
+struct RelativeMove { double delta_mm; };
+struct AbsoluteMove { double target_mm; };
 struct StartPositiveJog {};
-
 struct StartNegativeJog {};
 
-struct StopJog {}; // 无参数
+struct SetAngularPositionSpeed { double degrees_per_sec; };
+struct SetAngularJogSpeed { double degrees_per_sec; };
+struct AngularMove { double degrees; };
+struct StartPositiveAngularJog {};
+struct StartNegativeAngularJog {};
 
-struct Wait {
-    long milliseconds;
-};
+struct StopJog {};
+struct Wait { long milliseconds; };
+struct GoHome {};
 
-struct GoHome {};  // 无参数
+// Command variant 包含所有业务命令
+using Command = std::variant<
+    SetPositionSpeed, SetJogSpeed,
+    SetAngularPositionSpeed, SetAngularJogSpeed,
+    RelativeMove, AbsoluteMove,
+    AngularMove,
+    StartPositiveJog, StartNegativeJog,
+    StartPositiveAngularJog, StartNegativeAngularJog,
+    StopJog, Wait, GoHome
+    >;
 
-// 使用 std::variant 定义 Command 类型
-using Command = std::variant<SetPositionSpeed, SetJogSpeed, RelativeMove, AbsoluteMove,
-                             StartPositiveJog, StartNegativeJog,StopJog, Wait, GoHome>;
-
-
-// 定义命令序列
 using CommandSequence = std::vector<Command>;
 
 #endif // MOVEMENT_COMMAND_H

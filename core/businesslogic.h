@@ -1,24 +1,24 @@
-// core/BusinessLogic.h
+// core/BusinessLogic.h (管理 IServoAdapter)
 #ifndef BUSINESS_LOGIC_H
 #define BUSINESS_LOGIC_H
 
-#include "IMotor.h"
+#include "IServoAdapter.h" // 引入适配器接口
 #include "MovementCommand.h"
 #include <map>
 #include <string>
-#include <memory> // For std::unique_ptr
+#include <vector>
+#include <memory>
 
 class BusinessLogic {
 public:
-    // 构造函数接收一个电机ID到IMotor实例的映射
-    BusinessLogic(std::map<std::string, std::unique_ptr<IMotor>> motors);
+    // 现在接收 IServoAdapter 的 map
+    BusinessLogic(std::map<std::string, std::unique_ptr<IServoAdapter>> adapters);
     ~BusinessLogic();
 
-    // 核心业务方法：执行指定电机的命令序列
     bool executeCommandSequence(const std::string& motorId, const CommandSequence& commands);
 
 private:
-    std::map<std::string, std::unique_ptr<IMotor>> motorMap;
+    std::map<std::string, std::unique_ptr<IServoAdapter>> adapterMap; // <-- 关键改变
 };
 
 #endif // BUSINESS_LOGIC_H

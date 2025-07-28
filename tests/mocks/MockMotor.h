@@ -1,22 +1,20 @@
-// tests/mocks/MockMotor.h
+// tests/mocks/MockMotor.h (新的底层 MockMotor)
 #ifndef MOCK_MOTOR_H
 #define MOCK_MOTOR_H
 
 #include <gmock/gmock.h>
-#include "IMotor.h" // 包含真实的 IMotor 接口
+#include "IMotor.h"
 
 class MockMotor : public IMotor {
 public:
-    // 使用 MOCK_METHOD 定义虚函数的 Mock
-    MOCK_METHOD(bool, SetPositionSpeed, (double mmPerSecond), (override));
-    MOCK_METHOD(bool, setJogSpeed, (double mmPerSecond), (override));
-    MOCK_METHOD(bool, relativeMove, (double mm), (override));
-    MOCK_METHOD(void, wait, (int ms), (override));
+    MOCK_METHOD(bool, setRPM, (double rpm), (override));
+    MOCK_METHOD(bool, relativeMoveRevolutions, (double revolutions), (override));
+    MOCK_METHOD(bool, absoluteMoveRevolutions, (double targetRevolutions), (override));
+    MOCK_METHOD(bool, startPositiveRPMJog, (), (override));
+    MOCK_METHOD(bool, startNegativeRPMJog, (), (override));
+    MOCK_METHOD(bool, stopRPMJog, (), (override));
     MOCK_METHOD(bool, goHome, (), (override));
-    MOCK_METHOD(bool, absoluteMove, (double targetMm), (override));
-    MOCK_METHOD(bool, startPositiveJog, (), (override));
-    MOCK_METHOD(bool, startNegativeJog, (), (override));
-    MOCK_METHOD(bool, stopJog, (), (override));
+    MOCK_METHOD(void, wait, (int ms), (override));
 };
 
 #endif // MOCK_MOTOR_H

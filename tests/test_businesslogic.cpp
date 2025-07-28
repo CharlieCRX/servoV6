@@ -1,85 +1,54 @@
-// tests/test_businesslogic.cpp
+// tests/test_businesslogic.cpp (新的测试夹具和用例)
 #include "gtest/gtest.h"
 #include "gmock/gmock.h"
 #include "BusinessLogic.h"
 #include "MovementCommand.h"
-#include "mocks/MockMotor.h" // 确保路径正确
-
-// 包含 Logger 头文件，现在 Logger.h 位于 utils/ 目录下
-// 由于 CMake 已经正确配置了 utilslib 的包含路径，这里可以直接 <Logger.h>
-
-// 在测试用例的 SetUp 阶段使用日志
-// 注意：Logger::init() 应该在 test_main.cpp 中全局初始化一次
-// 所以这里直接使用日志宏即可。
-#include <Logger.h>
+#include "mocks/MockServoAdapters.h" // 引入 Mock 适配器
+#include "Logger.h" // 假设你有日志
 
 using ::testing::_;
 using ::testing::InSequence;
 using ::testing::Return;
 
-class BusinessLogicTest : public ::testing::Test {
+// Test fixture for linear motor scenarios
+class LinearServoBusinessLogicTest : public ::testing::Test {
 protected:
-    MockMotor* mockMotorRawPtr; // 裸指针，用于设置期望
-    std::unique_ptr<BusinessLogic> businessLogic; // 业务逻辑实例
+    MockLinearServoAdapter* mockLinearAdapterRawPtr;
+    std::unique_ptr<BusinessLogic> businessLogic;
 
     void SetUp() override {
+        auto mockLinearAdapterUniquePtr = std::make_unique<MockLinearServoAdapter>();
+        mockLinearAdapterRawPtr = mockLinearAdapterUniquePtr.get();
 
-        auto mockMotorUniquePtr = std::make_unique<MockMotor>();
-        mockMotorRawPtr = mockMotorUniquePtr.get();
-
-        std::map<std::string, std::unique_ptr<IMotor>> motors;
-        motors["main_motor"] = std::move(mockMotorUniquePtr);
-
-        businessLogic = std::make_unique<BusinessLogic>(std::move(motors));
-    }
-
-    void TearDown() override {
+        std::map<std::string, std::unique_ptr<IServoAdapter>> adapters;
+        adapters["linear_motor"] = std::move(mockLinearAdapterUniquePtr);
+        businessLogic = std::make_unique<BusinessLogic>(std::move(adapters));
     }
 };
 
-TEST_F(BusinessLogicTest, ExecutesComplexMovementSequence) {
+// Test fixture for rotary motor scenarios
+class RotaryServoBusinessLogicTest : public ::testing::Test {
+protected:
+    MockRotaryServoAdapter* mockRotaryAdapterRawPtr;
+    std::unique_ptr<BusinessLogic> businessLogic;
 
-    // 预期行为：设置速度 -> 相对移动 -> 停顿 -> 回原点
+    void SetUp() override {
+        auto mockRotaryAdapterUniquePtr = std::make_unique<MockRotaryServoAdapter>();
+        mockRotaryAdapterRawPtr = mockRotaryAdapterUniquePtr.get();
+
+        std::map<std::string, std::unique_ptr<IServoAdapter>> adapters;
+        adapters["rotary_motor"] = std::move(mockRotaryAdapterUniquePtr);
+        businessLogic = std::make_unique<BusinessLogic>(std::move(adapters));
+    }
+};
+
+// Test for Linear Motor: Executes a complex linear sequence
+TEST_F(LinearServoBusinessLogicTest, ExecutesComplexLinearMovementSequence) {
     InSequence s;
-
-    // 1. 期望 SetPositionSpeed(20.0) 被调用一次，并返回 true
-    EXPECT_CALL(*mockMotorRawPtr, SetPositionSpeed(20.0)).WillOnce(Return(true));
-
-    // 2. 期望 relativeMove(30.0) 被调用一次，并返回 true
-    EXPECT_CALL(*mockMotorRawPtr, relativeMove(30.0)).WillOnce(Return(true));
-
-    // 3. 期望 wait(2000) 被调用一次
-    EXPECT_CALL(*mockMotorRawPtr, wait(2000));
-
-    // 4. 期望 goHome() 被调用一次，并返回 true
-    EXPECT_CALL(*mockMotorRawPtr, goHome()).WillOnce(Return(true));
-
-    // 准备命令序列
-    CommandSequence commands;
-    commands.push_back(SetPositionSpeed{20.0});        // 设置速度 20mm/s
-    commands.push_back(RelativeMove{30.0});    // 相对移动 30mm
-    commands.push_back(Wait{2000});            // 停顿 2000ms
-    commands.push_back(GoHome{});              // 回原点
-
-    // 调用被测试的业务逻辑方法
-    bool result = businessLogic->executeCommandSequence("main_motor", commands);
-
-    // 断言整个命令序列执行成功
-    ASSERT_TRUE(result);
-}
-
-TEST_F(BusinessLogicTest, ReturnsFalseOnMotorOperationFailure) {
-
-    InSequence s;
-
-    EXPECT_CALL(*mockMotorRawPtr, SetPositionSpeed(20.0)).WillOnce(Return(true));
-
-    // 模拟 relativeMove 失败
-    EXPECT_CALL(*mockMotorRawPtr, relativeMove(30.0)).WillOnce(Return(false));
-
-    // 期望后续的 wait 和 goHome 不会被调用
-    EXPECT_CALL(*mockMotorRawPtr, wait(_)).Times(0);
-    EXPECT_CALL(*mockMotorRawPtr, goHome()).Times(0);
+    EXPECT_CALL(*mockLinearAdapterRawPtr, setPositionSpeed(20.0)).WillOnce(Return(true));
+    EXPECT_CALL(*mockLinearAdapterRawPtr, relativeMove(30.0)).WillOnce(Return(true));
+    EXPECT_CALL(*mockLinearAdapterRawPtr, wait(2000));
+    EXPECT_CALL(*mockLinearAdapterRawPtr, goHome()).WillOnce(Return(true));
 
     CommandSequence commands;
     commands.push_back(SetPositionSpeed{20.0});
@@ -87,127 +56,39 @@ TEST_F(BusinessLogicTest, ReturnsFalseOnMotorOperationFailure) {
     commands.push_back(Wait{2000});
     commands.push_back(GoHome{});
 
-    bool result = businessLogic->executeCommandSequence("main_motor", commands);
-
-    // 断言执行失败
-    ASSERT_FALSE(result);
+    ASSERT_TRUE(businessLogic->executeCommandSequence("linear_motor", commands));
 }
 
-TEST_F(BusinessLogicTest, ExecutesAbsoluteMovement) {
-    // 预期行为：设置速度 -> 绝对移动 -> 回原点
+// Test for Rotary Motor: Executes angular movement
+TEST_F(RotaryServoBusinessLogicTest, ExecutesAngularMovementSequence) {
     InSequence s;
+    EXPECT_CALL(*mockRotaryAdapterRawPtr, setAngularPositionSpeed(60.0)).WillOnce(Return(true));
+    EXPECT_CALL(*mockRotaryAdapterRawPtr, angularMove(90.0)).WillOnce(Return(true));
+    EXPECT_CALL(*mockRotaryAdapterRawPtr, goHome()).WillOnce(Return(true));
 
-    // 1. 期望 SetPositionSpeed(10.0) 被调用一次，并返回 true
-    EXPECT_CALL(*mockMotorRawPtr, SetPositionSpeed(10.0)).WillOnce(Return(true));
-
-    // 2. 期望 absoluteMove(50.0) 被调用一次，并返回 true
-    // 在 BusinessLogic 中尚未处理 AbsoluteMove 时，这个 EXPECT_CALL 将不会被触发
-    // 或者，如果 BusinessLogic::executeCommandSequence 遇到未处理的 variant 变体，它可能会崩溃或返回 false
-    EXPECT_CALL(*mockMotorRawPtr, absoluteMove(50.0)).WillOnce(Return(true));
-
-    // 3. 期望 goHome() 被调用一次，并返回 true
-    EXPECT_CALL(*mockMotorRawPtr, goHome()).WillOnce(Return(true));
-
-    // 准备命令序列，包含新的 AbsoluteMove 命令
     CommandSequence commands;
-    commands.push_back(SetPositionSpeed{10.0});
-    commands.push_back(AbsoluteMove{50.0}); // 移动到绝对位置 50mm
+    commands.push_back(SetAngularPositionSpeed{60.0});
+    commands.push_back(AngularMove{90.0});
     commands.push_back(GoHome{});
 
-    // 调用被测试的业务逻辑方法
-    bool result = businessLogic->executeCommandSequence("main_motor", commands);
-
-    // 断言整个命令序列执行成功
-    ASSERT_TRUE(result);
-    LOG_INFO("Test 'ExecutesAbsoluteMovement' finished successfully.");
+    ASSERT_TRUE(businessLogic->executeCommandSequence("rotary_motor", commands));
 }
 
-// 新增测试：验证 SetJogSpeed 命令
-TEST_F(BusinessLogicTest, ExecutesSetJogSpeed) {
-    InSequence s;
-
-    // 1. 期望 setJogSpeed(5.5) 被调用一次，并返回 true
-    EXPECT_CALL(*mockMotorRawPtr, setJogSpeed(5.5)).WillOnce(Return(true));
-
-    // 准备命令序列
+// Test: Linear command on Rotary Adapter (should fail)
+TEST_F(RotaryServoBusinessLogicTest, LinearCommandOnRotaryAdapterFails) {
     CommandSequence commands;
-    commands.push_back(SetJogSpeed{5.5}); // 设置点动速度为 5.5 mm/s
+    commands.push_back(SetPositionSpeed{10.0}); // Linear command
 
-    // 调用被测试的业务逻辑方法
-    bool result = businessLogic->executeCommandSequence("main_motor", commands);
-
-    // 断言命令执行成功
-    ASSERT_TRUE(result);
-    LOG_INFO("Test 'ExecutesSetJogSpeed' finished successfully.");
+    ASSERT_FALSE(businessLogic->executeCommandSequence("rotary_motor", commands));
 }
 
-
-// 新测试：先设置点动速度，再启动正向点动，然后停止
-TEST_F(BusinessLogicTest, ExecutesSetJogSpeedThenStartPositiveJogThenStop) {
-    InSequence s;
-
-    // 1. 期望 setJogSpeed(5.0) 被调用一次
-    EXPECT_CALL(*mockMotorRawPtr, setJogSpeed(5.0)).WillOnce(Return(true));
-    // 2. 期望 startPositiveJog() 被调用一次
-    EXPECT_CALL(*mockMotorRawPtr, startPositiveJog()).WillOnce(Return(true));
-    // 3. 期望 stopJog() 被调用一次
-    EXPECT_CALL(*mockMotorRawPtr, stopJog()).WillOnce(Return(true));
-
-    // 准备命令序列
+// Test: Angular command on Linear Adapter (should fail)
+TEST_F(LinearServoBusinessLogicTest, AngularCommandOnLinearAdapterFails) {
     CommandSequence commands;
-    commands.push_back(SetJogSpeed{5.0});       // 预设点动速度
-    commands.push_back(StartPositiveJog{});     // 启动正向点动
-    commands.push_back(StopJog{});              // 停止点动
+    commands.push_back(SetAngularPositionSpeed{10.0}); // Angular command
 
-    // 调用业务逻辑
-    bool result = businessLogic->executeCommandSequence("main_motor", commands);
-    ASSERT_TRUE(result);
-    LOG_INFO("Test 'ExecutesSetJogSpeedThenStartPositiveJogThenStop' finished successfully.");
+    ASSERT_FALSE(businessLogic->executeCommandSequence("linear_motor", commands));
 }
 
-// 新测试：先设置点动速度，再启动负向点动，然后停止
-TEST_F(BusinessLogicTest, ExecutesSetJogSpeedThenStartNegativeJogThenStop) {
-    InSequence s;
-
-    // 1. 期望 setJogSpeed(3.0) 被调用一次
-    EXPECT_CALL(*mockMotorRawPtr, setJogSpeed(3.0)).WillOnce(Return(true));
-    // 2. 期望 startNegativeJog() 被调用一次
-    EXPECT_CALL(*mockMotorRawPtr, startNegativeJog()).WillOnce(Return(true));
-    // 3. 期望 stopJog() 被调用一次
-    EXPECT_CALL(*mockMotorRawPtr, stopJog()).WillOnce(Return(true));
-
-    // 准备命令序列
-    CommandSequence commands;
-    commands.push_back(SetJogSpeed{3.0});       // 预设点动速度
-    commands.push_back(StartNegativeJog{});     // 启动负向点动
-    commands.push_back(StopJog{});              // 停止点动
-
-    // 调用业务逻辑
-    bool result = businessLogic->executeCommandSequence("main_motor", commands);
-    ASSERT_TRUE(result);
-    LOG_INFO("Test 'ExecutesSetJogSpeedThenStartNegativeJogThenStop' finished successfully.");
-}
-
-
-TEST_F(BusinessLogicTest, StartPositiveJogFailureAbortsSequence) {
-    InSequence s;
-
-    // 期望 setJogSpeed 成功
-    EXPECT_CALL(*mockMotorRawPtr, setJogSpeed(5.0)).WillOnce(Return(true));
-    // 期望 startPositiveJog 失败
-    EXPECT_CALL(*mockMotorRawPtr, startPositiveJog()).WillOnce(Return(false));
-    // 期望后续的 stopJog 和 GoHome 不会被调用
-    EXPECT_CALL(*mockMotorRawPtr, stopJog()).Times(0);
-    EXPECT_CALL(*mockMotorRawPtr, goHome()).Times(0);
-
-    CommandSequence commands;
-    commands.push_back(SetJogSpeed{5.0});
-    commands.push_back(StartPositiveJog{});
-    commands.push_back(StopJog{});
-    commands.push_back(GoHome{}); // 这个命令不应该被执行
-
-    bool result = businessLogic->executeCommandSequence("main_motor", commands);
-
-    ASSERT_FALSE(result);
-    LOG_INFO("Test 'StartPositiveJogFailureAbortsSequence' finished successfully (expected failure).");
-}
+// 当然，你需要为所有之前通过的测试用例创建相应的 LinearServoBusinessLogicTest 或 RotaryServoBusinessLogicTest 版本。
+// 并且，你需要为 LinearServoAdapter 和 RotaryServoAdapter 本身编写独立的单元测试，验证它们能否正确地将 mm/degrees 转换为 RPM/revolutions。

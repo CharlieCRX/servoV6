@@ -41,19 +41,32 @@
 展示逻辑层级与依赖方向（箭头表示依赖）：
 
 ```csharp
-[app UI]
-   ↓
-[BusinessLogic]  ← 业务流程控制器
-   ↓
-[IMotor]         ← 高层抽象接口，屏蔽控制细节
-   ↓
-[Motor]          ← 控制器实现，内部组合 IServoAdapter
-   ↓
-[IServoAdapter]  ← 适配器接口
-   ↓
-[ServoAdapterX]  ← 各型号电机具体实现（如写寄存器）
-   ↓
-[Transport]      ← 通信实现（ModbusClient、串口等）
+应用入口（UI）                app/
+    │
+    ↓
+业务逻辑控制器               core/
+    ├── BusinessLogic        ⟵ 执行命令流（聚合 Motor）
+    ├── Motor                ⟵ 电机逻辑
+    ├── IServoAdapter        ⟵ 电机适配器接口
+    └── MovementCommand      ⟵ 命令类型（如 Move、Wait）
+
+    ↓
+
+设备驱动适配                drivers/
+    ├── ModbusServoAdapter   ⟵ 操作寄存器，使用 ModbusClient
+    └── BluetoothAdapter     ⟵ 蓝牙控制逻辑（如串口协议）
+
+    ↓
+
+通信基础库                  transport/
+    └── ModbusClient         ⟵ 封装读写请求 + 协议校验
+
+通用工具                    utils/
+    └── Logger               ⟵ 日志服务（统一封装 spdlog）
+
+测试支撑                    tests/
+    ├── mocks/              ⟵ 模拟器（MockMotor、MockAdapter）
+    ├── test_*.cpp          ⟵ 各层测试
 ```
 
 ## 模块简表总结

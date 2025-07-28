@@ -5,6 +5,7 @@ set(TEST_COMMON_SOURCES
 add_executable(test_businesslogic
     ${TEST_COMMON_SOURCES}
     test_businesslogic.cpp
+    mocks/MockServoAdapters.h
 )
 target_link_libraries(test_businesslogic PRIVATE
   gtest

@@ -1,24 +1,33 @@
-#ifndef COMMANDVISITOR_H
-#define COMMANDVISITOR_H
+// core/CommandVisitor.h (访问者接口，操作 IServoAdapter)
+#ifndef COMMAND_VISITOR_H
+#define COMMAND_VISITOR_H
 
-#include "IMotor.h" // 需要 IMotor 接口
-#include "MovementCommand.h" // 需要所有命令结构体
+#include "IServoAdapter.h" // 包含适配器接口
+#include "MovementCommand.h"
 
-// 定义一个访问者接口
 class CommandVisitor {
 public:
     virtual ~CommandVisitor() = default;
 
-    // 为每个命令类型定义一个访问方法
-    virtual bool visit(IMotor* motor, const SetPositionSpeed& cmd) = 0;
-    virtual bool visit(IMotor* motor, const SetJogSpeed& cmd) = 0;
-    virtual bool visit(IMotor* motor, const RelativeMove& cmd) = 0;
-    virtual bool visit(IMotor* motor, const Wait& cmd) = 0;
-    virtual bool visit(IMotor* motor, const GoHome& cmd) = 0;
-    virtual bool visit(IMotor* motor, const AbsoluteMove& cmd) = 0;
-    virtual bool visit(IMotor* motor, const StartPositiveJog& cmd) = 0;
-    virtual bool visit(IMotor* motor, const StartNegativeJog& cmd) = 0;
-    virtual bool visit(IMotor* motor, const StopJog& cmd) = 0;
-    // ... 未来添加新命令时，这里也要新增对应的 visit 方法
+    // 线性运动命令，接收 ILinearServoAdapter
+    virtual bool visit(ILinearServoAdapter* adapter, const SetPositionSpeed& cmd) = 0;
+    virtual bool visit(ILinearServoAdapter* adapter, const SetJogSpeed& cmd) = 0;
+    virtual bool visit(ILinearServoAdapter* adapter, const RelativeMove& cmd) = 0;
+    virtual bool visit(ILinearServoAdapter* adapter, const AbsoluteMove& cmd) = 0;
+    virtual bool visit(ILinearServoAdapter* adapter, const StartPositiveJog& cmd) = 0;
+    virtual bool visit(ILinearServoAdapter* adapter, const StartNegativeJog& cmd) = 0;
+
+    // 角度运动命令，接收 IRotaryServoAdapter
+    virtual bool visit(IRotaryServoAdapter* adapter, const SetAngularPositionSpeed& cmd) = 0;
+    virtual bool visit(IRotaryServoAdapter* adapter, const SetAngularJogSpeed& cmd) = 0;
+    virtual bool visit(IRotaryServoAdapter* adapter, const AngularMove& cmd) = 0;
+    virtual bool visit(IRotaryServoAdapter* adapter, const StartPositiveAngularJog& cmd) = 0;
+    virtual bool visit(IRotaryServoAdapter* adapter, const StartNegativeAngularJog& cmd) = 0;
+
+    // 通用命令，接收 IServoAdapter 基类
+    virtual bool visit(IServoAdapter* adapter, const Wait& cmd) = 0;
+    virtual bool visit(IServoAdapter* adapter, const GoHome& cmd) = 0;
+    virtual bool visit(IServoAdapter* adapter, const StopJog& cmd) = 0;
 };
-#endif // COMMANDVISITOR_H
+
+#endif // COMMAND_VISITOR_H
