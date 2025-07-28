@@ -11,11 +11,9 @@ target_include_directories(adapters_protocol_lib PUBLIC ${CMAKE_CURRENT_SOURCE_D
 
 # 协议层适配器通常会依赖：
 # - domain_lib (实现 IServoAdapter 接口，或者使用 MovementCommand 等)
-# - infrastructure_transport_lib (如果它直接使用 ModbusClient 或蓝牙传输客户端)
 # - utils_lib (用于日志)
 target_link_libraries(adapters_protocol_lib PUBLIC
     domain_lib                   # 获取 IServoAdapter.h 等接口定义
-    infrastructure_transport_lib # 如果这些适配器直接使用 ModbusClient 或其他传输层客户端
     utilslib                     # 用于日志
     # 如果这些适配器还依赖 adapters/motors 中的 Motor 类，则需要链接 adapters_motors_lib
     # adapters_motors_lib

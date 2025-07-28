@@ -15,7 +15,6 @@ target_link_libraries(servoV6
         Qt6::Gui
         Qt6::Quick
         utilslib
-        infrastructure_transport_lib
 )
 
 # 设置平台特定属性

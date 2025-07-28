@@ -12,6 +12,4 @@ target_include_directories(adapters_motors_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR
 target_link_libraries(adapters_motors_lib PUBLIC
     domain_lib # 获取 IMotor.h
     utilslib  # 用于日志等
-    # 如果 Motor 依赖基础设施层（例如 ModbusClient），则也需要链接 infrastructure_transport_lib
-    # infrastructure_transport_lib
 )
