@@ -38,20 +38,6 @@ int main(int argc, char *argv[])
     // --- Choose ONE QML loading method ---
     // Option 1: Load from QML module (usually preferred with qt_add_qml_module in CMake)
     engine.loadFromModule("servoV6", "Main");
-
-    // Option 2: Load from specific QRC URL (if you're not using modules, or for specific cases)
-    // const QUrl url(u"qrc:/app/qml/Main.qml"_qs);
-    // engine.load(url);
-
-    // If you use loadFromModule, make sure your CMakeLists.txt for 'app' is set up like this:
-    /*
-    qt_add_qml_module(servoV6_app
-        URI servoV6 # This matches "servoV6" in loadFromModule
-        VERSION 1.0
-        QML_FILES app/qml/Main.qml # List your QML files here
-    )
-    */
-
     LOG_INFO("QML engine loaded.");
 
     int exitCode = app.exec(); // This starts the Qt event loop

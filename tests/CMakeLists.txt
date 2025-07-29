@@ -1,56 +1,19 @@
-set(TEST_COMMON_SOURCES
-    test_main.cpp
+# tests/CMakeLists.txt
+
+file(GLOB TEST_SOURCES CONFIGURE_DEPENDS
+    test_*.cpp
 )
 
-add_executable(test_businesslogic
-    ${TEST_COMMON_SOURCES}
-    test_businesslogic.cpp
-    mocks/MockServoAdapters.h
-)
-target_link_libraries(test_businesslogic PRIVATE
-  gtest
-  gmock
-  utils_lib
-  application_lib
-)
-target_precompile_headers(test_businesslogic PRIVATE <gtest/gtest.h> <gmock/gmock.h>)
-set_property(TARGET test_businesslogic PROPERTY AUTOMOC OFF AUTOUIC OFF)
-
-add_executable(test_motor
-    ${TEST_COMMON_SOURCES}
-    test_motor.cpp
-)
-target_link_libraries(test_motor PRIVATE
-  gtest
-  gmock
-  utils_lib
-  application_lib
-)
-target_precompile_headers(test_motor PRIVATE <gtest/gtest.h> <gmock/gmock.h>)
-set_property(TARGET test_motor PROPERTY AUTOMOC OFF AUTOUIC OFF)
-
-
-
-# test_adapter 可执行文件 (新增)
-# 用于测试核心适配器层 (LinearServoAdapter, RotaryServoAdapter) 的单位转换和行为
-add_executable(test_adapter
-    ${TEST_COMMON_SOURCES}
-    test_adapter.cpp # 这个是你要添加的适配器测试文件
-)
-target_link_libraries(test_adapter PRIVATE
-  gtest
-  gmock
-  utils_lib          # 适配器可能依赖日志
-  application_lib
-  adapters_servos_lib
-)
-# 添加 mocks 目录，让测试文件能找到 mocks 的头文件
-target_include_directories(test_adapter PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/mocks)
-
-target_precompile_headers(test_adapter PRIVATE <gtest/gtest.h> <gmock/gmock.h>)
-set_property(TARGET test_adapter PROPERTY AUTOMOC OFF AUTOUIC OFF)
-
-include(GoogleTest)
-gtest_discover_tests(test_businesslogic)
-gtest_discover_tests(test_motor)
-gtest_discover_tests(test_adapter)
+foreach(test_file ${TEST_SOURCES})
+    get_filename_component(test_name ${test_file} NAME_WE)
+    add_executable(${test_name} ${test_file} test_main.cpp)
+    target_link_libraries(${test_name}
+        PRIVATE
+            Qt6::Test
+            application_lib
+            domain_lib
+            adapters_protocol_lib     # 你可能需要 link 的模块
+            utils_lib
+    )
+    add_test(NAME ${test_name} COMMAND ${test_name})
+endforeach()
