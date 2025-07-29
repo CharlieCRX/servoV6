@@ -1,85 +1,154 @@
-# 架构调整
+你当前项目目录结构已经非常合理，具备良好的分层架构和清晰的模块划分。下面我按照你贴出来的目录结构，对每一部分的功能模块进行**梳理和解释**：
 
-因为加入了QTest结构，所以现在需要更新出当前的项目结构。
+------
 
-## ServoV6 项目模块结构分析
+## 🔷 顶层目录结构
 
-```text
-.
-├── app/              ⟶ UI层：应用入口，QML界面展示
-│
-├── core/             ⟶ 核心逻辑层：运动命令建模、业务逻辑调度、电机接口
-│   ├── MovementCommand.h       ⟶ 表达单个运动动作（如设置速度、移动、等待）
-│   ├── IMotor.h                ⟶ 电机行为抽象接口（标准运动控制指令）
-│   ├── Motor.h/.cpp            ⟶ `IMotor` 实现，聚合 `IServoAdapter` 完成控制流
-│   ├── IServoAdapter.h         ⟶ 适配器抽象接口（底层驱动行为，如写寄存器）
-│   ├── businesslogic.h/.cpp    ⟶ 高层业务调度器，依赖 IMotor 执行命令序列
-│
-├── drivers/          ⟶ 设备适配层：实现具体型号电机的底层行为
-│   ├── ModbusServoAdapter.h/.cpp     ⟶ 基于 Modbus 控制寄存器的适配器
-│   ├── BluetoothServoAdapter.h/.cpp  ⟶ 基于蓝牙设备的控制逻辑
-│
-├── transport/        ⟶ 通信接口层：封装 Modbus 协议细节、串口读写等
-│   ├── ModbusClient.h/.cpp     ⟶ Modbus 协议解析和收发逻辑
-│
-├── utils/            ⟶ 工具模块：日志等通用功能
-│   ├── Logger.h/.cpp           ⟶ 使用 spdlog 统一日志输出
-│
-├── tests/            ⟶ 单元测试模块：使用 GoogleTest 构建
-│   ├── mocks/                 ⟶ 存放 MockMotor、MockAdapter 等模拟依赖
-│   ├── test_businesslogic.cpp ⟶ 测试业务调度器 BusinessLogic 的行为
-│   ├── test_motor.cpp         ⟶ 测试 Motor 层命令分发逻辑
-│   ├── test_adapter.cpp       ⟶ 测试适配器（如寄存器值是否正确设置）
-│
-├── external/         ⟶ 第三方依赖（如 spdlog）
-│
-├── CMakeLists.txt    ⟶ 构建系统（支持模块化编译、测试构建、安装等）
+```bash
+servoV6/
+├── adapters/            # ✅ 适配器层，组合功能+型号+协议
+├── app/                 # 🚀 程序入口 + Qt前端
+├── application/         # 🧠 核心业务逻辑（调度/执行）
+├── build/               # ⚙️ 构建输出目录（由 Qt Creator 生成）
+├── domain/              # 📐 领域模型定义（接口、抽象命令）
+├── external/            # 📦 外部依赖（spdlog 等）
+├── tests/               # ✅ 单元测试
+├── utils/               # 🔧 工具类（日志等）
+├── CMakeLists.txt*      # 构建配置
+├── README.md            # 项目说明
 ```
 
-## 模块依赖关系
+------
 
-展示逻辑层级与依赖方向（箭头表示依赖）：
+## 🧩 模块功能详解
 
-```csharp
-应用入口（UI）                app/
-    │
-    ↓
-业务逻辑控制器               core/
-    ├── BusinessLogic        ⟵ 执行命令流（聚合 Motor）
-    ├── Motor                ⟵ 电机逻辑
-    ├── IServoAdapter        ⟵ 电机适配器接口
-    └── MovementCommand      ⟵ 命令类型（如 Move、Wait）
+### 1. `adapters/`：**适配器分层组合模块**
 
-    ↓
-
-设备驱动适配                drivers/
-    ├── ModbusServoAdapter   ⟵ 操作寄存器，使用 ModbusClient
-    └── BluetoothAdapter     ⟵ 蓝牙控制逻辑（如串口协议）
-
-    ↓
-
-通信基础库                  transport/
-    └── ModbusClient         ⟵ 封装读写请求 + 协议校验
-
-通用工具                    utils/
-    └── Logger               ⟵ 日志服务（统一封装 spdlog）
-
-测试支撑                    tests/
-    ├── mocks/              ⟵ 模拟器（MockMotor、MockAdapter）
-    ├── test_*.cpp          ⟵ 各层测试
+```bash
+adapters/
+├── ServoAdapterFactory.*  # 工厂类：根据功能+型号+协议创建 ServoAdapter
+├── motors/                # 电机型号（IMotor）相关实现
+├── protocol/              # 通信协议实现（Modbus/Bluetooth...）
+└── servos/                # ServoAdapter 的功能实现（旋转/线性等）
 ```
 
-## 模块简表总结
+#### ✅ 模块职责
 
-| 模块名          | 所在目录     | 主要职责                                         |
-| --------------- | ------------ | ------------------------------------------------ |
-| MovementCommand | `core/`      | 表达运动动作的原子命令                           |
-| IMotor          | `core/`      | 电机控制的接口抽象                               |
-| Motor           | `core/`      | 封装运动命令组合流程，转为低层指令               |
-| IServoAdapter   | `core/`      | 电机适配器接口，隐藏寄存器细节                   |
-| BusinessLogic   | `core/`      | 高层业务流程执行器，调用 IMotor 执行命令序列     |
-| ServoAdapterX   | `drivers/`   | 控制具体硬件设备的寄存器写入逻辑                 |
-| ModbusClient    | `transport/` | 底层 Modbus 通信协议封装                         |
-| Logger          | `utils/`     | 日志工具，统一日志接口                           |
-| test_*.cpp      | `tests/`     | 针对每层模块进行单元测试，使用 Mock 对象解耦依赖 |
+- 解耦「型号（硬件特性）」←→「功能（业务需求）」←→「协议（通讯方式）」
+- 将三者组合成统一的 `IServoAdapter` 实例
 
+------
+
+### 2. `app/`：**程序入口 + Qt前端**
+
+```bash
+app/
+├── main.cpp       # Qt 应用程序入口
+└── qml/           # QML 界面（可能用于配置或显示电机状态）
+```
+
+#### ✅ 模块职责
+
+- 初始化 Qt 应用
+- 创建 GUI 界面
+- 调用 `BusinessLogic` 实现系统功能
+
+------
+
+### 3. `application/`：**业务控制逻辑**
+
+```bash
+application/
+├── BusinessLogic.*         # 系统调度器，执行多个电机动作的逻辑入口
+├── MotorCommandExecutor.*  # 具体执行控制逻辑，驱动 ServoAdapter
+```
+
+#### ✅ 模块职责
+
+- 管理指令序列（命令队列/系统状态机）
+- 执行单个或批量电机动作（控制速度、位置等）
+
+------
+
+### 4. `domain/`：**核心领域接口**
+
+```bash
+domain/
+├── IMotor.h           # 电机型号接口（定义圈数、速度等硬件特性）
+├── IServoAdapter.h    # 功能接口（线性/旋转等）
+├── ICommProtocol.h    # 通信接口（读写寄存器）
+├── MovementCommand.h  # 电机动作指令
+├── CommandVisitor.h   # 指令访问器（Visitor 模式）
+```
+
+#### ✅ 模块职责
+
+- 所有业务接口定义于此，**不依赖任何实现**
+- 上层逻辑通过接口驱动系统，确保解耦与可测试性
+
+------
+
+### 5. `utils/`：**工具模块**
+
+```bash
+utils/
+├── Logger.*           # 封装 spdlog 日志接口
+```
+
+#### ✅ 模块职责
+
+- 提供系统通用工具，如日志、时间戳、配置读取等
+
+------
+
+### 6. `tests/`：**测试模块**
+
+```bash
+tests/
+├── mocks/                  # 模拟接口，用于脱离硬件测试
+├── test_adapter.cpp        # 测试 servos/motors/protocol 的组合
+├── test_motor.cpp          # 测试单个电机的接口行为
+├── test_businesslogic.cpp  # 测试业务逻辑
+├── test_main.cpp           # 启动测试（可能为集成测试）
+```
+
+#### ✅ 模块职责
+
+- 按照模块拆分测试内容
+- 使用 mock 实现与硬件解耦
+- 测试覆盖 adapter / application / domain 等核心路径
+
+------
+
+### 7. `build/`：**构建输出目录（由 Qt Creator 自动生成）**
+
+```bash
+build/
+└── Desktop_Qt_6_9_0_MinGW_64_bit-Debug/
+```
+
+> ⚠️ 不建议将 `build/` 放入版本控制（可添加 `.gitignore`）
+
+------
+
+### 8. 顶层文件
+
+```
+CMakeLists.txt        # 总构建文件
+CMakeLists.txt.user   # Qt Creator IDE 配置文件（可忽略）
+README.md             # 项目说明文档
+```
+
+------
+
+## 🔚 总结建议
+
+| 模块名                  | 描述                                  | 建议                     |
+| ----------------------- | ------------------------------------- | ------------------------ |
+| `adapters/`             | 组合协议 + 功能 + 型号                | 结构优，已工厂封装       |
+| `application/`          | 调度器 + 执行器，连接业务与接口       | 可扩展为支持更多命令     |
+| `domain/`               | 接口抽象层                            | 保持纯净不引入依赖       |
+| `tests/`                | 分模块测试                            | 可继续扩展 mock 自动生成 |
+| `utils/`                | 通用代码复用模块                      | 可加入配置/时间工具等    |
+| `infrastructure/`（缺） | 串口/蓝牙等平台相关实现               | 建议加入此目录放底层依赖 |
+| `systems/`（可选）      | MotorSystemManager 之类的系统配置模块 | 用于封装初始化流程       |
