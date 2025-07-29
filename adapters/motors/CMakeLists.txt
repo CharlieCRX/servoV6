@@ -1,7 +1,8 @@
 # F:/project/servoV6/adapters/motors/CMakeLists.txt
 
 add_library(adapters_motors_lib STATIC
-    Motor.cpp # 添加你的 Motor 源文件
+    Motor.cpp
+    P100S/P100SMotor.h P100S/P100SMotor.cpp # 添加你的 Motor 源文件
 )
 
 # 设置公共包含目录

@@ -4,26 +4,26 @@
 
 #include <vector>
 #include <cstdint> // For uint8_t, uint16_t
+#include <string>
 
-// 定义通用通信协议接口
-// 它可以是同步或异步的，这里以同步为例
+struct RegisterBlock {
+    std::vector<uint16_t> data;
+};
+
 class ICommProtocol {
 public:
-    virtual ~ICommProtocol() = default;
+    virtual ~ICommProtocol() {}
 
-    // 示例：读取寄存器（地址，数量）
-    virtual std::vector<uint16_t> readRegisters(uint8_t slaveId, uint16_t address, uint16_t quantity) = 0;
+    virtual bool open(const std::string& deviceName, bool reOpen = false) = 0;
+    virtual void close() = 0;
+    virtual bool isOpen() const = 0;
 
-    // 示例：写入寄存器（地址，数据）
-    virtual bool writeRegisters(uint8_t slaveId, uint16_t address, const std::vector<uint16_t>& data) = 0;
+    virtual bool read(int mID, int regType, int startReg, int stopReg, RegisterBlock& out) = 0;
+    virtual bool write(int mID, int regType, int reg, const RegisterBlock& in) = 0;
 
-    // 示例：发送自定义命令（原始字节数据）
-    virtual bool sendRawCommand(uint8_t slaveId, const std::vector<uint8_t>& command) = 0;
-
-    // 示例：连接/断开连接（如果协议需要显式连接）
-    virtual bool connect() = 0;
-    virtual void disconnect() = 0;
-    virtual bool isConnected() const = 0;
+    virtual bool readReq(int mID, int regType, int startReg, int stopReg) = 0;
+    virtual bool writeReq(int mID, int regType, int reg, const RegisterBlock& in) = 0;
 };
+
 
 #endif // I_COMM_PROTOCOL_H
