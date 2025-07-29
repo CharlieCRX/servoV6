@@ -11,5 +11,5 @@ target_include_directories(adapters_motors_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR
 # 它可能还使用 Logger（来自 utils）。
 target_link_libraries(adapters_motors_lib PUBLIC
     domain_lib # 获取 IMotor.h
-    utilslib  # 用于日志等
+    utils_lib  # 用于日志等
 )

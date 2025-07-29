@@ -14,7 +14,7 @@ target_include_directories(adapters_protocol_lib PUBLIC ${CMAKE_CURRENT_SOURCE_D
 # - utils_lib (用于日志)
 target_link_libraries(adapters_protocol_lib PUBLIC
     domain_lib                   # 获取 IServoAdapter.h 等接口定义
-    utilslib                     # 用于日志
+    utils_lib                     # 用于日志
     # 如果这些适配器还依赖 adapters/motors 中的 Motor 类，则需要链接 adapters_motors_lib
     # adapters_motors_lib
 )

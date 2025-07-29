@@ -12,5 +12,5 @@ target_include_directories(application_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # 应用服务层会依赖 domain 层的接口 (IMotor, IServoAdapter, MovementCommand, CommandVisitor)
 target_link_libraries(application_lib PUBLIC
     domain_lib                   # 获取所有接口定义
-    utilslib                     # Logger 等
+    utils_lib                     # Logger 等
 )

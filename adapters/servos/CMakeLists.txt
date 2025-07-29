@@ -13,5 +13,5 @@ target_include_directories(adapters_servos_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR
 target_link_libraries(adapters_servos_lib PUBLIC
     domain_lib          # 获取 IServoAdapter.h
     adapters_motors_lib # 如果伺服适配器内部使用了 Motor 类
-    utilslib            # 用于日志等
+    utils_lib            # 用于日志等
 )

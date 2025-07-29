@@ -14,7 +14,7 @@ target_link_libraries(servoV6
         Qt6::Core
         Qt6::Gui
         Qt6::Quick
-        utilslib
+        utils_lib
 )
 
 # 设置平台特定属性
