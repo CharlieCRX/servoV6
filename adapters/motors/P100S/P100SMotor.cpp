@@ -1,10 +1,6 @@
 #include "P100SMotor.h"
 #include "Logger.h" // 改为包含新的 Logger.h
 
-P100SMotor::P100SMotor() {
-    LOG_INFO("Instance created.");
-}
-
 bool P100SMotor::setRPM(double rpm) {
     LOG_INFO("Setting RPM to {}.", rpm);
     return true;

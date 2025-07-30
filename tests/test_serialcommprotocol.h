@@ -29,6 +29,7 @@ private slots:
     void write_singleRegister_shouldSucceed();                // 写一个寄存器（正常）
 
     void readUInt64_group_shouldBeConsistent();
+    void writeUInt16_shouldUpdateRegister();
 
 
 };

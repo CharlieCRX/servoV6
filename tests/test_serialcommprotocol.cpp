@@ -206,3 +206,31 @@ void SerialCommProtocolTest::readUInt64_group_shouldBeConsistent()
     QVERIFY2(diff32 <= 5, qPrintable(QString("Low 32-bit mismatch: val32=%1, low32_from_val64=%2, diff=%3")
                                          .arg(val32).arg(low32_from_64).arg(diff32)));
 }
+
+void SerialCommProtocolTest::writeUInt16_shouldUpdateRegister()
+{
+    SerialCommProtocol protocol;
+    QVERIFY(protocol.open("COM10", false));
+
+    const int motorID = 5;
+    const int regType = RegisterType::HOLDING_REGISTER;
+    const int regAddr = 21;  // 假设 21 是 jog 点动速度寄存器地址
+
+    quint16 originalVal = 0;
+    QVERIFY(protocol.readUInt16(motorID, regType, regAddr, originalVal));
+
+    quint16 targetVal = 100;
+    QVERIFY(protocol.writeUInt16(motorID, regType, regAddr, targetVal));
+
+    quint16 actualVal = 0;
+    QVERIFY(protocol.readUInt16(motorID, regType, regAddr, actualVal));
+
+    // 允许回读误差 ±1 以内
+    int diff = qAbs(int(actualVal) - int(targetVal));
+    QVERIFY2(diff <= 1, qPrintable(QString("Write/Read mismatch: wrote=%1, read=%2, diff=%3")
+                                       .arg(targetVal).arg(actualVal).arg(diff)));
+
+    // 可选：恢复原值
+    QVERIFY(protocol.writeUInt16(motorID, regType, regAddr, originalVal));
+}
+

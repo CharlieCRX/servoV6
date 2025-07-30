@@ -22,8 +22,8 @@ const int INPUT_REGISTER = 4;
 
 class SerialCommProtocol : public ICommProtocol, public IRegisterAccessor {
 public:
-    SerialCommProtocol();
-    SerialCommProtocol(int baudRate, int dataBits, int stopBits, int flowControl, int parity);
+    SerialCommProtocol(QObject* parent = nullptr);
+    SerialCommProtocol(int baudRate, int dataBits, int stopBits, int flowControl, int parity, QObject* parent = nullptr);
     ~SerialCommProtocol() override;
 
     // ICommProtocol 实现（仍保留 regType）

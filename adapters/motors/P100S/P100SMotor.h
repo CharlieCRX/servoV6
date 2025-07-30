@@ -2,13 +2,16 @@
 #define P100S_MOTOR_H
 
 #include "IMotor.h"
-#include "IRegisterAccessor.h"  // ✅ 替换为更抽象的寄存器访问接口
+#include "IRegisterAccessor.h"  // 通信协议抽象接口
 
 class P100SMotor : public IMotor {
 public:
-    P100SMotor();
-//    P100SMotor(IRegisterAccessor* accessor, int motorID);
+    P100SMotor() = default;
+    P100SMotor(IRegisterAccessor* accessor, int motorID);
     ~P100SMotor() override = default;
+
+    // 可随时绑定/切换协议与电机编号
+    void bind(IRegisterAccessor* accessor, int motorID);
 
     // 实现 IMotor 接口
     bool setRPM(double rpm) override;
@@ -23,10 +26,10 @@ public:
     double getCurrentRevolutions() const override;
 
 private:
-    IRegisterAccessor* reg_ = nullptr;  // ✅ 替换 comm_
+    IRegisterAccessor* reg_ = nullptr;
     int motorID_ = 0;
 
-    // P100S 专属寄存器编号，私有使用
+    // P100S 专属寄存器编号
     enum HoldingReg {
         P4_2_SetMultiTurns = 0x202,
         P4_3_SetInnerPulse = 0x203,
@@ -37,11 +40,11 @@ private:
         CurrentPositionPulse = 0x1018,
     };
 
-    // 辅助常量
+    // 寄存器类型
     static constexpr int REG_TYPE_INPUT = 1;
     static constexpr int REG_TYPE_HOLDING = 2;
 
-    static constexpr int pulsesPerRevolution = 5000;  // 举例设定
+    static constexpr int pulsesPerRevolution = 5000;  // 1圈对应脉冲数
 };
 
 #endif // P100S_MOTOR_H

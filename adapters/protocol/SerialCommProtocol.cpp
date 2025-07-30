@@ -7,12 +7,12 @@
 #include <QVariant>
 #include <algorithm> // for std::min
 
-SerialCommProtocol::SerialCommProtocol()
-    : SerialCommProtocol(9600, 8, 2, 0, 0) {}
+SerialCommProtocol::SerialCommProtocol(QObject* parent)
+    : SerialCommProtocol(9600, 8, 2, 0, 0, parent) {}
 
-SerialCommProtocol::SerialCommProtocol(int baudRate, int dataBits, int stopBits, int flowControl, int parity) {
-    modbusClient_ = new QModbusRtuSerialClient;
-
+SerialCommProtocol::SerialCommProtocol(int baudRate, int dataBits, int stopBits, int flowControl, int parity, QObject* parent)
+    : ICommProtocol(), IRegisterAccessor(), modbusClient_(new QModbusRtuSerialClient(parent))  // 绑定parent
+{
     modbusClient_->setConnectionParameter(QModbusDevice::SerialBaudRateParameter, QVariant::fromValue(baudRate));
     modbusClient_->setConnectionParameter(QModbusDevice::SerialDataBitsParameter, QVariant::fromValue(dataBits));
     modbusClient_->setConnectionParameter(QModbusDevice::SerialStopBitsParameter, QVariant::fromValue(stopBits));
@@ -26,7 +26,6 @@ SerialCommProtocol::SerialCommProtocol(int baudRate, int dataBits, int stopBits,
 
 SerialCommProtocol::~SerialCommProtocol() {
     close();
-    delete modbusClient_;
 }
 
 // SerialCommProtocol.cpp 内部私有函数
