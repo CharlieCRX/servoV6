@@ -32,6 +32,17 @@ public:
 
     bool readReq(int mID, int regType, int startReg, int stopReg) override;
     bool writeReq(int mID, int regType, int reg, const RegisterBlock& in) override;
+public:
+    // 读取一个 16-bit 无符号寄存器
+    bool readUInt16(int mID, int regType, int startReg, quint16& outVal);
+
+    // 读取两个连续寄存器组成的 32-bit 无符号整数
+    bool readUInt32(int mID, int regType, int startReg, quint32& outVal);
+
+    // 读取四个连续寄存器组成的 64-bit 无符号整数
+    bool readUInt64(int mID, int regType, int startReg, quint64& outVal);
+
+
 
 private:
     bool connected_ = false;

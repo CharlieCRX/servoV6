@@ -5,6 +5,7 @@
 #include <QModbusDevice>
 #include <QModbusReply>
 #include <QVariant>
+#include <algorithm> // for std::min
 
 SerialCommProtocol::SerialCommProtocol()
     : SerialCommProtocol(9600, 8, 2, 0, 0) {}
@@ -26,6 +27,16 @@ SerialCommProtocol::SerialCommProtocol(int baudRate, int dataBits, int stopBits,
 SerialCommProtocol::~SerialCommProtocol() {
     close();
     delete modbusClient_;
+}
+
+// SerialCommProtocol.cpp 内部私有函数
+static quint64 combineRegistersTo64(const std::vector<uint16_t>& data) {
+    quint64 val = 0;
+    int count = std::min(static_cast<int>(data.size()), 4);
+    for (int i = 0; i < count; ++i) {
+        val |= static_cast<quint64>(data[i]) << (16 * i);
+    }
+    return val;
 }
 
 bool SerialCommProtocol::open(const std::string& deviceName, bool reOpen) {
@@ -198,6 +209,52 @@ bool SerialCommProtocol::write(int mID, int regType, int reg, const RegisterBloc
     reply->deleteLater();
     return true;
 }
+
+
+// 暴露给实际读取的电机
+bool SerialCommProtocol::readUInt16(int mID, int regType, int startReg, quint16& outVal) {
+    RegisterBlock regData;
+    if (!read(mID, regType, startReg, startReg, regData)) {
+        return false;
+    }
+    if (regData.data.size() < 1) return false;
+
+    outVal = regData.data[0];
+    LOG_INFO("读取 uint16 寄存器[0x{:04X}]: {} (0x{:04X})", startReg, outVal, outVal);
+    return true;
+}
+
+bool SerialCommProtocol::readUInt32(int mID, int regType, int startReg, quint32& outVal) {
+    RegisterBlock regData;
+    if (!read(mID, regType, startReg, startReg + 1, regData)) {
+        return false;
+    }
+    if (regData.data.size() < 2) return false;
+
+    quint64 val = combineRegistersTo64(regData.data);
+    outVal = static_cast<quint32>(val);
+    LOG_INFO("读取 uint32 寄存器[0x{:04X}~0x{:04X}]: {} (0x{:08X})",
+             startReg, startReg + 1, outVal, outVal);
+    return true;
+}
+
+
+bool SerialCommProtocol::readUInt64(int mID, int regType, int startReg, quint64& outVal) {
+    RegisterBlock regData;
+    if (!read(mID, regType, startReg, startReg + 3, regData)) {
+        return false;
+    }
+    if (regData.data.size() < 4) return false;
+
+    outVal = combineRegistersTo64(regData.data);
+    LOG_INFO("读取 uint64 寄存器[0x{:04X}~0x{:04X}]: {} (0x{:016X})",
+             startReg, startReg + 3, outVal, outVal);
+    return true;
+}
+
+
+
+
 
 bool SerialCommProtocol::readReq(int mID, int regType, int startReg, int stopReg) {
     LOG_INFO("尚未实现 readReq 功能。");

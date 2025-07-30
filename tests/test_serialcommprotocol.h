@@ -28,6 +28,8 @@ private slots:
     void write_whenModbusError_shouldFail();                  // QModbusReply 返回错误
     void write_singleRegister_shouldSucceed();                // 写一个寄存器（正常）
 
+    void readUInt64_group_shouldBeConsistent();
+
 
 };
 

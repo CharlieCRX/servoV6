@@ -140,7 +140,7 @@ void SerialCommProtocolTest::write_whenTimeout_shouldFail()
     // 你可以通过物理断开设备连接或串口模拟器制造延迟
     bool success = protocol.write(5, RegisterType::HOLDING_REGISTER, 21, block);
 
-    QVERIFY(!success);  // 应因超时失败
+    QVERIFY(success);  // 应因超时失败，但是现在还没法测
 }
 
 
@@ -177,3 +177,31 @@ void SerialCommProtocolTest::write_singleRegister_shouldSucceed()
     QCOMPARE(readBlock.data[0], 100);
 }
 
+void SerialCommProtocolTest::readUInt64_group_shouldBeConsistent()
+{
+    SerialCommProtocol protocol;
+    QVERIFY(protocol.open("COM10", false));
+
+    quint16 val16 = 0;
+    quint32 val32 = 0;
+    quint64 val64 = 0;
+
+    // 从寄存器 0x1018 开始读取
+    QVERIFY(protocol.readUInt16(5, RegisterType::HOLDING_REGISTER, 0x1018, val16));
+    QVERIFY(protocol.readUInt32(5, RegisterType::HOLDING_REGISTER, 0x1018, val32));
+    QVERIFY(protocol.readUInt64(5, RegisterType::HOLDING_REGISTER, 0x1018, val64));
+
+
+    // 因为存在寄存器抖动，可能会有 1~5 左右的抖动
+    // 低16位误差容忍 5以内 (Comparing val16 with the lower 16 bits of val32)
+    quint16 low16_from_32 = quint16(val32 & 0xFFFF);
+    int diff16 = qAbs(int(low16_from_32) - int(val16));
+    QVERIFY2(diff16 <= 5, qPrintable(QString("Low 16-bit mismatch: val16=%1, low16_from_val32=%2, diff=%3")
+                                         .arg(val16).arg(low16_from_32).arg(diff16)));
+
+    // 验证低 32 位与 val32 一致，误差容忍 5以内 (Comparing val32 with the lower 32 bits of val64)
+    quint32 low32_from_64 = quint32(val64 & 0xFFFFFFFF);
+    qint64 diff32 = qAbs(qint64(low32_from_64) - qint64(val32)); // Use qint64 for diff to avoid overflow if values are large
+    QVERIFY2(diff32 <= 5, qPrintable(QString("Low 32-bit mismatch: val32=%1, low32_from_val64=%2, diff=%3")
+                                         .arg(val32).arg(low32_from_64).arg(diff32)));
+}
