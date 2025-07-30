@@ -5,9 +5,6 @@ P100SMotor::P100SMotor() {
     LOG_INFO("Instance created.");
 }
 
-P100SMotor::P100SMotor(ICommProtocol* comm, int motorID)
-    : comm_(comm), motorID_(motorID) {}
-
 bool P100SMotor::setRPM(double rpm) {
     LOG_INFO("Setting RPM to {}.", rpm);
     return true;
@@ -47,12 +44,11 @@ void P100SMotor::wait(int ms) {
     LOG_INFO("Waiting for {} ms.", ms);
 }
 
-bool P100SMotor::setCurrentPositionAsZero()
-{
+bool P100SMotor::setCurrentPositionAsZero() {
     return false;
 }
 
-double P100SMotor::getCurrentRevolutions() const
-{
-    return 9999;
+double P100SMotor::getCurrentRevolutions() const {
+    return 999;
 }
+

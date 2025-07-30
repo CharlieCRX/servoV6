@@ -186,11 +186,12 @@ void SerialCommProtocolTest::readUInt64_group_shouldBeConsistent()
     quint32 val32 = 0;
     quint64 val64 = 0;
 
-    // 从寄存器 0x1018 开始读取
-    QVERIFY(protocol.readUInt16(5, RegisterType::HOLDING_REGISTER, 0x1018, val16));
-    QVERIFY(protocol.readUInt32(5, RegisterType::HOLDING_REGISTER, 0x1018, val32));
-    QVERIFY(protocol.readUInt64(5, RegisterType::HOLDING_REGISTER, 0x1018, val64));
+    int regType = RegisterType::HOLDING_REGISTER; // 或 RegisterType::INPUT_REGISTER，按实际硬件选
 
+    // 传入 regType 参数
+    QVERIFY(protocol.readUInt16(5, regType, 0x1018, val16));
+    QVERIFY(protocol.readUInt32(5, regType, 0x1018, val32));
+    QVERIFY(protocol.readUInt64(5, regType, 0x1018, val64));
 
     // 因为存在寄存器抖动，可能会有 1~5 左右的抖动
     // 低16位误差容忍 5以内 (Comparing val16 with the lower 16 bits of val32)

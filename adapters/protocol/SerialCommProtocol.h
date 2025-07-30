@@ -2,7 +2,7 @@
 #define SERIAL_COMM_PROTOCOL_H
 
 #include "ICommProtocol.h"
-#include "IRegisterAccessor.h"   // 新增
+#include "IRegisterAccessor.h"
 
 #include <QtSerialBus/qmodbusrtuserialclient.h>
 #include <QtSerialBus/QModbusReply>
@@ -12,6 +12,7 @@
 #include <QTimer>
 #include <string>
 
+// 仍保留给 ICommProtocol 使用
 namespace RegisterType {
 const int COIL = 0;
 const int DISCRETE_INPUT = 1;
@@ -25,7 +26,7 @@ public:
     SerialCommProtocol(int baudRate, int dataBits, int stopBits, int flowControl, int parity);
     ~SerialCommProtocol() override;
 
-    // ICommProtocol 实现
+    // ICommProtocol 实现（仍保留 regType）
     bool open(const std::string& deviceName, bool reOpen = false) override;
     void close() override;
     bool isOpen() const override;
@@ -34,9 +35,16 @@ public:
     bool write(int mID, int regType, int reg, const RegisterBlock& in) override;
 
     // IRegisterAccessor 实现
-    bool readUInt16(int mID, int regType, int startReg, uint16_t& outVal) override;
-    bool readUInt32(int mID, int regType, int startReg, uint32_t& outVal) override;
-    bool readUInt64(int mID, int regType, int startReg, uint64_t& outVal) override;
+    bool readUInt16(int mID, int regType, int reg, uint16_t& outVal) override;
+    bool writeUInt16(int mID, int regType, int reg, uint16_t value) override;
+
+    bool readUInt32(int mID, int regType, int reg, uint32_t& outVal) override;
+    bool writeUInt32(int mID, int regType, int reg, uint32_t value) override;
+
+    bool readUInt64(int mID, int regType, int reg, uint64_t& outVal) override;
+    bool writeUInt64(int mID, int regType, int reg, uint64_t value) override;
+
+
 
 private:
     bool connected_ = false;
