@@ -251,17 +251,3 @@ bool SerialCommProtocol::readUInt64(int mID, int regType, int startReg, quint64&
              startReg, startReg + 3, outVal, outVal);
     return true;
 }
-
-
-
-
-
-bool SerialCommProtocol::readReq(int mID, int regType, int startReg, int stopReg) {
-    LOG_INFO("尚未实现 readReq 功能。");
-    return true;
-}
-
-bool SerialCommProtocol::writeReq(int mID, int regType, int reg, const RegisterBlock& in) {
-    LOG_INFO("尚未实现 writeReq 功能。");
-    return true;
-}

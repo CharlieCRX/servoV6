@@ -21,6 +21,8 @@ set(TEST_SOURCES
     test_main.cpp
     test_serialcommprotocol.cpp
     test_serialcommprotocol.h # <-- 如果有新的测试类头文件（带Q_OBJECT），也要添加到这里
+    test_p100smotor.cpp
+    test_p100smotor.h
 )
 
 # --- 创建测试可执行文件 ---
@@ -48,7 +50,8 @@ target_link_libraries(my_test_runner
         Qt6::Core             # Qt 核心模块，提供基本非 GUI 功能
         Qt6::Test             # Qt Test 框架库，用于编写单元测试
         application_lib       # 你的应用程序核心逻辑库（例如，可能包含业务逻辑）
-        adapters_protocol_lib # 你的协议适配器库（例如，SerialCommProtocol 所在库）
+        adapters_protocol_lib # 你的协议适配器库
+        adapters_motors_lib   # 电机型号适配库
         utils_lib             # 你的工具类库（例如，Logger 所在库）
         # 以下是根据你的项目需要可能需要取消注释的库，或者添加新的库
         # spdlogd             # 如果你的 Logger 库依赖于 spdlog，请取消注释。'd' 通常表示调试版本。

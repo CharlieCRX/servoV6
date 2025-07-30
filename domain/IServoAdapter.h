@@ -13,6 +13,7 @@ public:
     virtual bool goHome() = 0;
     virtual void wait(int ms) = 0;
     virtual bool stopJog() = 0; // 停止点动，视为通用，因为停止是停止所有运动
+    virtual bool setCurrentPositionAsZero() = 0;
 
     // 返回底层电机实例，供具体适配器实现调用
     virtual IMotor* getMotor() = 0;
@@ -29,6 +30,7 @@ public:
     virtual bool absoluteMove(double targetMm) = 0;
     virtual bool startPositiveJog() = 0;
     virtual bool startNegativeJog() = 0;
+    virtual double getCurrentPositionMm() const = 0;
 };
 
 // 旋转电机适配器接口
@@ -41,6 +43,7 @@ public:
     virtual bool angularMove(double degrees) = 0;
     virtual bool startPositiveAngularJog() = 0;
     virtual bool startNegativeAngularJog() = 0;
+    virtual double getCurrentAngleDegrees() const = 0;
 };
 
 #endif // ISERVO_ADAPTER_H

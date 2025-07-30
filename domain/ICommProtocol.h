@@ -20,9 +20,6 @@ public:
 
     virtual bool read(int mID, int regType, int startReg, int stopReg, RegisterBlock& out) = 0;
     virtual bool write(int mID, int regType, int reg, const RegisterBlock& in) = 0;
-
-    virtual bool readReq(int mID, int regType, int startReg, int stopReg) = 0;
-    virtual bool writeReq(int mID, int regType, int reg, const RegisterBlock& in) = 0;
 };
 
 

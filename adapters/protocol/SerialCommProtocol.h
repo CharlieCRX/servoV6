@@ -29,9 +29,6 @@ public:
 
     bool read(int mID, int regType, int startReg, int stopReg, RegisterBlock& out) override;
     bool write(int mID, int regType, int reg, const RegisterBlock& in) override;
-
-    bool readReq(int mID, int regType, int startReg, int stopReg) override;
-    bool writeReq(int mID, int regType, int reg, const RegisterBlock& in) override;
 public:
     // 读取一个 16-bit 无符号寄存器
     bool readUInt16(int mID, int regType, int startReg, quint16& outVal);

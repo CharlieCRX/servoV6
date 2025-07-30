@@ -23,8 +23,10 @@ public:
     virtual bool goHome() = 0;
     virtual void wait(int ms) = 0;
 
-    // TODO: 可能需要一个获取当前位置（圈数）的方法
-    // virtual double getCurrentRevolutions() = 0;
+    // 将当前位置重置为 0
+    virtual bool setCurrentPositionAsZero() = 0;
+    // 获取当前位置（圈数）
+    virtual double getCurrentRevolutions() const = 0;
 };
 
 #endif // IMOTOR_H
