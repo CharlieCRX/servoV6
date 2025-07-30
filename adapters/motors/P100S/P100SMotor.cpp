@@ -1,6 +1,17 @@
 #include "P100SMotor.h"
 #include "Logger.h" // 改为包含新的 Logger.h
 
+P100SMotor::P100SMotor(IRegisterAccessor *accessor, int motorID)
+{
+    bind(accessor, motorID);
+}
+
+void P100SMotor::bind(IRegisterAccessor *accessor, int motorID)
+{
+    reg_ = accessor;
+    motorID_ = motorID;
+}
+
 bool P100SMotor::setRPM(double rpm) {
     LOG_INFO("Setting RPM to {}.", rpm);
     return true;
