@@ -2,6 +2,13 @@
 #define I_REGISTER_ACCESSOR_H
 
 #include <cstdint>
+// 保留给 IRegisterAccessor 使用
+namespace RegisterType {
+const int COIL = 0;
+const int DISCRETE_INPUT = 1;
+const int HOLDING_REGISTER = 3;
+const int INPUT_REGISTER = 4;
+}
 
 class IRegisterAccessor {
 public:

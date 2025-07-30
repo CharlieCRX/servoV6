@@ -13,8 +13,8 @@ void P100SMotorTest::positionAndReset_shouldWork() {
     motor.bind(&protocol, 5); // 绑定设备ID为5
 
     // 1. 读取当前位置圈数
-    double posBefore = motor.getCurrentRevolutions();
-    qInfo() << "当前位置（归零前）:" << posBefore;
+    double circlesBefore = motor.getCurrentRevolutions();
+    qInfo() << "当前圈数（归零前）:" << circlesBefore;
 
     // 2. 执行归零
     QVERIFY(motor.setCurrentPositionAsZero());
@@ -27,6 +27,6 @@ void P100SMotorTest::positionAndReset_shouldWork() {
     QVERIFY2(std::abs(posAfter) < 0.01, "归零后位置未接近0");
 
     // 5. 可选：再读一次确认稳定
-    double posAfter2 = motor.getCurrentRevolutions();
-    QVERIFY2(std::abs(posAfter2) < 0.01, "二次读取位置未接近0");
+    double circlesAfter2 = motor.getCurrentRevolutions();
+    QVERIFY2(std::abs(circlesAfter2) < 0.01, "二次读取位置未接近0");
 }

@@ -30,21 +30,14 @@ private:
     int motorID_ = 0;
 
     // P100S 专属寄存器编号
-    enum HoldingReg {
+    enum P100SRegisterAddr {
         P4_2_SetMultiTurns = 0x202,
         P4_3_SetInnerPulse = 0x203,
         P3_34_ResetEncoderMultiTurns = 0x122,
-    };
-
-    enum InputReg {
         CurrentPositionPulse = 0x1018,
+        PA95_EncoderResolutionExp = 95,  // 编码器分辨率的指数部分，存放在寄存器95
     };
 
-    // 寄存器类型
-    static constexpr int REG_TYPE_INPUT = 1;
-    static constexpr int REG_TYPE_HOLDING = 2;
-
-    static constexpr int pulsesPerRevolution = 5000;  // 1圈对应脉冲数
 };
 
 #endif // P100S_MOTOR_H
