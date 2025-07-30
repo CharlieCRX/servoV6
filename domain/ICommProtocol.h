@@ -1,15 +1,8 @@
 // F:/project/servoV6/domain/ICommProtocol.h
 #ifndef I_COMM_PROTOCOL_H
 #define I_COMM_PROTOCOL_H
-
-#include <vector>
-#include <cstdint> // For uint8_t, uint16_t
+#include "RegisterBlock.h"
 #include <string>
-
-struct RegisterBlock {
-    std::vector<uint16_t> data;
-};
-
 class ICommProtocol {
 public:
     virtual ~ICommProtocol() {}
