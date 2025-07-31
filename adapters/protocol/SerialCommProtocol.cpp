@@ -11,7 +11,7 @@ SerialCommProtocol::SerialCommProtocol(QObject* parent)
     : SerialCommProtocol(9600, 8, 2, 0, 0, parent) {}
 
 SerialCommProtocol::SerialCommProtocol(int baudRate, int dataBits, int stopBits, int flowControl, int parity, QObject* parent)
-    : ICommProtocol(), IRegisterAccessor(), modbusClient_(new QModbusRtuSerialClient(parent))  // 绑定parent
+    : ICommProtocol(), modbusClient_(new QModbusRtuSerialClient(parent))
 {
     modbusClient_->setConnectionParameter(QModbusDevice::SerialBaudRateParameter, QVariant::fromValue(baudRate));
     modbusClient_->setConnectionParameter(QModbusDevice::SerialDataBitsParameter, QVariant::fromValue(dataBits));
@@ -235,84 +235,4 @@ bool SerialCommProtocol::write(int mID, int regType, int reg, const RegisterBloc
     // 11. 记录成功信息
     LOG_INFO("写入成功：从站ID={}, 寄存器类型={}, 地址={}, 值={}。", mID, regType, reg, in.data[0]);
     return true;
-}
-
-bool SerialCommProtocol::readUInt16(int mID, int regType, int reg, uint16_t& outVal) {
-    RegisterBlock regData;
-    if (!read(mID, regType, reg, reg, regData)) {
-        return false;
-    }
-    if (regData.data.size() < 1) return false;
-
-    outVal = regData.data[0];
-    LOG_INFO("读取 uint16 寄存器[0x{:04X}]: {} (0x{:04X})", reg, outVal, outVal);
-    return true;
-}
-
-bool SerialCommProtocol::readUInt32(int mID, int regType, int reg, uint32_t& outVal) {
-    RegisterBlock regData;
-    if (!read(mID, regType, reg, reg + 1, regData)) {
-        return false;
-    }
-    if (regData.data.size() < 2) return false;
-
-    quint64 val = combineRegistersTo64(regData.data);
-    outVal = static_cast<uint32_t>(val);
-    LOG_INFO("读取 uint32 寄存器[0x{:04X}~0x{:04X}]: {} (0x{:08X})", reg, reg + 1, outVal, outVal);
-    return true;
-}
-
-bool SerialCommProtocol::readUInt64(int mID, int regType, int reg, uint64_t& outVal) {
-    RegisterBlock regData;
-    if (!read(mID, regType, reg, reg + 3, regData)) {
-        return false;
-    }
-    if (regData.data.size() < 4) return false;
-
-    outVal = combineRegistersTo64(regData.data);
-    LOG_INFO("读取 uint64 寄存器[0x{:04X}~0x{:04X}]: {} (0x{:016X})", reg, reg + 3, outVal, outVal);
-    return true;
-}
-
-
-bool SerialCommProtocol::writeUInt16(int mID, int regType, int reg, uint16_t value) {
-    RegisterBlock regData;
-    regData.data.push_back(value);
-    bool ret = write(mID, regType, reg, regData);
-    if (ret) {
-        LOG_INFO("写入 uint16 寄存器[0x{:04X}]: {} (0x{:04X})", reg, value, value);
-    } else {
-        LOG_ERROR("写入 uint16 寄存器失败[0x{:04X}]", reg);
-    }
-    return ret;
-}
-
-bool SerialCommProtocol::writeUInt32(int mID, int regType, int reg, uint32_t value) {
-    RegisterBlock regData;
-    regData.data.resize(2);
-    regData.data[0] = static_cast<uint16_t>(value & 0xFFFF);
-    regData.data[1] = static_cast<uint16_t>((value >> 16) & 0xFFFF);
-    bool ret = write(mID, regType, reg, regData);
-    if (ret) {
-        LOG_INFO("写入 uint32 寄存器[0x{:04X}~0x{:04X}]: {} (0x{:08X})", reg, reg + 1, value, value);
-    } else {
-        LOG_ERROR("写入 uint32 寄存器失败[0x{:04X}~0x{:04X}]", reg, reg + 1);
-    }
-    return ret;
-}
-
-bool SerialCommProtocol::writeUInt64(int mID, int regType, int reg, uint64_t value) {
-    RegisterBlock regData;
-    regData.data.resize(4);
-    regData.data[0] = static_cast<uint16_t>(value & 0xFFFF);
-    regData.data[1] = static_cast<uint16_t>((value >> 16) & 0xFFFF);
-    regData.data[2] = static_cast<uint16_t>((value >> 32) & 0xFFFF);
-    regData.data[3] = static_cast<uint16_t>((value >> 48) & 0xFFFF);
-    bool ret = write(mID, regType, reg, regData);
-    if (ret) {
-        LOG_INFO("写入 uint64 寄存器[0x{:04X}~0x{:04X}]: {} (0x{:016X})", reg, reg + 3, value, value);
-    } else {
-        LOG_ERROR("写入 uint64 寄存器失败[0x{:04X}~0x{:04X}]", reg, reg + 3);
-    }
-    return ret;
 }

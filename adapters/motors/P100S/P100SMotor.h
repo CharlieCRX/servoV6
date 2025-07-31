@@ -2,16 +2,11 @@
 #define P100S_MOTOR_H
 
 #include "IMotor.h"
-#include "IRegisterAccessor.h"  // 通信协议抽象接口
 
 class P100SMotor : public IMotor {
 public:
     P100SMotor() = default;
-    P100SMotor(IRegisterAccessor* accessor, int motorID);
     ~P100SMotor() override = default;
-
-    // 可随时绑定/切换协议与电机编号
-    void bind(IRegisterAccessor* accessor, int motorID);
 
     // 实现 IMotor 接口
     bool setRPM(double rpm) override;
@@ -26,7 +21,6 @@ public:
     double getCurrentRevolutions() const override;
 
 private:
-    IRegisterAccessor* reg_ = nullptr;
     int motorID_ = 0;
 
     // P100S 专属寄存器编号

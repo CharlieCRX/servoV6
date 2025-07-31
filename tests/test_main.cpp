@@ -6,8 +6,8 @@
 #include "test_p100smotor.h"
 
 // 定义想要运行的测试用例
-#define RUN_SERIAL_COMM_PROTOCOL_TEST  0
-#define RUN_P100S_MOTOR_TEST           1
+#define RUN_SERIAL_COMM_PROTOCOL_TEST  1
+#define RUN_P100S_MOTOR_TEST           0
 
 int main(int argc, char** argv)
 {
