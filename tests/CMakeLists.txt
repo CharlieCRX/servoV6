@@ -51,6 +51,7 @@ target_link_libraries(my_test_runner
     PRIVATE
         Qt6::Core             # Qt 核心模块，提供基本非 GUI 功能
         Qt6::Test             # Qt Test 框架库，用于编写单元测试
+        domain_impl
         application_lib       # 你的应用程序核心逻辑库（例如，可能包含业务逻辑）
         adapters_protocol_lib # 你的协议适配器库
         adapters_motors_lib   # 电机型号适配库
@@ -60,7 +61,6 @@ target_link_libraries(my_test_runner
         # Qt6::SerialPort     # 如果你的 SerialCommProtocol 使用 QtSerialPort 库，请取消注释。
         # Qt6::SerialBus      # 如果涉及串口总线通信，请取消注释。
         # Qt6::Network        # 如果测试中涉及网络通信，请取消注释。
-        domain_impl
 )
 
 # --- 添加头文件搜索路径 ---

@@ -7,9 +7,9 @@
 #include "test_serialcommprotocol.h"
 #include "test_p100smotor.h"
 
-#define RUN_MOTOR_REGISTER_ACCESSOR_TEST 1
+#define RUN_MOTOR_REGISTER_ACCESSOR_TEST 0
 #define RUN_SERIAL_COMM_PROTOCOL_TEST    0
-#define RUN_P100S_MOTOR_TEST             0
+#define RUN_P100S_MOTOR_TEST             1
 
 int main(int argc, char** argv)
 {
