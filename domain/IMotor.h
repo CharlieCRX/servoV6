@@ -6,8 +6,16 @@ class IMotor {
 public:
     virtual ~IMotor() = default; // Virtual destructor to ensure proper cleanup of derived objects
 
-    // 设定底层转速 (RPM)
-    virtual bool setRPM(double rpm) = 0;
+    // 设定点动转速 (RPM)
+    virtual bool setJogRPM(int rpm) = 0;
+    // 获取点动转速
+    virtual int getJogRPM() const = 0;
+
+    // 设定位置移动转速 (RPM)，范围：0~6000（整数）
+    virtual bool setMoveRPM(int rpm) = 0;
+    // 获取位置移动转速
+    virtual int getMoveRPM() const = 0;
+
     // 相对移动指定圈数
     virtual bool relativeMoveRevolutions(double revolutions) = 0;
     // 绝对移动到指定圈数位置

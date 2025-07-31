@@ -13,10 +13,44 @@ P100SMotor::P100SMotor(int motorID, MotorRegisterAccessor* regAccessor)
 P100SMotor::~P100SMotor() = default;
 
 
-bool P100SMotor::setRPM(double rpm)
-{
-    LOG_INFO("设置转速RPM: {}", rpm);
-    return false;
+bool P100SMotor::setJogRPM(int rpm) {
+    if (!checkRPMRange(rpm)) {
+        LOG_WARN("点动转速设置失败，超出范围: {}", rpm);
+        return false;
+    }
+
+    if (!writeUInt32(PA21_JogRPM, static_cast<uint32_t>(rpm))) {
+        LOG_ERROR("写入点动速度寄存器失败");
+        return false;
+    }
+
+    jogRPM_ = rpm;
+    LOG_INFO("设置点动转速为 {}", rpm);
+    return true;
+}
+
+int P100SMotor::getJogRPM() const {
+    return jogRPM_;
+}
+
+bool P100SMotor::setMoveRPM(int rpm) {
+    if (!checkRPMRange(rpm)) {
+        LOG_WARN("位置移动转速设置失败，超出范围: {}", rpm);
+        return false;
+    }
+
+    if (!writeUInt32(P4_4_MoveRPM, static_cast<uint32_t>(rpm))) {
+        LOG_ERROR("写入位置移动速度寄存器失败");
+        return false;
+    }
+
+    moveRPM_ = rpm;
+    LOG_INFO("设置位置移动转速为 {}", rpm);
+    return true;
+}
+
+int P100SMotor::getMoveRPM() const {
+    return moveRPM_;
 }
 
 bool P100SMotor::relativeMoveRevolutions(double revolutions)

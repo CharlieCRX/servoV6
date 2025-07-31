@@ -1,8 +1,7 @@
 # F:/project/servoV6/adapters/servos/CMakeLists.txt
 
 add_library(adapters_servos_lib STATIC
-    LinearServoAdapter.cpp
-    RotaryServoAdapter.cpp
+
 )
 
 # 设置公共包含目录
