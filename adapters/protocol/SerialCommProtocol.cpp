@@ -1,4 +1,5 @@
 #include "SerialCommProtocol.h"
+#include "RegisterType.h"
 #include "Logger.h"
 
 #include <QModbusDataUnit>

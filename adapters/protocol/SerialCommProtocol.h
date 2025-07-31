@@ -11,13 +11,6 @@
 #include <QTimer>
 #include <string>
 
-namespace RegisterType {
-const int COIL = 0;
-const int DISCRETE_INPUT = 1;
-const int HOLDING_REGISTER = 3;
-const int INPUT_REGISTER = 4;
-}
-
 class SerialCommProtocol : public ICommProtocol{
 public:
     SerialCommProtocol(QObject* parent = nullptr);

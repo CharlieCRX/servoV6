@@ -23,6 +23,8 @@ set(TEST_SOURCES
     test_serialcommprotocol.h # <-- 如果有新的测试类头文件（带Q_OBJECT），也要添加到这里
     test_p100smotor.cpp
     test_p100smotor.h
+    test_motorregisteraccessor.h
+    test_motorregisteraccessor.cpp
 )
 
 # --- 创建测试可执行文件 ---
@@ -58,7 +60,7 @@ target_link_libraries(my_test_runner
         # Qt6::SerialPort     # 如果你的 SerialCommProtocol 使用 QtSerialPort 库，请取消注释。
         # Qt6::SerialBus      # 如果涉及串口总线通信，请取消注释。
         # Qt6::Network        # 如果测试中涉及网络通信，请取消注释。
-        # domain_lib          # 如果你的项目有独立的 domain_lib，且测试依赖它，请取消注释。
+        domain_impl
 )
 
 # --- 添加头文件搜索路径 ---

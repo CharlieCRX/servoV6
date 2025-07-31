@@ -1,5 +1,6 @@
 #include "test_serialcommprotocol.h"
 #include "SerialCommProtocol.h"
+#include "RegisterType.h"
 
 // 测试此案例时候，请配置 P100S 的 PA71 参数为 5
 void SerialCommProtocolTest::defaultConstructor_shouldSetParametersCorrectly() {
