@@ -7,7 +7,7 @@
 class P100SMotor : public IMotor {
 public:
     explicit P100SMotor(int motorID, MotorRegisterAccessor* regAccessor);
-    ~P100SMotor() override = default;
+    ~P100SMotor() override;  // 只声明
 
     // 实现 IMotor 接口
     bool setRPM(double rpm) override;
