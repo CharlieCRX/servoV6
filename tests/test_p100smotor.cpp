@@ -6,7 +6,9 @@
 #include "MotorRegisterAccessor.h"
 #include "SerialCommProtocol.h"
 #include "P100S/P100SMotor.h"
-
+// 进行本测试之前，需要手动将 P100S 的伺服控制器设置为如下：
+/*  PA71 = 5
+ */
 void P100SMotorTest::positionAndReset_shouldWork()
 {
     // ✅ 初始化串口协议
@@ -48,7 +50,7 @@ void P100SMotorTest::setAndGetJogRPM_shouldWork()
     P100SMotor motor(motorID, &accessor);
 
     // 设置点动转速
-    const int testJogRPM = 3000;
+    const int testJogRPM = 50;
     QVERIFY2(motor.setJogRPM(testJogRPM), "设置点动转速失败");
 
     // 获取点动转速，断言正确

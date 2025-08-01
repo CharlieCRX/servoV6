@@ -79,7 +79,7 @@ int P100SMotor::getMoveRPM() const {
 bool P100SMotor::setAbsoluteTargetRevolutions(double rev) {
     this->targetRevolutions_ = rev;
     LOG_INFO("设置电机 {} 的绝对目标圈数为 {}。", rev, motorID_);
-    return true;
+    return false;
 }
 
 bool P100SMotor::setRelativeTargetRevolutions(double deltaRev) {
@@ -91,7 +91,7 @@ bool P100SMotor::setRelativeTargetRevolutions(double deltaRev) {
     }
     this->targetRevolutions_ = currentRev + deltaRev;
     LOG_INFO("设置电机 {} 的相对目标圈数 (增量: {}) 为绝对位置 {}。", deltaRev, this->targetRevolutions_, motorID_);
-    return true;
+    return false;
 }
 
 bool P100SMotor::triggerMove()
