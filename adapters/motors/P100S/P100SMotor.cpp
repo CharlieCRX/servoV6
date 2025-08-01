@@ -12,6 +12,7 @@ P100SMotor::P100SMotor(int motorID, MotorRegisterAccessor* regAccessor)
 }
 P100SMotor::~P100SMotor() = default;
 
+// ------------------- 点动控制 -------------------
 
 bool P100SMotor::setJogRPM(int rpm) {
     if (!checkRPMRange(rpm)) {
@@ -33,6 +34,27 @@ int P100SMotor::getJogRPM() const {
     return jogRPM_;
 }
 
+bool P100SMotor::startPositiveRPMJog()
+{
+    LOG_INFO("启动正向点动");
+    return false;
+}
+
+bool P100SMotor::startNegativeRPMJog()
+{
+    LOG_INFO("启动反向点动");
+    return false;
+}
+
+bool P100SMotor::stopRPMJog()
+{
+    LOG_INFO("停止点动");
+    return false;
+}
+
+
+// ------------------- 位置移动控制 -------------------
+
 bool P100SMotor::setMoveRPM(int rpm) {
     if (!checkRPMRange(rpm)) {
         LOG_WARN("位置移动转速设置失败，超出范围: {}", rpm);
@@ -53,35 +75,63 @@ int P100SMotor::getMoveRPM() const {
     return moveRPM_;
 }
 
-bool P100SMotor::relativeMoveRevolutions(double revolutions)
+
+bool P100SMotor::setAbsoluteTargetRevolutions(double rev) {
+    this->targetRevolutions_ = rev;
+    LOG_INFO("设置电机 {} 的绝对目标圈数为 {}。", rev, motorID_);
+    return true;
+}
+
+bool P100SMotor::setRelativeTargetRevolutions(double deltaRev) {
+    // 相对移动 = 当前位置 + 相对位移
+    double currentRev = getCurrentRevolutions();
+    if (currentRev == 0.0 && !isMoveDone()) {
+        LOG_WARN("电机正在运动或当前位置未知，无法设置相对目标。");
+        return false;
+    }
+    this->targetRevolutions_ = currentRev + deltaRev;
+    LOG_INFO("设置电机 {} 的相对目标圈数 (增量: {}) 为绝对位置 {}。", deltaRev, this->targetRevolutions_, motorID_);
+    return true;
+}
+
+bool P100SMotor::triggerMove()
 {
-    LOG_INFO("执行相对移动，圈数: {}", revolutions);
+    LOG_INFO("触发移动到绝对位置: 圈数={}, 圈内脉冲={}", 0, 0);
+
     return false;
 }
 
-bool P100SMotor::absoluteMoveRevolutions(double targetRevolutions)
+
+// ------------------- 状态监测 -------------------
+
+bool P100SMotor::waitMoveDone(int timeoutMs)
 {
-    LOG_INFO("执行绝对移动，目标圈数: {}", targetRevolutions);
+    int elapsed = 0;
+    const int pollIntervalMs = 10;
+    while (elapsed < timeoutMs) {
+        if (isMoveDone()) {
+            LOG_INFO("电机 {} 移动完成。", motorID_);
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(pollIntervalMs));
+        elapsed += pollIntervalMs;
+    }
+    LOG_WARN("电机 {} 移动超时 ({}ms)。", motorID_, timeoutMs);
     return false;
 }
 
-bool P100SMotor::startPositiveRPMJog()
+bool P100SMotor::isMoveDone() const
 {
-    LOG_INFO("启动正向点动");
     return false;
 }
 
-bool P100SMotor::startNegativeRPMJog()
+bool P100SMotor::isInPosition() const
 {
-    LOG_INFO("启动反向点动");
-    return false;
+    return isMoveDone();
 }
 
-bool P100SMotor::stopRPMJog()
-{
-    LOG_INFO("停止点动");
-    return false;
-}
+
+// ------------------- 位置操作 -------------------
 
 bool P100SMotor::goHome()
 {
