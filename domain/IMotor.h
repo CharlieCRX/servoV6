@@ -4,6 +4,10 @@
 class IMotor {
 public:
     virtual ~IMotor() = default;
+    // --- 电机使能 ---
+    virtual bool enable() = 0;
+    virtual bool disable() = 0;
+    virtual bool isEnabled() = 0;
 
     // --- 点动模式相关 ---
     virtual bool setJogRPM(int rpm) = 0;             // 设置点动转速（RPM）
