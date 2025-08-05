@@ -395,7 +395,7 @@ bool P100SMotor::sendMoveCommand(uint32_t revolutions, uint16_t pulses) {
         return false;
     }
 
-    // TO2.3：发送触发信号（CTRG上升沿）
+    // TO2.3：发送触发信号（CTRG上升沿有效）
     if (!writeUInt16(P3_31_VirtualInput, CLEAR_ALL_BITS)) {
         LOG_ERROR("电机{}清零 CTRG 触发信号失败", motorID_);
         return false;
