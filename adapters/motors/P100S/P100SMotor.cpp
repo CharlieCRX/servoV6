@@ -111,6 +111,7 @@ bool P100SMotor::stopRPMJog()
 {
     LOG_INFO("正在停止电机 {} 的点动...", motorID_);
 
+    // 1. 进入减速阶段：平稳停车
     uint16_t jogModeValue = VirtualInputBits::JOG_MODE_BIT;
     if (!writeUInt16(P3_31_VirtualInput, jogModeValue)) {
         LOG_ERROR("写入 JOG_MODE_BIT [0x{:04X}] 到 P3-31 失败，无法停止点动。", jogModeValue);
@@ -118,12 +119,8 @@ bool P100SMotor::stopRPMJog()
     }
     LOG_INFO("P3-31 已设置为 JogMode，电机 {} 正在减速。", motorID_);
 
-    uint16_t brakeToServoOffDelayMs = 0;
-    if (!readUInt16(PA47_BrakeDelay, brakeToServoOffDelayMs) || brakeToServoOffDelayMs == 0) {
-        LOG_WARN("读取 PA47 失败或其值为0。使用默认抱闸延迟 50ms。");
-        brakeToServoOffDelayMs = 5;
-    }
-    brakeToServoOffDelayMs *= 10;
+    // 2. 抱闸阶段：机械锁定
+    const uint16_t brakeToServoOffDelayMs = DEFAULT_BRAKE_DELAY_MS;
 
     uint16_t motorBrakeEngageSpeed = 0;
     if (!readUInt16(PA49_MinBrakeSpeed, motorBrakeEngageSpeed)) {
@@ -156,7 +153,8 @@ bool P100SMotor::stopRPMJog()
     LOG_INFO("电机 {} 正在等待 {} ms 以完成抱闸。", motorID_, brakeToServoOffDelayMs);
     QThread::msleep(brakeToServoOffDelayMs);
 
-    if (!writeUInt16(PA53_ServoEnable, 0)) {
+    // 3. 断电阶段：最终停止
+    if (!disable()) {
         LOG_ERROR("为电机 {} 写入 PA53=0 失败，无法断开伺服使能。", motorID_);
         return false;
     }
@@ -263,6 +261,13 @@ bool P100SMotor::waitMoveDone(int timeoutMs)
     int elapsed = 0;
     const int pollIntervalMs = 10;
     while (elapsed < timeoutMs) {
+        // 在每次轮询时，增加对电机使能状态的检查
+        // 如果电机不再使能，则认为运动被中断或紧急停止
+        if (!isEnabled()) {
+            LOG_WARN("电机 {} 移动等待被中断，因为伺服使能已断开。", motorID_);
+            return false;
+        }
+
         if (isMoveDone()) {
             LOG_INFO("电机 {} 位置移动完成。", motorID_);
             return true;
@@ -348,6 +353,24 @@ double P100SMotor::getCurrentRevolutions() const {
     LOG_INFO("电机[{}]当前旋转圈数: {:.5f} 转", motorID_, revolutions);
 
     return revolutions;
+}
+
+void P100SMotor::emergencyStop()
+{
+    LOG_CRITICAL("电机 {} 触发紧急停止！", motorID_);
+
+    // 1. 清空 P3-31 虚拟输入端子，立即停止所有运动指令
+    // 包括点动和位置移动的触发信号
+    if (!writeUInt16(P3_31_VirtualInput, CLEAR_ALL_BITS)) {
+        LOG_ERROR("清空P3-31虚拟输入端子失败。");
+    }
+
+    // 2. 断开伺服使能 (PA-53 = 0)，立即切断电机扭矩
+    if (!writeUInt16(PA53_ServoEnable, 0)) {
+        LOG_ERROR("为电机 {} 写入 PA53=0 失败，无法断开伺服使能。", motorID_);
+    }
+
+    LOG_CRITICAL("电机 {} 紧急停止操作完成。所有运动已中止，伺服使能已断开。", motorID_);
 }
 
 // 辅助函数：将浮点数圈数分解为P4-2和P4-3

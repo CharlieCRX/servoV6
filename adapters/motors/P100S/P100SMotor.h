@@ -12,6 +12,7 @@
 #define MOTOR_PULSES_PER_REVOLUTION (1 << PA95_ENCODER_RESOLUTION_EXP)
 // 指令脉冲分辨率 (131072 * 675 / 8192)
 #define COMMAND_PULSE_RESOLUTION (MOTOR_PULSES_PER_REVOLUTION * PA13_GEAR_DENOMINATOR / PA12_GEAR_NUMERATOR)
+#define DEFAULT_BRAKE_DELAY_MS 50
 
 class P100SMotor : public IMotor {
 public:
@@ -46,6 +47,8 @@ public:
     void wait(int ms) override;
     bool setCurrentPositionAsZero() override;
     double getCurrentRevolutions() const override;
+
+    void emergencyStop() override;
 
     // ID
     int motorID() const { return motorID_; }

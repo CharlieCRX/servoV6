@@ -25,12 +25,12 @@ public:
     virtual bool setRelativeTargetRevolutions(double deltaRev) = 0; // 设置相对目标位置（增量）
 
     // --- 触发内部位置移动 ---
-    virtual bool triggerMove() = 0;                  // 触发内部位置移动（相当于 DI 上升沿）
+    virtual bool triggerMove() = 0;                  // 触发内部位置移动
 
     // --- 移动完成判断 ---
     virtual bool waitMoveDone(int timeoutMs = 3000) = 0;  // 阻塞等待移动完成（可配置超时）
-    virtual bool isMoveDone() const = 0;             // 移动是否完成（CMDOK = 1）
-    virtual bool isInPosition() const = 0;           // 是否到达目标位置（COIN = 1）
+    virtual bool isMoveDone() const = 0;             // 移动是否完成
+    virtual bool isInPosition() const = 0;           // 是否到达目标位置
 
     // --- 位置控制辅助功能 ---
     virtual bool setCurrentPositionAsZero() = 0;     // 设置当前位置为原点（零位）
@@ -39,6 +39,7 @@ public:
     // --- 通用功能 ---
     virtual bool goHome() = 0;                       // 归零操作（可选）
     virtual void wait(int ms) = 0;                   // 延时等待
+    virtual void emergencyStop() = 0;                // 紧急停止
 };
 
 #endif // IMOTOR_H
