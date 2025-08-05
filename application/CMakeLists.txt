@@ -2,7 +2,6 @@
 
 add_library(application_lib STATIC
     BusinessLogic.cpp
-    MotorCommandExecutor.cpp
     # 如果还有其他属于 application 模块的 .cpp 文件，也在这里列出
 )
 

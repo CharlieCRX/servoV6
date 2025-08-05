@@ -1,10 +1,12 @@
 # F:/project/servoV6/adapters/servos/CMakeLists.txt
 
 add_library(adapters_servos_lib STATIC
-
+    # ... 其他源文件
+    GearRotaryAdapter.h
+    GearRotaryAdapter.cpp
 )
 
-# 设置公共包含目录
+# 设置公共包含目录，以便其他模块可以引用到这些头文件
 target_include_directories(adapters_servos_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 # 伺服适配器实现了 IServoAdapter，所以它依赖 domain_lib。

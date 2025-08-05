@@ -1,4 +1,4 @@
-// core/IServoAdapter.h (业务适配器接口)
+// domain/IServoAdapter.h (业务适配器接口)
 #ifndef ISERVO_ADAPTER_H
 #define ISERVO_ADAPTER_H
 
@@ -14,6 +14,8 @@ public:
     virtual void wait(int ms) = 0;
     virtual bool stopJog() = 0; // 停止点动，视为通用，因为停止是停止所有运动
     virtual bool setCurrentPositionAsZero() = 0;
+    virtual bool emergencyStop() = 0;
+    virtual bool initEnvironment() = 0;
 
     // 返回底层电机实例，供具体适配器实现调用
     virtual IMotor* getMotor() = 0;
@@ -40,7 +42,8 @@ public:
 
     virtual bool setAngularPositionSpeed(double degreesPerSec) = 0;
     virtual bool setAngularJogSpeed(double degreesPerSec) = 0;
-    virtual bool angularMove(double degrees) = 0;
+    virtual bool relativeAngularMove(double degrees) = 0;
+    virtual bool absoluteAngularMove(double targetDegrees) = 0;
     virtual bool startPositiveAngularJog() = 0;
     virtual bool startNegativeAngularJog() = 0;
     virtual double getCurrentAngleDegrees() const = 0;
