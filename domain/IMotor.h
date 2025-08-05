@@ -37,6 +37,7 @@ public:
     virtual double getCurrentRevolutions() const = 0; // 获取当前位置（单位：圈数）
 
     // --- 通用功能 ---
+    virtual bool initEnvironment() = 0;              // 初始化环境配置
     virtual bool goHome() = 0;                       // 归零操作（可选）
     virtual void wait(int ms) = 0;                   // 延时等待
     virtual void emergencyStop() = 0;                // 紧急停止

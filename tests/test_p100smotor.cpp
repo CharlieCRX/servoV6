@@ -260,6 +260,7 @@ void P100SMotorTest::testJog_StartAndStop()
     MotorRegisterAccessor accessor(&protocol);
     const int motorID = 5;
     P100SMotor motor(motorID, &accessor);
+    QVERIFY(motor.initEnvironment());
 
     // --- 步骤 2: 初始化和使能 ---
     QVERIFY(motor.enable());

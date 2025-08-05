@@ -14,14 +14,30 @@ P100SMotor::P100SMotor(int motorID, MotorRegisterAccessor* regAccessor)
 
 bool P100SMotor::enable()
 {
-    LOG_INFO("伺服使能");
-    return writeUInt16(PA53_ServoEnable, 1);
+    LOG_INFO("正在使能电机 {} ...", motorID_);
+
+    // 写入 1 到 PA53 寄存器以使能伺服
+    if (writeUInt16(PA53_ServoEnable, 1)) {
+        LOG_INFO("电机 {} 伺服使能成功。", motorID_);
+        return true;
+    } else {
+        LOG_ERROR("电机 {} 伺服使能失败。", motorID_);
+        return false;
+    }
 }
 
 bool P100SMotor::disable()
 {
-    LOG_INFO("伺服使能断开");
-    return writeUInt16(PA53_ServoEnable, 0);
+    LOG_INFO("正在断开电机 {} 的伺服使能...", motorID_);
+
+    // 写入 0 到 PA53 寄存器以断开伺服使能
+    if (writeUInt16(PA53_ServoEnable, 0)) {
+        LOG_INFO("电机 {} 伺服使能断开成功。", motorID_);
+        return true;
+    } else {
+        LOG_ERROR("电机 {} 伺服使能断开失败。", motorID_);
+        return false;
+    }
 }
 
 bool P100SMotor::isEnabled()
@@ -230,8 +246,8 @@ bool P100SMotor::triggerMove() {
         return false;
     }
 
-    // 等待1秒钟，确保驱动器处理完命令
-    wait(1000);
+    // 等待0.5秒钟，确保驱动器处理完命令
+    wait(500);
 
     // 步骤 3: 等待并处理移动结果
     // 假设给一个合理的超时时间，例如 10000ms
@@ -301,8 +317,23 @@ bool P100SMotor::isInPosition() const
 
 bool P100SMotor::goHome()
 {
-    LOG_INFO("回原点");
-    return false;
+    LOG_INFO("开始电机 {} 的回原点操作...", motorID_);
+
+    // 步骤 1: 设置绝对目标圈数为0
+    if (!setAbsoluteTargetRevolutions(0.0)) {
+        LOG_ERROR("电机 {} 设置回原点目标位置失败。", motorID_);
+        return false;
+    }
+
+    // 步骤 2: 触发移动命令，电机开始移动
+    if (!triggerMove()) {
+        LOG_ERROR("电机 {} 触发回原点移动命令失败。", motorID_);
+        return false;
+    }
+
+    // 如果所有步骤都成功，则回原点操作开始
+    LOG_INFO("电机 {} 回原点操作已成功启动。", motorID_);
+    return true;
 }
 
 void P100SMotor::wait(int ms)
@@ -359,18 +390,108 @@ void P100SMotor::emergencyStop()
 {
     LOG_CRITICAL("电机 {} 触发紧急停止！", motorID_);
 
-    // 1. 清空 P3-31 虚拟输入端子，立即停止所有运动指令
-    // 包括点动和位置移动的触发信号
-    if (!writeUInt16(P3_31_VirtualInput, CLEAR_ALL_BITS)) {
+    // 1. 向 P3-31 虚拟输入端子下发 内部位置控制命令停止
+    // 相当于取消点动并且终止位置移动
+    if (!writeUInt16(P3_31_VirtualInput, MOVE_HOLD_BIT)) {
         LOG_ERROR("清空P3-31虚拟输入端子失败。");
     }
 
+    wait(50);   // 延迟 50 ms，等待降速抱闸
+
     // 2. 断开伺服使能 (PA-53 = 0)，立即切断电机扭矩
-    if (!writeUInt16(PA53_ServoEnable, 0)) {
+    if (!disable()) {
         LOG_ERROR("为电机 {} 写入 PA53=0 失败，无法断开伺服使能。", motorID_);
     }
 
-    LOG_CRITICAL("电机 {} 紧急停止操作完成。所有运动已中止，伺服使能已断开。", motorID_);
+    // 3. 执行软复位，确保伺服从异常状态恢复
+    // 紧急停止后，伺服驱动器通常处于错误或需要复位的状态
+    if (!softReset()) {
+        LOG_ERROR("电机 {} 软复位失败。", motorID_);
+    }
+
+    LOG_CRITICAL("电机 {} 紧急停止操作完成。所有运动已中止，伺服使能已断开，并已尝试软复位。", motorID_);
+}
+
+bool P100SMotor::initEnvironment()
+{
+    LOG_INFO("开始初始化电机 {} 的所有环境配置...", motorID_);
+    // 0. 设置前确保伺服处于禁用状态
+    if (!disable()) {
+        LOG_ERROR("电机 {} 初始化结束时无法断开伺服使能。", motorID_);
+        return false;
+    }
+
+    // 1. 设置控制模式、指令方式和电子齿轮比
+    // PA4=3, PA14=3, PA11=0, PA12=131072/16, PA13=10800/16
+    if (!writeUInt16(PA4_MoveMode, 3) || !writeUInt16(PA14_PosCommandMode, 3) ||
+        !writeUInt16(PA11_CmdPulseRev, 0) ||
+        !writeUInt16(PA12_EleGearNum, PA12_GEAR_NUMERATOR) ||
+        !writeUInt16(PA13_EleGearDen, PA13_GEAR_DENOMINATOR)) {
+        LOG_ERROR("电机 {} 设置控制模式、指令方式或电子齿轮比失败。", motorID_);
+        return false;
+    }
+    LOG_INFO("电机 {} 设置控制模式、指令方式和电子齿轮比完成。", motorID_);
+
+    // 2. 设置虚拟输入模式和点动速度/来源
+    // P3_30 = 2, PA21 = 10, PA22 = 5
+    if (!writeUInt16(P3_30_VirtInputMode, 2) || !writeUInt16(PA21_JogRPM, 10) ||
+        !writeUInt16(PA22_JogSpeedSource, 5)) {
+        LOG_ERROR("电机 {} 设置DI模式、点动速度或速度来源失败。", motorID_);
+        return false;
+    }
+    LOG_INFO("电机 {} 设置DI配置为：混合输入模式；点动转速：10；速度来源：内部速度。", motorID_);
+
+    // 3. 设置加减速时间常数 (PA40, PA41, PA42)
+    if (!writeUInt16(PA40_AccTime, 500) ||
+        !writeUInt16(PA41_DecTime, 500) ||
+        !writeUInt16(PA42_ScurveTime, 500)) {
+        LOG_ERROR("电机 {} 设置加减速时间常数失败。", motorID_);
+        return false;
+    }
+    LOG_INFO("电机 {} 设置加减速时间常数 (PA40=500, PA41=500, PA42=500) 完成。", motorID_);
+
+    // 4. 设置刹车/抱闸相关配置 (PA47, PA48, PA49, PA94)
+    if (!writeUInt16(PA47_BrakeDelay, 10) || !writeUInt16(PA48_BrakeRunSet, 100) ||
+        !writeUInt16(PA49_MinBrakeSpeed, 60) || !writeUInt16(PA94_BrakeDelay, 0)) {
+        LOG_ERROR("电机 {} 设置刹车/抱闸配置失败。", motorID_);
+        return false;
+    }
+    LOG_INFO("电机 {} 设置刹车/抱闸配置完成。", motorID_);
+
+    // 5. 设置数字输出DO功能 (P3-20, P3-21, P3-22, P3-23)
+    if (!writeUInt16(P3_20_DO1Func, 5) || !writeUInt16(P3_21_DO2Func, 8) ||
+        !writeUInt16(P3_22_DO3Func, 0) || !writeUInt16(P3_23_DO4Func, 3)) {
+        LOG_ERROR("电机 {} 设置数字输出DO功能失败。", motorID_);
+        return false;
+    }
+    LOG_INFO("电机 {} 设置数字输出DO功能完成。", motorID_);
+
+    // 6. 设置虚拟DI功能定义 (P3-38~P3-42)
+    if (!writeUInt16(P3_38_DI1Func, 28) || !writeUInt16(P3_39_DI2Func, 16) ||
+        !writeUInt16(P3_40_DI3Func, 22) || !writeUInt16(P3_41_DI4Func, 23) ||
+        !writeUInt16(P3_42_DI5Func, 27)) {
+        LOG_ERROR("电机 {} 设置虚拟DI功能定义失败。", motorID_);
+        return false;
+    }
+    LOG_INFO("电机 {} 设置虚拟DI功能定义完成。", motorID_);
+
+    // 7. 设置绝对位置控制和编码器类型
+    // P4_0 = 0 (绝对位置指令), PA62 = 5 (多圈绝对值编码器)
+    if (!writeUInt16(PA62_EncoderType, 5) || !writeUInt16(P4_0_PositionMode, 0)) {
+        LOG_ERROR("电机 {} 设置绝对位置控制和编码器类型失败。", motorID_);
+        return false;
+    }
+    LOG_INFO("电机 {} 设置为：绝对式位置指令控制，并确认使用多圈绝对值编码器。", motorID_);
+
+    // 8. 设置单圈位置零点并复位多圈编码器
+    if (!writeUInt16(P3_36_SingleTurnZero, 1) || !writeUInt16(P3_34_ResetEncoderMultiTurns, 1)) {
+        LOG_ERROR("电机 {} 设置单圈零点或复位多圈编码器失败。", motorID_);
+        return false;
+    }
+    LOG_INFO("电机 {} 已设置单圈零点并复位多圈编码器。", motorID_);
+
+    LOG_INFO("电机 {} 所有环境配置已成功完成。", motorID_);
+    return true;
 }
 
 // 辅助函数：将浮点数圈数分解为P4-2和P4-3
@@ -428,6 +549,20 @@ bool P100SMotor::sendMoveCommand(uint32_t revolutions, uint16_t pulses) {
         return false;
     }
 
+    return true;
+}
+
+// P100SMotor.cpp 中修正后的方法实现
+bool P100SMotor::softReset() {
+    LOG_INFO("正在对电机 {} 执行软复位...", motorID_);
+
+    // 根据文档，向 PA60 写入 1 来触发软复位
+    if (!writeUInt16(PA60_ResetServo, 1)) {
+        LOG_ERROR("电机 {} 执行软复位失败。无法写入寄存器。", motorID_);
+        return false;
+    }
+
+    LOG_INFO("电机 {} 软复位命令已发送。系统将重新启动。", motorID_);
     return true;
 }
 
