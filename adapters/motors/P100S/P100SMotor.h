@@ -67,6 +67,11 @@ public: // 测试完毕后应改为 private ！
         // 点动控制参数
         PA21_JogRPM = 21,                      // 点动转速 (PA-21)
 
+        // 点动停止参数
+        PA47_BrakeDelay = 47,                  // 抱闸后延迟断电 (PA-47)
+        PA49_MinBrakeSpeed = 49,               // 抱闸时电机最小转速 (PA-49)
+        S0_CurrentSpeed = 0x1000,              // 当前转速 (S0)
+
         // 位置操作与状态
         P3_34_ResetEncoderMultiTurns = 0x122,  // 复位编码器多圈 (P3-34)
         P3_31_VirtualInput = 0x11F,            // 虚拟输入端口 (P3-31)，用于触发移动
@@ -78,6 +83,16 @@ public: // 测试完毕后应改为 private ！
 
         // 使能控制
         PA53_ServoEnable = 53,                 // 伺服使能 (PA-53)，写入1通电并准备执行
+    };
+
+    // 虚拟输入端子状态值 P3-31寄存器需要用到的值
+    enum VirtualInputBits : uint16_t {
+        CLEAR_ALL_BITS = 0x0000,             // 上升沿有效，所以初始化为全零状态
+        TRIGGER_MOVE   = 0x0001,             // bit0（DI1）: CTRG. 用于触发位置模式移动，与点动无关。此时bit1 = 0，为位置移动模式（CMODE OFF）
+        JOG_MODE_BIT   = 0x0002,             // bit1（DI2）: CMODE.点动模式（CMODE ON）
+        JOG_POS_BIT    = 0x0004,             // bit2（DI3）: JOGP. 正向点动
+        JOG_NEG_BIT    = 0x0008,             // bit3（DI4）: JOGN. 负向点动
+        MOVE_HOLD_BIT  = 0x0010,             // bit4（DI5）: HOLD. 内部位置控制命令停止
     };
 
     bool writeUInt32(uint32_t regAddr, uint32_t value);

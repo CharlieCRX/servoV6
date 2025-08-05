@@ -1,5 +1,7 @@
 #include "P100SMotor.h"
 #include "Logger.h"
+#include <QElapsedTimer>
+#include <QThread>
 
 P100SMotor::P100SMotor(int motorID, MotorRegisterAccessor* regAccessor)
     : motorID_(motorID), regAccessor_(regAccessor)
@@ -54,20 +56,113 @@ int P100SMotor::getJogRPM() const {
 
 bool P100SMotor::startPositiveRPMJog()
 {
-    LOG_INFO("启动正向点动");
-    return false;
+    // 步骤 0: 检查并使能电机
+    if (!isEnabled()) {
+        LOG_INFO("电机[{}]未使能，正在进行使能...", motorID_);
+        if (!enable()) {
+            LOG_ERROR("电机[{}]使能失败，无法执行移动命令", motorID_);
+            return false;
+        }
+    }
+
+    if (jogRPM_ == 0) {
+        LOG_WARN("点动转速为0，请先设置点动速度。");
+        return false;
+    }
+
+    uint16_t jogConfig = VirtualInputBits::JOG_MODE_BIT | VirtualInputBits::JOG_POS_BIT;
+    if (!writeUInt16(P3_31_VirtualInput, jogConfig)) {
+        LOG_ERROR("写入点动配置 [0x{:04X}] 到 P3-31 失败，无法启动正向点动。", jogConfig);
+        return false;
+    }
+
+    LOG_INFO("已启动电机 {} 的正向点动，转速：{} RPM", motorID_, jogRPM_);
+    return true;
 }
 
 bool P100SMotor::startNegativeRPMJog()
 {
-    LOG_INFO("启动反向点动");
-    return false;
+    // 步骤 0: 检查并使能电机
+    if (!isEnabled()) {
+        LOG_INFO("电机[{}]未使能，正在进行使能...", motorID_);
+        if (!enable()) {
+            LOG_ERROR("电机[{}]使能失败，无法执行移动命令", motorID_);
+            return false;
+        }
+    }
+
+    if (jogRPM_ == 0) {
+        LOG_WARN("点动转速为0，请先设置点动速度。");
+        return false;
+    }
+
+    uint16_t jogConfig = VirtualInputBits::JOG_MODE_BIT | VirtualInputBits::JOG_NEG_BIT;
+    if (!writeUInt16(P3_31_VirtualInput, jogConfig)) {
+        LOG_ERROR("写入点动配置 [0x{:04X}] 到 P3-31 失败，无法启动负向点动。", jogConfig);
+        return false;
+    }
+
+    LOG_INFO("已启动电机 {} 的负向点动，转速：{} RPM", motorID_, jogRPM_);
+    return true;
 }
+
 
 bool P100SMotor::stopRPMJog()
 {
-    LOG_INFO("停止点动");
-    return false;
+    LOG_INFO("正在停止电机 {} 的点动...", motorID_);
+
+    uint16_t jogModeValue = VirtualInputBits::JOG_MODE_BIT;
+    if (!writeUInt16(P3_31_VirtualInput, jogModeValue)) {
+        LOG_ERROR("写入 JOG_MODE_BIT [0x{:04X}] 到 P3-31 失败，无法停止点动。", jogModeValue);
+        return false;
+    }
+    LOG_INFO("P3-31 已设置为 JogMode，电机 {} 正在减速。", motorID_);
+
+    uint16_t brakeToServoOffDelayMs = 0;
+    if (!readUInt16(PA47_BrakeDelay, brakeToServoOffDelayMs) || brakeToServoOffDelayMs == 0) {
+        LOG_WARN("读取 PA47 失败或其值为0。使用默认抱闸延迟 50ms。");
+        brakeToServoOffDelayMs = 5;
+    }
+    brakeToServoOffDelayMs *= 10;
+
+    uint16_t motorBrakeEngageSpeed = 0;
+    if (!readUInt16(PA49_MinBrakeSpeed, motorBrakeEngageSpeed)) {
+        LOG_WARN("读取 PA49 失败。使用默认最小抱闸转速 50RPM。");
+        motorBrakeEngageSpeed = 50;
+    }
+    LOG_INFO("电机 {} 的抱闸参数：最小转速={} RPM，伺服断电延迟={} ms。", motorID_, motorBrakeEngageSpeed, brakeToServoOffDelayMs);
+
+    const int maxWaitTime = 5000;
+    QElapsedTimer timer;
+    timer.start();
+
+    while (timer.elapsed() < maxWaitTime) {
+        uint16_t currentSpeed = 0;
+        if (readUInt16(S0_CurrentSpeed, currentSpeed)) {
+            if (currentSpeed <= motorBrakeEngageSpeed) {
+                LOG_INFO("电机 {} 转速 ({} RPM) 已低于最小抱闸转速 ({} RPM)。", motorID_, currentSpeed, motorBrakeEngageSpeed);
+                break;
+            }
+        } else {
+            LOG_WARN("读取电机 {} 当前转速失败。正在重试...", motorID_);
+        }
+        QThread::msleep(100);
+    }
+
+    if (timer.elapsed() >= maxWaitTime) {
+        LOG_WARN("等待电机 {} 转速降至 {} RPM 以下超时。将继续执行伺服断电。", motorID_, motorBrakeEngageSpeed);
+    }
+
+    LOG_INFO("电机 {} 正在等待 {} ms 以完成抱闸。", motorID_, brakeToServoOffDelayMs);
+    QThread::msleep(brakeToServoOffDelayMs);
+
+    if (!writeUInt16(PA53_ServoEnable, 0)) {
+        LOG_ERROR("为电机 {} 写入 PA53=0 失败，无法断开伺服使能。", motorID_);
+        return false;
+    }
+    LOG_INFO("电机 {} 点动已停止。伺服使能已断开。", motorID_);
+
+    return true;
 }
 
 
@@ -301,11 +396,11 @@ bool P100SMotor::sendMoveCommand(uint32_t revolutions, uint16_t pulses) {
     }
 
     // TO2.3：发送触发信号（CTRG上升沿）
-    if (!writeUInt16(P3_31_VirtualInput, 0x0000)) {
+    if (!writeUInt16(P3_31_VirtualInput, CLEAR_ALL_BITS)) {
         LOG_ERROR("电机{}清零 CTRG 触发信号失败", motorID_);
         return false;
     }
-    if (!writeUInt16(P3_31_VirtualInput, 0x0001)) {
+    if (!writeUInt16(P3_31_VirtualInput, TRIGGER_MOVE)) {
         LOG_ERROR("电机{}置位 CTRG 触发信号失败", motorID_);
         return false;
     }

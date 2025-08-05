@@ -17,7 +17,8 @@ private slots:
 //    // 位置移动相关
 //    void prepareMoveParameters_shouldDecomposeCorrectly();
 //    void sendMoveCommand_shouldWriteCorrectRegisters();
-    void testFullPositionMove_AbsoluteAndRelative();
+//    void testFullPositionMove_AbsoluteAndRelative();
+    void testJog_StartAndStop();
 };
 
 #endif // TEST_P100SMOTOR_H

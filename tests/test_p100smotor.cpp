@@ -193,7 +193,65 @@
 //    protocol.close();
 //}
 
-void P100SMotorTest::testFullPositionMove_AbsoluteAndRelative()
+//void P100SMotorTest::testFullPositionMove_AbsoluteAndRelative()
+//{
+//    // --- 步骤 1: 准备测试环境 ---
+//    SerialCommProtocol protocol;
+//    QVERIFY(protocol.open("COM10", true));
+
+//    MotorRegisterAccessor accessor(&protocol);
+//    const int motorID = 5;
+//    P100SMotor motor(motorID, &accessor);
+
+//    // --- 步骤 2: 初始化和使能 ---
+//    // 设置移动速度，并验证是否成功写入
+//    const int testRPM = 100;
+//    QVERIFY(motor.setMoveRPM(testRPM));
+//    QCOMPARE(motor.getMoveRPM(), testRPM);
+
+//    // 使能电机
+//    QVERIFY(motor.enable());
+
+//    // 强制将当前位置设置为零，确保测试起点一致
+//    QVERIFY(motor.setCurrentPositionAsZero());
+
+//    // --- 步骤 3: 绝对位置移动测试 ---
+//    // 定义公差为 1/360 圈 (约等于 1 度)
+//    const double tolerance = 1.0 / 360.0;
+//    const double absoluteTargetRev = 1.568; // 目标移动到 1 圈
+
+//    // 设置绝对位置
+//    QVERIFY(motor.setAbsoluteTargetRevolutions(absoluteTargetRev));
+
+//    // 触发移动并等待完成
+//    QVERIFY2(motor.triggerMove(), "Absolute move failed to trigger or complete!");
+
+//    // 验证最终位置是否接近目标位置，公差为 1 度
+//    double currentRevolutions1 = motor.getCurrentRevolutions();
+//    QVERIFY2(qAbs(currentRevolutions1 - absoluteTargetRev) <= tolerance,
+//             "Absolute position verification failed! Current position is not within 1 degree tolerance.");
+
+//    // --- 步骤 4: 相对位置移动测试 ---
+//    const double relativeDeltaRev = -2.365; // 从当前位置再移动 1 圈
+//    const double expectedFinalRev = absoluteTargetRev + relativeDeltaRev; // 预期最终位置
+
+//    // 设置相对位置
+//    QVERIFY(motor.setRelativeTargetRevolutions(relativeDeltaRev));
+
+//    // 触发移动并等待完成
+//    QVERIFY2(motor.triggerMove(), "Relative move failed to trigger or complete!");
+
+//    // 验证最终位置是否接近预期位置，公差为 1 度
+//    double currentRevolutions2 = motor.getCurrentRevolutions();
+//    QVERIFY2(qAbs(currentRevolutions2 - expectedFinalRev) <= tolerance,
+//             "Relative position verification failed! Current position is not within 1 degree tolerance.");
+
+//    // --- 步骤 5: 清理 ---
+//    protocol.close();
+//}
+
+
+void P100SMotorTest::testJog_StartAndStop()
 {
     // --- 步骤 1: 准备测试环境 ---
     SerialCommProtocol protocol;
@@ -204,48 +262,53 @@ void P100SMotorTest::testFullPositionMove_AbsoluteAndRelative()
     P100SMotor motor(motorID, &accessor);
 
     // --- 步骤 2: 初始化和使能 ---
-    // 设置移动速度，并验证是否成功写入
-    const int testRPM = 100;
-    QVERIFY(motor.setMoveRPM(testRPM));
-    QCOMPARE(motor.getMoveRPM(), testRPM);
-
-    // 使能电机
     QVERIFY(motor.enable());
-
-    // 强制将当前位置设置为零，确保测试起点一致
+    QVERIFY(motor.setJogRPM(50));
     QVERIFY(motor.setCurrentPositionAsZero());
 
-    // --- 步骤 3: 绝对位置移动测试 ---
-    // 定义公差为 1/360 圈 (约等于 1 度)
-    const double tolerance = 1.0 / 360.0;
-    const double absoluteTargetRev = 1.568; // 目标移动到 1 圈
+    // --- 步骤 3: 启动正向点动测试 ---
+    qWarning("Starting positive jog test. The motor will move for 2 seconds.");
+    QVERIFY2(motor.startPositiveRPMJog(), "Failed to start positive jog!");
 
-    // 设置绝对位置
-    QVERIFY(motor.setAbsoluteTargetRevolutions(absoluteTargetRev));
+    QThread::msleep(2000);
 
-    // 触发移动并等待完成
-    QVERIFY2(motor.triggerMove(), "Absolute move failed to trigger or complete!");
+    double positionAfterStart = motor.getCurrentRevolutions();
+    QVERIFY2(qAbs(positionAfterStart) > 0.0, "Motor did not move during positive jog.");
 
-    // 验证最终位置是否接近目标位置，公差为 1 度
-    double currentRevolutions1 = motor.getCurrentRevolutions();
-    QVERIFY2(qAbs(currentRevolutions1 - absoluteTargetRev) <= tolerance,
-             "Absolute position verification failed! Current position is not within 1 degree tolerance.");
+    // --- 步骤 4: 停止点动测试 ---
+    qWarning("Stopping the jog movement. The motor should brake and stop.");
+    QVERIFY2(motor.stopRPMJog(), "Failed to stop jog!");
 
-    // --- 步骤 4: 相对位置移动测试 ---
-    const double relativeDeltaRev = -2.365; // 从当前位置再移动 1 圈
-    const double expectedFinalRev = absoluteTargetRev + relativeDeltaRev; // 预期最终位置
+    QThread::msleep(1000); // 假设停止过程需要 1 秒
 
-    // 设置相对位置
-    QVERIFY(motor.setRelativeTargetRevolutions(relativeDeltaRev));
+    double positionAfterStop1 = motor.getCurrentRevolutions();
+    QThread::msleep(500);
+    double positionAfterStop2 = motor.getCurrentRevolutions();
 
-    // 触发移动并等待完成
-    QVERIFY2(motor.triggerMove(), "Relative move failed to trigger or complete!");
+    const double tolerance = 0.001;
+    QVERIFY2(qAbs(positionAfterStop2 - positionAfterStop1) <= tolerance,
+             "Motor position continued to change after jog stop!");
 
-    // 验证最终位置是否接近预期位置，公差为 1 度
-    double currentRevolutions2 = motor.getCurrentRevolutions();
-    QVERIFY2(qAbs(currentRevolutions2 - expectedFinalRev) <= tolerance,
-             "Relative position verification failed! Current position is not within 1 degree tolerance.");
+    // --- 步骤 5: 启动负向点动测试 ---
+    qWarning("Starting negative jog test. The motor will move in the opposite direction for 2 seconds.");
+    QVERIFY2(motor.startNegativeRPMJog(), "Failed to start negative jog!");
 
-    // --- 步骤 5: 清理 ---
+    QThread::msleep(2000);
+
+    double positionAfterNegativeJog = motor.getCurrentRevolutions();
+    QVERIFY2(positionAfterNegativeJog < positionAfterStop2, "Motor did not move in the negative direction.");
+
+    // --- 步骤 6: 再次停止点动并清理 ---
+    qWarning("Stopping the negative jog movement.");
+    QVERIFY2(motor.stopRPMJog(), "Failed to stop negative jog!");
+
+    QThread::msleep(1000);
+
+    double finalPosition1 = motor.getCurrentRevolutions();
+    QThread::msleep(500);
+    double finalPosition2 = motor.getCurrentRevolutions();
+    QVERIFY2(qAbs(finalPosition2 - finalPosition1) <= tolerance,
+             "Motor position continued to change after final jog stop!");
+
     protocol.close();
 }
