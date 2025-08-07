@@ -148,3 +148,37 @@ bool MotorRegisterAccessor::writeRegBlock(int32_t motorID, uint32_t startAddr, c
     regData.data.assign(values, values + count);
     return m_protocol->write(motorID, RegisterType::HOLDING_REGISTER, startAddr, regData);
 }
+
+bool MotorRegisterAccessor::writeReg(int32_t motorID, int regType, uint32_t regAddr, uint64_t value, size_t wordCount) {
+    auto registers = splitToRegisters(value, wordCount);
+    RegisterBlock regData;
+    regData.data = registers;
+
+    bool ret = m_protocol->write(motorID, regType, regAddr, regData);
+    if (ret) {
+        LOG_INFO("写入寄存器 类型={} [0x{:04X}~0x{:04X}]: 值=0x{:016X}",
+                 regType, regAddr, regAddr + wordCount - 1, value);
+    } else {
+        LOG_ERROR("写入寄存器失败 类型={} [0x{:04X}~0x{:04X}]",
+                  regType, regAddr, regAddr + wordCount - 1);
+    }
+    return ret;
+}
+
+bool MotorRegisterAccessor::readReg(int32_t motorID, int regType, uint32_t regAddr, uint64_t& outVal, size_t wordCount) {
+    RegisterBlock regData;
+    if (!m_protocol->read(motorID, regType, regAddr, regAddr + wordCount - 1, regData)) {
+        return false;
+    }
+    if (regData.data.size() < wordCount) {
+        LOG_ERROR("读取寄存器 类型={} [0x{:04X}~0x{:04X}] 返回数据不足",
+                  regType, regAddr, regAddr + wordCount - 1);
+        return false;
+    }
+
+    outVal = combineRegistersTo64(regData.data);
+    LOG_INFO("读取寄存器 类型={} [0x{:04X}~0x{:04X}]: 值=0x{:016X}",
+             regType, regAddr, regAddr + wordCount - 1, outVal);
+    return true;
+}
+

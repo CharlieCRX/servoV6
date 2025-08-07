@@ -23,6 +23,7 @@ set(TEST_SOURCES
     test_p100smotor.h test_p100smotor.cpp
     test_motorregisteraccessor.h test_motorregisteraccessor.cpp
     test_gear_rotary_adapter.h test_gear_rotary_adapter.cpp
+    RelayIOModuleTest.h RelayIOModuleTest.cpp
 )
 
 # --- 创建测试可执行文件 ---

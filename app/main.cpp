@@ -1,9 +1,11 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
+#include <QQmlContext>
 #include <QDir>
 #include <QStandardPaths> // For QStandardPaths::writableLocation
 #include <Logger.h>  // For your custom Logger
 #include <spdlog/spdlog.h> // For the full spdlog definition
+#include "RelayIO/RelayController.h"
 
 int main(int argc, char *argv[])
 {
@@ -35,12 +37,18 @@ int main(int argc, char *argv[])
 
     LOG_INFO("Application started."); // Now you can log from the very beginning
 
-    // --- Choose ONE QML loading method ---
-    // Option 1: Load from QML module (usually preferred with qt_add_qml_module in CMake)
+    // 创建 RelayController 实例
+    RelayController relayController;
+
+    // 绑定 RelayController 到 QML，QML里用对象名 "relayCtrl" 访问
+    engine.rootContext()->setContextProperty("relayCtrl", &relayController);
+
+    // 加载 QML
     engine.loadFromModule("servoV6", "Main");
     LOG_INFO("QML engine loaded.");
 
-    int exitCode = app.exec(); // This starts the Qt event loop
+    int exitCode = app.exec();
+
     LOG_INFO("Application exiting with code: {}", exitCode);
-    return exitCode; // This is the correct return for app.exec()
+    return exitCode;
 }

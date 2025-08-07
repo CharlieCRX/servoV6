@@ -21,6 +21,12 @@ public:
     bool readRegBlock(int32_t motorID, uint32_t startAddr, uint16_t* buffer, size_t count);
     bool writeRegBlock(int32_t motorID, uint32_t startAddr, const uint16_t* values, size_t count);
 
+
+    // 允许指定寄存器类型的 16/32/64 位读写操作
+    bool writeReg(int32_t motorID, int regType, uint32_t regAddr, uint64_t value, size_t wordCount);
+    bool readReg(int32_t motorID, int regType, uint32_t regAddr, uint64_t& outVal, size_t wordCount);
+
+
 private:
     ICommProtocol* m_protocol; // 协议实现（不拥有所有权）
 
