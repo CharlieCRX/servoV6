@@ -1,163 +1,170 @@
-拉取完项目主仓库之后（比如 `git clone` 完成后），请运行以下命令：
-
-```bash
-git submodule update --init --recursive
-```
-
-含义解释：
-
-- `--init`: 初始化子模块（即 `.gitmodules` 中定义的路径）
-- `--recursive`: 如果子模块中还有子模块，也会一并拉取（`spdlog` 没有，但好习惯）
-
 ------
 
-## 🔷 顶层目录结构
+# servoV6
 
-```bash
+> **现代 C++ 驱动的通用伺服控制框架**  
+> 支持多种伺服电机、通信协议与控制模式的模块化运动控制系统，适用于测试平台、设备开发和自动化控制场景。
+
+---
+
+## 🧱 项目结构
+
+```
 servoV6/
-├── adapters/            # ✅ 适配器层，组合功能+型号+协议
-├── app/                 # 🚀 程序入口 + Qt前端
-├── application/         # 🧠 核心业务逻辑（调度/执行）
-├── build/               # ⚙️ 构建输出目录（由 Qt Creator 生成）
-├── domain/              # 📐 领域模型定义（接口、抽象命令）
-├── external/            # 📦 外部依赖（spdlog 等）
-├── tests/               # ✅ 单元测试
-├── utils/               # 🔧 工具类（日志等）
-├── CMakeLists.txt*      # 构建配置
-├── README.md            # 项目说明
+ ├── app/                 # 程序入口与 QML 界面
+ ├── application/         # 业务逻辑调度层
+ ├── domain/              # 核心接口与命令模型（无具体实现）
+ ├── adapters/            # 各类电机、IO模块、协议的具体适配器
+ │   ├── motors/            # 电机类型（如 P100S）
+ │   ├── protocol/          # 通信协议实现（如串口）
+ │   └── servos/            # 高阶伺服控制逻辑（含减速比换算等）
+ ├── utils/               # 日志等通用工具
+ ├── tests/               # 模块测试
+ ├── CMakeLists.txt       # CMake 构建配置
+ └── README.md            # 本说明文档
 ```
 
-------
+---
 
-## 🧩 模块功能详解
+## ✨ 功能亮点
 
-### 1. `adapters/`：**适配器分层组合模块**
+- ✅ **抽象解耦架构**：采用 `domain → application → adapters` 分层设计，逻辑与实现完全解耦
+- ✅ **类型安全命令模型**：使用 `std::variant` 与访问者模式组合实现命令分发与执行
+- ✅ **支持多种电机/协议**：通过接口适配器机制支持不同电机型号与通信协议
+- ✅ **可测试性强**：各模块支持单元测试与 mock 注入
+- ✅ **界面友好**：集成 QML 实现控制界面（可选）
+
+---
+
+## ⚙️ 架构概览
+
+### 核心模块说明
+
+| 模块           | 说明                                                         |
+| -------------- | ------------------------------------------------------------ |
+| `domain/`      | 定义接口与命令模型（`IMotor`, `IServoAdapter`, `MovementCommand` 等）<br>是系统中所有交互的“契约层”，不包含任何实现 |
+| `application/` | 包含 `BusinessLogic` 和 `MotorCommandExecutor`，是命令调度与控制的“大脑”，基于 `CommandVisitor` 模式运行 |
+| `adapters/`    | 实现硬件适配，包括：<br>• `motors/`: 如 `P100S`<br>• `protocol/`: 如串口协议<br>• `servos/`: 高阶伺服策略（如带减速比换算） |
+| `tests/`       | 针对各个模块的单元测试                                       |
+| `utils/`       | 提供日志功能等通用模块                                       |
+
+---
+
+## 🚀 快速开始
+
+### 构建要求
+
+- CMake 3.16+
+- C++17 编译器（如 GCC 9+ / Clang 10+ / MSVC 2019+）
+- Qt 6（用于 GUI，可选）
+
+### 构建项目
 
 ```bash
-adapters/
-├── ServoAdapterFactory.*  # 工厂类：根据功能+型号+协议创建 ServoAdapter
-├── motors/                # 电机型号（IMotor）相关实现
-├── protocol/              # 通信协议实现（Modbus/Bluetooth...）
-└── servos/                # ServoAdapter 的功能实现（旋转/线性等）
+git clone https://github.com/your-org/servoV6.git
+cd servoV6
+mkdir build && cd build
+cmake ..
+cmake --build .
 ```
 
-#### ✅ 模块职责
-
-- 解耦「型号（硬件特性）」←→「功能（业务需求）」←→「协议（通讯方式）」
-- 将三者组合成统一的 `IServoAdapter` 实例
-
-------
-
-### 2. `app/`：**程序入口 + Qt前端**
+### 运行程序
 
 ```bash
-app/
-├── main.cpp       # Qt 应用程序入口
-└── qml/           # QML 界面（可能用于配置或显示电机状态）
+./servoV6
 ```
-
-#### ✅ 模块职责
-
-- 初始化 Qt 应用
-- 创建 GUI 界面
-- 调用 `BusinessLogic` 实现系统功能
 
 ------
 
-### 3. `application/`：**业务控制逻辑**
+## 📦 命令模型与下发流程
+
+1. 用户构建一个命令序列 `CommandSequence`（如：旋转90度 + 设置速度）
+2. 调用 `BusinessLogic::executeCommandSequence(motorID, commands)`
+3. 使用 `std::visit` 结合 `MotorCommandExecutor` 实现命令分发
+4. 分发至 `IServoAdapter` 实现类（如 `GearRotaryAdapter`），进行单位转换等处理
+5. 调用 `IMotor` → `ICommProtocol`，最终下发至电机
+
+> 示例命令：
+
+```cpp
+CommandSequence sequence = {
+  RelativeAngularMove{90.0},
+  SetPositionSpeed{30.0}
+};
+businessLogic.executeCommandSequence("MOTOR_1", sequence);
+```
+
+------
+
+## 🧪 测试方法
 
 ```bash
-application/
-├── BusinessLogic.*         # 系统调度器，执行多个电机动作的逻辑入口
-├── MotorCommandExecutor.*  # 具体执行控制逻辑，驱动 ServoAdapter
+cd build
+ctest --verbose
 ```
 
-#### ✅ 模块职责
-
-- 管理指令序列（命令队列/系统状态机）
-- 执行单个或批量电机动作（控制速度、位置等）
-
-------
-
-### 4. `domain/`：**核心领域接口**
+或直接运行测试可执行文件：
 
 ```bash
-domain/
-├── IMotor.h           # 电机型号接口（定义圈数、速度等硬件特性）
-├── IServoAdapter.h    # 功能接口（线性/旋转等）
-├── ICommProtocol.h    # 通信接口（读写寄存器）
-├── MovementCommand.h  # 电机动作指令
-├── CommandVisitor.h   # 指令访问器（Visitor 模式）
-```
-
-#### ✅ 模块职责
-
-- 所有业务接口定义于此，**不依赖任何实现**
-- 上层逻辑通过接口驱动系统，确保解耦与可测试性
-
-------
-
-### 5. `utils/`：**工具模块**
-
-```bash
-utils/
-├── Logger.*           # 封装 spdlog 日志接口
-```
-
-#### ✅ 模块职责
-
-- 提供系统通用工具，如日志、时间戳、配置读取等
-
-------
-
-### 6. `tests/`：**测试模块**
-
-```bash
-tests/
-├── mocks/                  # 模拟接口，用于脱离硬件测试
-├── test_adapter.cpp        # 测试 servos/motors/protocol 的组合
-├── test_motor.cpp          # 测试单个电机的接口行为
-├── test_businesslogic.cpp  # 测试业务逻辑
-├── test_main.cpp           # 启动测试（可能为集成测试）
-```
-
-#### ✅ 模块职责
-
-- 按照模块拆分测试内容
-- 使用 mock 实现与硬件解耦
-- 测试覆盖 adapter / application / domain 等核心路径
-
-------
-
-### 7. `build/`：**构建输出目录（由 Qt Creator 自动生成）**
-
-```bash
-build/
-└── Desktop_Qt_6_9_0_MinGW_64_bit-Debug/
-```
-
-> ⚠️ 不建议将 `build/` 放入版本控制（可添加 `.gitignore`）
-
-------
-
-### 8. 顶层文件
-
-```
-CMakeLists.txt        # 总构建文件
-CMakeLists.txt.user   # Qt Creator IDE 配置文件（可忽略）
-README.md             # 项目说明文档
+./tests/test_motorregisteraccessor
 ```
 
 ------
 
-## 🔚 总结建议
+## 📁 示例：P100S 电机驱动适配器
 
-| 模块名                  | 描述                                  | 建议                     |
-| ----------------------- | ------------------------------------- | ------------------------ |
-| `adapters/`             | 组合协议 + 功能 + 型号                | 结构优，已工厂封装       |
-| `application/`          | 调度器 + 执行器，连接业务与接口       | 可扩展为支持更多命令     |
-| `domain/`               | 接口抽象层                            | 保持纯净不引入依赖       |
-| `tests/`                | 分模块测试                            | 可继续扩展 mock 自动生成 |
-| `utils/`                | 通用代码复用模块                      | 可加入配置/时间工具等    |
-| `infrastructure/`（缺） | 串口/蓝牙等平台相关实现               | 建议加入此目录放底层依赖 |
-| `systems/`（可选）      | MotorSystemManager 之类的系统配置模块 | 用于封装初始化流程       |
+路径：`adapters/motors/P100S/`
+
+职责：
+
+- 实现 `IMotor` 接口，控制 P100S 电机
+- 将目标位置、速度等业务数据转换为寄存器指令
+- 使用 `MotorRegisterAccessor` 写入寄存器，通过 `SerialCommProtocol` 通信
+
+------
+
+## 📁 示例：串口通信协议实现
+
+路径：`adapters/protocol/SerialCommProtocol.{h,cpp}`
+
+职责：
+
+- 实现 `ICommProtocol` 接口
+- 将电机寄存器命令打包为数据帧
+- 使用串口 API 完成数据发送与接收
+
+------
+
+## 🔩 可扩展性设计
+
+添加新电机型号，只需：
+
+1. 创建新类实现 `IMotor`
+2. 在 `ServoAdapterFactory` 中注册该类
+3. 无需修改其他模块（符合开放-封闭原则）
+
+添加新命令，只需：
+
+1. 在 `MovementCommand.h` 中定义新结构
+2. 在 `Command` variant 中添加新类型
+3. 在 `MotorCommandExecutor` 中实现对应 `visit()` 方法
+
+------
+
+## 📚 参考设计模式
+
+- 抽象工厂模式（适配器创建）
+- 命令模式（命令结构体 + 执行）
+- 访问者模式（CommandVisitor）
+- 依赖倒置原则（仅依赖接口）
+- 开放-封闭原则（扩展不修改）
+
+------
+
+## 📞 联系与贡献
+
+如需贡献，请 Fork 后提交 PR，或联系维护者。
+
+------
+
+© 2025 servoV6 项目组。保留所有权利。

@@ -6,7 +6,7 @@
 RelayController::RelayController(QObject *parent)
     : QObject(parent)
 {
-    m_protocol = new SerialCommProtocol(38400, 8, 1, QSerialPort::NoFlowControl, QSerialPort::NoParity, this);
+    m_protocol = new SerialCommProtocol(9600, 8, 1, QSerialPort::NoFlowControl, QSerialPort::NoParity, this);
     m_accessor = new MotorRegisterAccessor(m_protocol);
     m_relayModule = new RelayIOModule(m_accessor, m_slaveId, 0); // 0为基地址，可改
 }
