@@ -2,6 +2,7 @@
 
 add_library(utils_lib
     Logger.cpp
+    Setting.h Setting.cpp
 )
 
 # 设置 utils_lib 的公共头文件目录
@@ -13,7 +14,7 @@ target_include_directories(utils_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # 由于 Logger.h 可能会暴露 spdlog 的类型（如 std::shared_ptr<spdlog::logger>），
 # 并且其他模块通过 utils_lib::utils_lib 使用日志功能，
 # 所以这里将 spdlog::spdlog 设为 PUBLIC，确保依赖正确传递。
-target_link_libraries(utils_lib PUBLIC spdlog::spdlog)
+target_link_libraries(utils_lib PUBLIC spdlog::spdlog nlohmann_json::nlohmann_json)
 
 # 如果你希望其他项目能够通过 find_package 找到 utils_lib
 # 并且它是一个通用的独立库，你可以添加安装和导出规则。
