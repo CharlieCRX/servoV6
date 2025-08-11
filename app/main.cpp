@@ -7,6 +7,11 @@
 #include <spdlog/spdlog.h> // For the full spdlog definition
 #include "RelayIO/RelayController.h"
 
+
+// 可选：根据配置来选择使用哪种协议和QML界面
+// 设为 1 使用蓝牙协议和 Bluetooth.qml
+// 设为 0 使用串口协议和 Main.qml
+#define USE_BLUETOOTH_PROTOCOL 1
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
@@ -20,17 +25,27 @@ int main(int argc, char *argv[])
         []() { QCoreApplication::exit(-1); },
         Qt::QueuedConnection);
 
-    // --- LOGGING SYSTEM INITIALIZATION (moved up for early logging) ---
-    QString logDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-    QDir dir;
-    if (!dir.mkpath(logDir)) {
+    // --- 日志系统初始化 ---
+    QString logDir;
+
+    // 使用预处理宏，根据平台设置日志目录
+#ifdef Q_OS_ANDROID
+    logDir = logDir = "/storage/emulated/0/Documents/servoV6";
+
+#else
+    // 对于非Android平台（如 Windows, Linux, macOS），使用应用本地数据目录
+    logDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/servoV6";
+#endif
+    QDir dir(logDir);
+    if (!dir.mkpath(".")) {
         qWarning() << "Failed to create log directory:" << logDir;
-        logDir = QDir::currentPath(); // Fallback to current path if creation fails
+        // 如果创建失败，回退到应用私有目录以确保日志功能可用
+        logDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/log";
+        dir.mkpath(logDir);
     }
+
     QString logFilePath = logDir + "/application.log";
     Logger::getInstance().init(logFilePath.toStdString(), "debug");
-    // --- 在这里添加一个启动分隔符日志 ---
-    // 打印一个包含当前时间的分隔符，用于区分每次应用启动的日志
     LOG_INFO("------------------------------------------------------------");
     LOG_INFO("ServoV6 Application Started: {}", QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss").toStdString());
     LOG_INFO("------------------------------------------------------------");
