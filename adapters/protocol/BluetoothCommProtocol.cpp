@@ -1,6 +1,5 @@
-// F:/project/servoV6/adapters/protocol/BluetoothCommProtocol.cpp
 #include "BluetoothCommProtocol.h"
-#include "Logger.h" // 包含日志头文件
+#include "Logger.h"
 #include <QBluetoothAddress>
 #include <QBluetoothUuid>
 
@@ -40,23 +39,23 @@ bool BluetoothCommProtocol::open(const std::string& deviceName, bool reOpen) {
         close();
     }
 
-    // 如果指定了设备名称，则直接尝试连接
-    if (!deviceName.empty()) {
-        QBluetoothAddress address(QString::fromStdString(deviceName));
-        if (address.isNull()) {
-            LOG_ERROR("设备名称 '{}' 不是一个有效的蓝牙地址。", deviceName);
-            return false;
-        }
-        LOG_INFO("尝试连接指定蓝牙设备：{}", deviceName);
-        m_socket->connectToService(address, serviceUuid);
-        m_isOpened = true; // 标志已发起连接
-        return true;
+    std::string targetDevice = deviceName;
+    if (targetDevice.empty()) {
+        // 如果没有指定设备名称，则使用默认的MAC地址
+        LOG_INFO("未指定设备名称，尝试连接默认蓝牙设备：{}", m_defaultDeviceMacAddress);
+        targetDevice = m_defaultDeviceMacAddress;
     }
 
-    // 如果没有指定设备名称，则开始扫描
-    LOG_INFO("未指定设备，开始扫描设备名称以 '{}' 为前缀的蓝牙设备。", m_targetDeviceNamePrefix);
-    m_discoveryAgent->start();
-    return true; // 扫描操作已发起
+    QBluetoothAddress address(QString::fromStdString(targetDevice));
+    if (address.isNull()) {
+        LOG_ERROR("设备地址 '{}' 无效，无法建立连接。", targetDevice);
+        return false;
+    }
+
+    LOG_INFO("尝试连接指定蓝牙设备：{}", targetDevice);
+    m_socket->connectToService(address, serviceUuid);
+    m_isOpened = true; // 标志已发起连接
+    return true;
 }
 
 void BluetoothCommProtocol::close() {
@@ -160,24 +159,11 @@ void BluetoothCommProtocol::onErrorOccurred(QBluetoothSocket::SocketError error)
     LOG_ERROR("蓝牙套接字发生错误: {}", m_socket->errorString().toStdString());
 }
 
-// 新增槽函数：当发现设备时调用
 void BluetoothCommProtocol::deviceDiscovered(const QBluetoothDeviceInfo &device) {
-    LOG_DEBUG("发现设备：{} ({})", device.name().toStdString(), device.address().toString().toStdString());
-
-    // 检查设备名称是否以指定前缀开头
-    if (device.name().startsWith(QString::fromStdString(m_targetDeviceNamePrefix))) {
-        LOG_INFO("找到目标设备 '{}'，地址：{}。停止扫描并尝试连接。",
-                 device.name().toStdString(), device.address().toString().toStdString());
-
-        m_discoveryAgent->stop(); // 找到目标设备后停止扫描
-        m_socket->connectToService(device.address(), serviceUuid);
-        m_isOpened = true; // 标志已发起连接
-    }
+    // 这个方法不再需要，因为我们现在直接使用默认的MAC地址来连接。
+    // 如果你在 open 方法中不传任何参数，它会直接跳过设备扫描。
 }
 
-// 新增槽函数：当扫描完成时调用
 void BluetoothCommProtocol::deviceScanFinished() {
-    if (!m_isOpened) {
-        LOG_ERROR("设备扫描完成，但未找到匹配的设备。无法建立连接。");
-    }
+    // 这个方法不再需要，原因同上。
 }

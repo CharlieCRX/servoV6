@@ -40,6 +40,9 @@ private:
     std::shared_ptr<QBluetoothDeviceDiscoveryAgent> m_discoveryAgent; // 新增发现代理
     bool m_isOpened = false;
     std::string m_targetDeviceNamePrefix = "MOTOR"; // 目标设备名称前缀
+    // 新增：默认目标设备信息
+    const std::string m_defaultDeviceName = "MOTOR06ae";
+    const std::string m_defaultDeviceMacAddress = "A0:DD:6C:02:06:AE";
 };
 
 #endif // BLUETOOTH_COMM_PROTOCOL_H

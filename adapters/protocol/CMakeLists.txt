@@ -17,6 +17,7 @@ target_include_directories(adapters_protocol_lib PUBLIC
 )
 
 target_link_libraries(adapters_protocol_lib
-    PRIVATE Qt6::SerialPort Qt6::SerialBus Qt6::Bluetooth
+    PRIVATE Qt6::SerialPort Qt6::SerialBus
+    PUBLIC Qt6::Bluetooth
     PUBLIC domain_lib utils_lib
 )
