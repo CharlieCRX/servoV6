@@ -61,8 +61,8 @@ ApplicationWindow {
                     isConnected = false;
                     statusText = "已断开连接";
                 } else {
-                    // 调用 openPort 方法，不带参数会使用默认的 MAC 地址
-                    controller.openPort("");
+                    // 调用 openPort 方法，测试使用默认的 MAC 地址
+                    controller.openPort("A0:DD:6C:02:06:AE");
                     statusText = "正在尝试连接...";
                 }
             }
