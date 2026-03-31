@@ -19,3 +19,13 @@ void Axis::disable()
 {
     m_state = AxisState::Disabled;
 }
+
+void Axis::setManualSpeed(double manualSpeed)
+{
+    m_manualSpeed = manualSpeed;
+}
+
+double Axis::manualSpeed() const
+{
+    return m_manualSpeed;
+}

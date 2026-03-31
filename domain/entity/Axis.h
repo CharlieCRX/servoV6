@@ -19,7 +19,11 @@ public:
     AxisState state() const;
     void enable();
     void disable();
+
+    void setManualSpeed(double manualSpeed);
+    double manualSpeed() const;
 private:
     AxisState m_state;
+    double m_manualSpeed;
 };
 #endif // AXIS_H

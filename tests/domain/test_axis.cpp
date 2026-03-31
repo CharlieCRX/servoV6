@@ -28,3 +28,15 @@ TEST(AxisTest, ShouldRemainIdleWhenEnabledMultipleTimes) {
     axis.enable();
     ASSERT_EQ(axis.state(), AxisState::Idle);
 }
+
+TEST(AxisTest, ShouldStoreManualSpeed) {
+    Axis axis;
+    double expectedSpeed = 50.0;
+
+    // 动作：设置点动速度
+    axis.setManualSpeed(expectedSpeed);
+
+    // 断言：读取到的速度应与设置的一致
+    // 注意：在 C++ 中比较浮点数建议使用 ASSERT_NEAR 避免精度误差
+    ASSERT_NEAR(axis.manualSpeed(), expectedSpeed, 1e-5);
+}
