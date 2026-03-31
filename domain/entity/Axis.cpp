@@ -14,3 +14,8 @@ void Axis::enable()
         m_state = AxisState::Idle;
     }
 }
+
+void Axis::disable()
+{
+    m_state = AxisState::Disabled;
+}

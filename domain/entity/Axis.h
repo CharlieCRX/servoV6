@@ -18,6 +18,7 @@ public:
     Axis();
     AxisState state() const;
     void enable();
+    void disable();
 private:
     AxisState m_state;
 };
