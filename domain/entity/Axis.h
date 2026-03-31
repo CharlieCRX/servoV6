@@ -15,6 +15,10 @@ enum class AxisState {
 
 class Axis {
 public:
+    Axis();
     AxisState state() const;
+    void enable();
+private:
+    AxisState m_state;
 };
 #endif // AXIS_H
