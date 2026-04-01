@@ -14,10 +14,15 @@ enum class AxisState {
     Error     // 对应 4: 报警
 };
 
+struct AxisFeedback {
+    AxisState state;
+};
+
 class Axis {
 public:
     Axis();
     AxisState state() const;
+    void applyFeedback(const AxisFeedback& feedback);
 private:
     AxisState m_state;
 };
