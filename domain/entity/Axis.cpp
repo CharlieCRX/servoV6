@@ -1,31 +1,9 @@
 #include "Axis.h"
-Axis::Axis() : m_state(AxisState::Disabled)
+Axis::Axis() : m_state(AxisState::Unknown)
 {
 }
 
 AxisState Axis::state() const
 {
     return m_state;
-}
-
-void Axis::enable()
-{
-    if (m_state == AxisState::Disabled) {
-        m_state = AxisState::Idle;
-    }
-}
-
-void Axis::disable()
-{
-    m_state = AxisState::Disabled;
-}
-
-void Axis::setManualSpeed(double manualSpeed)
-{
-    m_manualSpeed = manualSpeed;
-}
-
-double Axis::manualSpeed() const
-{
-    return m_manualSpeed;
 }
