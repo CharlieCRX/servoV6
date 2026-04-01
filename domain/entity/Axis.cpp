@@ -36,27 +36,33 @@ bool Axis::jog(Direction dir)
 
 bool Axis::moveAbsolute(double target)
 {
-  if (m_state != AxisState::Idle)  {
-    return false;
-  }
-  m_pending_move_type = MoveType::Absolute;
-  m_pending_target = target;
-  return true;
+    if (m_state != AxisState::Idle)  {
+        return false;
+    }
+
+    m_pending_move_type = MoveType::Absolute;
+    m_pending_target = target;
+    return true;
 }
 
 bool Axis::moveRelative(double distance)
 {
-  if (m_state != AxisState::Idle)  {
-    return false;
-  }
-  m_pending_move_type = MoveType::Relative;
-  m_pending_target = distance;
-  return true;
-}
+    if (m_state != AxisState::Idle)  {
+        return false;
+    }
 
+    m_pending_move_type = MoveType::Relative;
+    m_pending_target = distance;
+    return true;
+}
+/**
+ * 插槽名称,            对应变量,                   意图类型
+ * Jog  插槽,   m_pending_direction,           点动 (Forward/Backward)
+ * Move 插槽,   m_pending_move_type / target,  定位 (Absolute/Relative)
+ */
 bool Axis::hasPendingCommand() const
 {
-    return m_pending_direction.has_value();
+    return m_pending_direction.has_value() || (m_pending_move_type != MoveType::None);
 }
 
 std::optional<Direction> Axis::pendingDirection() const
