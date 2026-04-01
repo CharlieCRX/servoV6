@@ -107,12 +107,25 @@ TEST(AxisTest, ShouldRejectJogWhenJogging)
     EXPECT_FALSE(axis.hasPendingCommand());
 }
 
-// Moving 时不能 Jog
-TEST(AxisTest, ShouldRejectJogWhenMoving)
+// MovingAbsolute 时不能 Jog
+TEST(AxisTest, ShouldRejectJogWhenMovingAbsolute)
 {
     Axis axis;
 
-    axis.applyFeedback({AxisState::Moving});
+    axis.applyFeedback({AxisState::MovingAbsolute});
+
+    bool result = axis.jog(Direction::Forward);
+
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(axis.hasPendingCommand());
+}
+
+// MovingRelative 时不能 Jog
+TEST(AxisTest, ShouldRejectJogWhenMovingRelative)
+{
+    Axis axis;
+
+    axis.applyFeedback({AxisState::MovingRelative});
 
     bool result = axis.jog(Direction::Forward);
 
@@ -145,5 +158,94 @@ TEST(AxisTest, ShouldClearPendingCommandWhenJoggingStarts)
     axis.applyFeedback({AxisState::Jogging});
 
     // 意图应当消失，因为“现实”已经开始执行“意图”了
+    EXPECT_FALSE(axis.hasPendingCommand());
+}
+
+
+
+
+// 第六组：Move 语义区分
+// 最小约束：轴必须能区分绝对定位和相对定位意图
+TEST(AxisTest, ShouldDistinguishAbsoluteMoveIntent)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Idle});
+
+    double targetPos = 123.4;
+    // 触发绝对定位
+    axis.moveAbsolute(targetPos);
+
+    // 验证：意图类型必须是 Absolute
+    EXPECT_EQ(axis.pendingMoveType(), MoveType::Absolute);
+
+
+    // 1. 先验证 optional 有值
+    auto target = axis.pendingTarget();
+    ASSERT_TRUE(target.has_value());
+
+    // 2. 再取出值进行浮点数比较
+    EXPECT_DOUBLE_EQ(target.value(), targetPos);
+}
+
+TEST(AxisTest, ShouldDistinguishRelativeMoveIntent)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Idle});
+
+    double distance = 50.0;
+    // 触发相对定位
+    axis.moveRelative(distance);
+
+    // 验证：意图类型必须是 Relative
+    EXPECT_EQ(axis.pendingMoveType(), MoveType::Relative);
+
+    // 1. 先验证 optional 有值
+    auto target = axis.pendingTarget();
+    ASSERT_TRUE(target.has_value());
+
+    // 2. 再取出值进行浮点数比较
+    EXPECT_DOUBLE_EQ(target.value(), distance);
+}
+
+// 绝对定位的闭环测试
+TEST(AxisTest, ShouldHandleAbsoluteMoveLifecycle)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Idle});
+
+    // 1. 发起意图
+    double targetPos = 100.0;
+    bool accepted = axis.moveAbsolute(targetPos);
+
+    EXPECT_TRUE(accepted);
+    EXPECT_EQ(axis.pendingMoveType(), MoveType::Absolute);
+
+    // 2. 模拟 PLC 反馈：进入绝对移动状态
+    axis.applyFeedback({AxisState::MovingAbsolute});
+
+    // 3. 验证：状态更新，且意图被消费
+    EXPECT_EQ(axis.state(), AxisState::MovingAbsolute);
+    EXPECT_FALSE(axis.hasPendingCommand());
+}
+
+
+// 相对定位的闭环测试
+TEST(AxisTest, ShouldHandleRelativeMoveLifecycle)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Idle});
+
+    // 1. 发起意图
+    double distance = -50.0;
+    bool accepted = axis.moveRelative(distance);
+
+    EXPECT_TRUE(accepted);
+    EXPECT_EQ(axis.pendingMoveType(), MoveType::Relative);
+
+    // 2. 模拟 PLC 反馈：进入相对移动状态
+    axis.applyFeedback({AxisState::MovingRelative});
+
+    // 3. 验证
+    EXPECT_EQ(axis.state(), AxisState::MovingRelative);
     EXPECT_FALSE(axis.hasPendingCommand());
 }

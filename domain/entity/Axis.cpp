@@ -14,8 +14,13 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
     m_state = feedback.state;
 
     // 2. 同步：如果现实已经进入执行态，消费掉挂起的意图
-    if (m_state == AxisState::Jogging || m_state == AxisState::Moving) {
-        pending_direction_.reset();
+    if (m_state == AxisState::Jogging || 
+        m_state == AxisState::MovingAbsolute || 
+        m_state == AxisState::MovingRelative) 
+    {
+        m_pending_direction.reset();
+        m_pending_move_type = MoveType::None;
+        m_pending_target.reset();
     }
 }
 
@@ -25,16 +30,46 @@ bool Axis::jog(Direction dir)
         return false;
     }
 
-    pending_direction_ = dir;
+    m_pending_direction = dir;
     return true;
+}
+
+bool Axis::moveAbsolute(double target)
+{
+  if (m_state != AxisState::Idle)  {
+    return false;
+  }
+  m_pending_move_type = MoveType::Absolute;
+  m_pending_target = target;
+  return true;
+}
+
+bool Axis::moveRelative(double distance)
+{
+  if (m_state != AxisState::Idle)  {
+    return false;
+  }
+  m_pending_move_type = MoveType::Relative;
+  m_pending_target = distance;
+  return true;
 }
 
 bool Axis::hasPendingCommand() const
 {
-    return pending_direction_.has_value();
+    return m_pending_direction.has_value();
 }
 
 std::optional<Direction> Axis::pendingDirection() const
 {
-    return pending_direction_;
+    return m_pending_direction;
+}
+
+MoveType Axis::pendingMoveType() const
+{
+    return m_pending_move_type;
+}
+
+std::optional<double> Axis::pendingTarget() const
+{
+    return m_pending_target;
 }
