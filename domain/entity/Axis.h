@@ -27,6 +27,7 @@ enum class AxisState {
 
 struct AxisFeedback {
     AxisState state;
+    double absPos;
 };
 
 class Axis {
@@ -43,6 +44,9 @@ public:
 
     bool stop();
 
+    // 状态查询接口
+    double currentAbsolutePosition() const;
+
 
     bool hasPendingCommand() const;
     bool hasPendingStop() const;
@@ -56,5 +60,7 @@ private:
     std::optional<double> m_pending_target;         // 可能存在的待执行的 Move 目标（绝对位置或相对距离）
 
     bool m_pending_stop = false; // Stop 意图独立存放
+
+    double m_current_abs_pos = 0.0;
 };
 #endif // AXIS_H

@@ -317,3 +317,21 @@ TEST(AxisTest, ShouldHandleImmediateStopAndDisable)
     EXPECT_FALSE(axis.hasPendingStop());
     EXPECT_EQ(axis.state(), AxisState::Disabled);
 }
+
+
+// --- 绝对位置坐标体系测试 -- 
+// 第1组：绝对位置反馈同步
+TEST(AxisTest, ShouldSyncAbsolutePositionFromFeedback)
+{
+    Axis axis;
+    
+    // 模拟反馈数据：绝对位置为 1234.56 mm
+    AxisFeedback fb;
+    fb.state = AxisState::Idle;
+    fb.absPos = 1234.56;
+
+    axis.applyFeedback(fb);
+
+    // 验证 Domain 模型是否真实反映了该位置
+    EXPECT_DOUBLE_EQ(axis.currentAbsolutePosition(), 1234.56);
+}

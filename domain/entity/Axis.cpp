@@ -12,6 +12,7 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
 {
     // 1. 更新现实状态
     m_state = feedback.state;
+    m_current_abs_pos = feedback.absPos;
 
     // 2. 同步：如果现实已经进入执行态，消费掉挂起的意图
     if (m_state == AxisState::Jogging || 
@@ -76,6 +77,10 @@ bool Axis::stop()
     return true;
 }
 
+double Axis::currentAbsolutePosition() const
+{
+  return m_current_abs_pos;
+}
 
 /**
  * 插槽名称,            对应变量,                   意图类型
