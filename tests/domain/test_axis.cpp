@@ -82,15 +82,19 @@ TEST(AxisTest, ShouldAcceptJogWhenIdle)
 TEST(AxisTest, ShouldStoreJogDirection)
 {
     Axis axis;
-
-    axis.applyFeedback({AxisState::Idle});
+    axis.applyFeedback({AxisState::Idle, 0.0});
 
     axis.jog(Direction::Backward);
 
-    auto dir = axis.pendingDirection();
+    // 获取 Variant 容器
+    auto command = axis.getPendingCommand();
 
-    ASSERT_TRUE(dir.has_value());
-    EXPECT_EQ(dir.value(), Direction::Backward);
+    // 第一步：确保类型正确（防止由于 Bug 导致存成了 MoveCommand）
+    ASSERT_TRUE(std::holds_alternative<JogCommand>(command));
+
+    // 第二步：安全提取并验证数据
+    auto jogCmd = std::get<JogCommand>(command);
+    EXPECT_EQ(jogCmd.dir, Direction::Backward);
 }
 
 // 第三组：执行中禁止新命令

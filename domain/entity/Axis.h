@@ -2,6 +2,7 @@
 #define AXIS_H
 #pragma once
 #include <optional>
+#include <variant>
 enum class Direction {
     Forward,
     Backward
@@ -30,6 +31,13 @@ struct AxisFeedback {
     double absPos;
 };
 
+
+struct JogCommand {
+    Direction dir;
+};
+
+using AxisCommand = std::variant<std::monostate, JogCommand>;
+
 class Axis {
 public:
     Axis();
@@ -49,12 +57,17 @@ public:
 
 
     bool hasPendingCommand() const;
+    const AxisCommand& getPendingCommand() const;
+
     bool hasPendingStop() const;
     std::optional<Direction> pendingDirection() const;
     MoveType pendingMoveType() const;
     std::optional<double> pendingTarget() const;
 private:
     AxisState m_state;
+    // 唯一的命令意图
+    AxisCommand m_pending_intent = std::monostate{};
+
     std::optional<Direction> m_pending_direction;   // 可能存在的待执行的 Jog 方向
     MoveType m_pending_move_type = MoveType::None;  // 当前待执行的 Move 类型
     std::optional<double> m_pending_target;         // 可能存在的待执行的 Move 目标（绝对位置或相对距离）

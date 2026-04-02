@@ -19,14 +19,13 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
         m_state == AxisState::MovingAbsolute || 
         m_state == AxisState::MovingRelative) 
     {
-        m_pending_direction.reset();
-        m_pending_move_type = MoveType::None;
-        m_pending_target.reset();
+        m_pending_intent = std::monostate{};
     }
 
     // 3. 消费停止意图 (进入静止态时清理)
     // 只要现实告诉我们轴已经停了（无论关闭使能还是报错），停止意图就达成了
-    if (m_state == AxisState::Disabled || 
+    if (m_state == AxisState::Disabled ||
+        m_state == AxisState::Idle ||
         m_state == AxisState::Error) 
     {
         m_pending_stop = false;
@@ -39,7 +38,7 @@ bool Axis::jog(Direction dir)
         return false;
     }
 
-    m_pending_direction = dir;
+    m_pending_intent = JogCommand{ dir };
     return true;
 }
 
@@ -82,14 +81,17 @@ double Axis::currentAbsolutePosition() const
   return m_current_abs_pos;
 }
 
-/**
- * 插槽名称,            对应变量,                   意图类型
- * Jog  插槽,   m_pending_direction,           点动 (Forward/Backward)
- * Move 插槽,   m_pending_move_type / target,  定位 (Absolute/Relative)
- */
+
 bool Axis::hasPendingCommand() const
 {
-    return m_pending_direction.has_value() || (m_pending_move_type != MoveType::None);
+    // 语义：只要不是 monostate，就代表有运动类命令挂起
+    return !std::holds_alternative<std::monostate>(m_pending_intent);
+}
+
+
+const AxisCommand &Axis::getPendingCommand() const
+{
+  return m_pending_intent;
 }
 
 bool Axis::hasPendingStop() const
