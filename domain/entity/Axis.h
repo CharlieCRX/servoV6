@@ -41,8 +41,11 @@ public:
     bool moveAbsolute(double target);
     bool moveRelative(double distance);
 
+    bool stop();
+
 
     bool hasPendingCommand() const;
+    bool hasPendingStop() const;
     std::optional<Direction> pendingDirection() const;
     MoveType pendingMoveType() const;
     std::optional<double> pendingTarget() const;
@@ -51,5 +54,7 @@ private:
     std::optional<Direction> m_pending_direction;   // 可能存在的待执行的 Jog 方向
     MoveType m_pending_move_type = MoveType::None;  // 当前待执行的 Move 类型
     std::optional<double> m_pending_target;         // 可能存在的待执行的 Move 目标（绝对位置或相对距离）
+
+    bool m_pending_stop = false; // Stop 意图独立存放
 };
 #endif // AXIS_H

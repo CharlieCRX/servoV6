@@ -207,6 +207,8 @@ TEST(AxisTest, ShouldDistinguishRelativeMoveIntent)
     EXPECT_DOUBLE_EQ(target.value(), distance);
 }
 
+
+// 第7组：Move 语义闭环
 // 绝对定位的闭环测试
 TEST(AxisTest, ShouldHandleAbsoluteMoveLifecycle)
 {
@@ -248,4 +250,70 @@ TEST(AxisTest, ShouldHandleRelativeMoveLifecycle)
     // 3. 验证
     EXPECT_EQ(axis.state(), AxisState::MovingRelative);
     EXPECT_FALSE(axis.hasPendingCommand());
+}
+
+
+// 第八组：执行期屏蔽（Shielding during Execution）
+// 1. 正在绝对定位时，屏蔽点动指令
+TEST(AxisTest, ShouldShieldJogDuringAbsoluteMove)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Idle});
+    axis.moveAbsolute(1000.0); // 产生意图
+    
+    // 模拟 PLC 响应，进入运行态
+    axis.applyFeedback({AxisState::MovingAbsolute});
+    
+    // 此时尝试 Jog
+    bool result = axis.jog(Direction::Forward);
+    
+    // 验证：必须拒绝，且不能破坏当前的移动意图（因为移动还没完）
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(axis.hasPendingCommand()); 
+}
+
+//2. 正在 Jog 时，屏蔽 Move 指令
+TEST(AxisTest, ShouldShieldMoveDuringJog)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Idle});
+    axis.jog(Direction::Forward); // 产生 Jog 意图
+    
+    // 模拟 PLC 响应，进入 Jogging 态
+    axis.applyFeedback({AxisState::Jogging});
+       
+    // 验证：必须拒绝，且不能破坏当前的 Jog 意图
+    EXPECT_FALSE(axis.moveAbsolute(500.0));
+    EXPECT_FALSE(axis.moveRelative(100.0));
+    EXPECT_FALSE(axis.hasPendingCommand()); 
+}
+
+// 2. 唯一例外：Stop 指令必须穿透屏蔽
+TEST(AxisTest, StopShouldPenetrateShielding)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::MovingAbsolute}); // 正在跑
+
+    // 此时执行 Stop
+    bool result = axis.stop();
+    
+    // 验证：Stop 必须被接受
+    EXPECT_TRUE(result);
+    EXPECT_TRUE(axis.hasPendingStop());
+}
+
+
+// 第九组：Stop 意图独立性
+TEST(AxisTest, ShouldHandleImmediateStopAndDisable)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::MovingAbsolute});
+    axis.stop();
+
+    // 模拟你说的现实：PLC 动作极快，直接关了使能
+    axis.applyFeedback({AxisState::Disabled});
+
+    // 测试重点：Axis 必须能够从 Disabled 状态推断出 Stop 意图已达成
+    EXPECT_FALSE(axis.hasPendingStop());
+    EXPECT_EQ(axis.state(), AxisState::Disabled);
 }
