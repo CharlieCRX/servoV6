@@ -339,3 +339,47 @@ TEST(AxisTest, ShouldSyncAbsolutePositionFromFeedback)
     // 验证 Domain 模型是否真实反映了该位置
     EXPECT_DOUBLE_EQ(axis.currentAbsolutePosition(), 1234.56);
 }
+
+
+// 绝对位置清零 (Zeroing) 的业务约束
+// 1. 验证：非静止状态下拒绝清零（安全屏障）
+TEST(AxisTest, ShouldRejectZeroingWhenMoving)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::MovingAbsolute, 100.0});
+
+    bool result = axis.zeroAbsolutePosition();
+    
+    EXPECT_FALSE(result);
+    EXPECT_FALSE(axis.hasPendingCommand());
+}
+
+// 2. 验证：清零意图的产生与覆盖
+TEST(AxisTest, ShouldStoreZeroingIntentAndClearMotion)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Idle, 50.0});
+
+    axis.zeroAbsolutePosition();
+
+    auto cmd = axis.getPendingCommand();
+    EXPECT_TRUE(std::holds_alternative<ZeroAbsoluteCommand>(cmd));
+}
+
+// 3. 验证：基于容差 (Epsilon) 的闭环消费
+TEST(AxisTest, ZeroingIntentShouldClearWhenPositionIsNearZero)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Idle, 50.0});
+    axis.zeroAbsolutePosition();
+
+    // 场景 A：PLC 反馈坐标还在跳变，尚未接近 0 (例如 0.5)
+    axis.applyFeedback({AxisState::Idle, 0.5});
+    EXPECT_TRUE(axis.hasPendingCommand());
+
+    // 场景 B：物理坐标进入容差范围 (例如 0.0002 < 0.001)
+    axis.applyFeedback({AxisState::Idle, 0.0002});
+    
+    // 验证：意图消失，清零成功
+    EXPECT_FALSE(axis.hasPendingCommand());
+}

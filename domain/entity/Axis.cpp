@@ -1,4 +1,5 @@
 #include "Axis.h"
+#include <cmath>
 Axis::Axis() : m_state(AxisState::Unknown)
 {
 }
@@ -25,7 +26,7 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
         }
     }
 
-    // B. 静止类状态：清理停止意图 (含 Idle, Disabled, Error) [cite: 2026-04-01]
+    // B. 静止类状态：清理停止意图 (含 Idle, Disabled, Error)
     if (m_state == AxisState::Idle ||
         m_state == AxisState::Disabled ||
         m_state == AxisState::Error)
@@ -33,6 +34,15 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
         // 如果当前挂起的是 Stop 命令，则视为已完成
         if (std::holds_alternative<StopCommand>(m_pending_intent)) {
             m_pending_intent = std::monostate{};
+        }
+    }
+
+
+    // C. 绝对位置清零：根据反馈的绝对位置与零点的接近程度自动清理 ZeroAbsoluteCommand 意图
+    if (std::holds_alternative<ZeroAbsoluteCommand>(m_pending_intent)) {
+        // 判定公式：|CurrentPos - 0.0| < EPSILON
+        if (std::abs(m_current_abs_pos) < POSITION_EPSILON) {
+            m_pending_intent = std::monostate{}; 
         }
     }
 }
@@ -71,6 +81,18 @@ bool Axis::stop()
     m_pending_intent = StopCommand{};
 
     return true;
+}
+
+bool Axis::zeroAbsolutePosition()
+{
+    // 只有在静止态（Idle/Disabled）才允许修改基准
+    if (m_state == AxisState::Idle ||
+        m_state == AxisState::Disabled)
+    {
+        m_pending_intent = ZeroAbsoluteCommand{};
+        return true;
+    }
+    return false;
 }
 
 double Axis::currentAbsolutePosition() const

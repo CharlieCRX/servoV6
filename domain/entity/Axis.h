@@ -43,12 +43,16 @@ struct MoveCommand {
 
 struct StopCommand {};
 
+// 坐标控制
+struct ZeroAbsoluteCommand {};
+
 // 2. 更新统一意图槽位
 using AxisCommand = std::variant<
     std::monostate, 
     JogCommand, 
     MoveCommand, 
-    StopCommand
+    StopCommand,
+    ZeroAbsoluteCommand
 >;
 
 class Axis {
@@ -65,6 +69,8 @@ public:
 
     bool stop();
 
+    bool zeroAbsolutePosition();
+
     // 状态查询接口
     double currentAbsolutePosition() const;
 
@@ -73,11 +79,15 @@ public:
     const AxisCommand& getPendingCommand() const;
 
     bool hasPendingStop() const;
+public:
+    // 定义物理容差：0.001mm
+    static constexpr double POSITION_EPSILON = 0.001;
+
 private:
     AxisState m_state;
     // 唯一的命令意图
     AxisCommand m_pending_intent = std::monostate{};
-    
+
     double m_current_abs_pos = 0.0;
 };
 #endif // AXIS_H
