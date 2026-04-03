@@ -36,7 +36,20 @@ struct JogCommand {
     Direction dir;
 };
 
-using AxisCommand = std::variant<std::monostate, JogCommand>;
+struct MoveCommand {
+    MoveType type;   // Absolute 或 Relative
+    double target;   // 目标位置或距离
+};
+
+struct StopCommand {};
+
+// 2. 更新统一意图槽位
+using AxisCommand = std::variant<
+    std::monostate, 
+    JogCommand, 
+    MoveCommand, 
+    StopCommand
+>;
 
 class Axis {
 public:
@@ -60,20 +73,11 @@ public:
     const AxisCommand& getPendingCommand() const;
 
     bool hasPendingStop() const;
-    std::optional<Direction> pendingDirection() const;
-    MoveType pendingMoveType() const;
-    std::optional<double> pendingTarget() const;
 private:
     AxisState m_state;
     // 唯一的命令意图
     AxisCommand m_pending_intent = std::monostate{};
-
-    std::optional<Direction> m_pending_direction;   // 可能存在的待执行的 Jog 方向
-    MoveType m_pending_move_type = MoveType::None;  // 当前待执行的 Move 类型
-    std::optional<double> m_pending_target;         // 可能存在的待执行的 Move 目标（绝对位置或相对距离）
-
-    bool m_pending_stop = false; // Stop 意图独立存放
-
+    
     double m_current_abs_pos = 0.0;
 };
 #endif // AXIS_H

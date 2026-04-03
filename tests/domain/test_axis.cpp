@@ -173,22 +173,22 @@ TEST(AxisTest, ShouldClearPendingCommandWhenJoggingStarts)
 TEST(AxisTest, ShouldDistinguishAbsoluteMoveIntent)
 {
     Axis axis;
-    axis.applyFeedback({AxisState::Idle});
+    axis.applyFeedback({AxisState::Idle, 0.0});
 
     double targetPos = 123.4;
     // 触发绝对定位
     axis.moveAbsolute(targetPos);
 
-    // 验证：意图类型必须是 Absolute
-    EXPECT_EQ(axis.pendingMoveType(), MoveType::Absolute);
+    auto command = axis.getPendingCommand();
 
+    // 1. 确保类型正确（防止由于 Bug 导致存成了 JogCommand）
+    ASSERT_TRUE(std::holds_alternative<MoveCommand>(command));
 
-    // 1. 先验证 optional 有值
-    auto target = axis.pendingTarget();
-    ASSERT_TRUE(target.has_value());
+    // 2. 安全提取并验证数据
+    auto moveCmd = std::get<MoveCommand>(command);
+    EXPECT_EQ(moveCmd.type, MoveType::Absolute);
+    EXPECT_DOUBLE_EQ(moveCmd.target, targetPos);
 
-    // 2. 再取出值进行浮点数比较
-    EXPECT_DOUBLE_EQ(target.value(), targetPos);
 }
 
 TEST(AxisTest, ShouldDistinguishRelativeMoveIntent)
@@ -200,60 +200,49 @@ TEST(AxisTest, ShouldDistinguishRelativeMoveIntent)
     // 触发相对定位
     axis.moveRelative(distance);
 
-    // 验证：意图类型必须是 Relative
-    EXPECT_EQ(axis.pendingMoveType(), MoveType::Relative);
+    auto command = axis.getPendingCommand();
+    // 1. 确保类型正确（防止由于 Bug 导致存成了 JogCommand）
+    ASSERT_TRUE(std::holds_alternative<MoveCommand>(command));
 
-    // 1. 先验证 optional 有值
-    auto target = axis.pendingTarget();
-    ASSERT_TRUE(target.has_value());
-
-    // 2. 再取出值进行浮点数比较
-    EXPECT_DOUBLE_EQ(target.value(), distance);
+    // 2. 安全提取并验证数据
+    auto moveCmd = std::get<MoveCommand>(command);
+    EXPECT_EQ(moveCmd.type, MoveType::Relative);
+    EXPECT_DOUBLE_EQ(moveCmd.target, distance);
 }
 
 
-// 第7组：Move 语义闭环
-// 绝对定位的闭环测试
+// 第七组：Move 语义闭环重构
+
 TEST(AxisTest, ShouldHandleAbsoluteMoveLifecycle)
 {
     Axis axis;
-    axis.applyFeedback({AxisState::Idle});
+    axis.applyFeedback({AxisState::Idle, 0.0});
 
-    // 1. 发起意图
-    double targetPos = 100.0;
-    bool accepted = axis.moveAbsolute(targetPos);
+    axis.moveAbsolute(100.0);
+    ASSERT_TRUE(axis.hasPendingCommand());
 
-    EXPECT_TRUE(accepted);
-    EXPECT_EQ(axis.pendingMoveType(), MoveType::Absolute);
+    // 模拟 PLC 反馈：进入绝对移动状态
+    axis.applyFeedback({AxisState::MovingAbsolute, 5.0});
 
-    // 2. 模拟 PLC 反馈：进入绝对移动状态
-    axis.applyFeedback({AxisState::MovingAbsolute});
-
-    // 3. 验证：状态更新，且意图被消费
-    EXPECT_EQ(axis.state(), AxisState::MovingAbsolute);
+    // 验证：意图被消费，插槽应回归 monostate
     EXPECT_FALSE(axis.hasPendingCommand());
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(axis.getPendingCommand()));
 }
 
-
-// 相对定位的闭环测试
 TEST(AxisTest, ShouldHandleRelativeMoveLifecycle)
 {
     Axis axis;
-    axis.applyFeedback({AxisState::Idle});
+    axis.applyFeedback({AxisState::Idle, 0.0});
 
-    // 1. 发起意图
-    double distance = -50.0;
-    bool accepted = axis.moveRelative(distance);
+    axis.moveRelative(-50.0);
+    ASSERT_TRUE(axis.hasPendingCommand());
 
-    EXPECT_TRUE(accepted);
-    EXPECT_EQ(axis.pendingMoveType(), MoveType::Relative);
+    // 模拟 PLC 反馈：进入相对移动状态
+    axis.applyFeedback({AxisState::MovingRelative, 2.0});
 
-    // 2. 模拟 PLC 反馈：进入相对移动状态
-    axis.applyFeedback({AxisState::MovingRelative});
-
-    // 3. 验证
-    EXPECT_EQ(axis.state(), AxisState::MovingRelative);
+    // 验证：意图被消费
     EXPECT_FALSE(axis.hasPendingCommand());
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(axis.getPendingCommand()));
 }
 
 
@@ -288,38 +277,49 @@ TEST(AxisTest, ShouldShieldMoveDuringJog)
        
     // 验证：必须拒绝，且不能破坏当前的 Jog 意图
     EXPECT_FALSE(axis.moveAbsolute(500.0));
-    EXPECT_FALSE(axis.moveRelative(100.0));
+    EXPECT_FALSE(axis.moveRelative(500.0));
     EXPECT_FALSE(axis.hasPendingCommand()); 
 }
 
-// 2. 唯一例外：Stop 指令必须穿透屏蔽
-TEST(AxisTest, StopShouldPenetrateShielding)
+
+// 第九组：Stop 意图重构测试
+
+// 1. 验证 Stop 指令的穿透性与互斥覆盖
+TEST(AxisTest, StopShouldPenetrateShieldingAndClearOthers)
 {
     Axis axis;
-    axis.applyFeedback({AxisState::MovingAbsolute}); // 正在跑
+    // 模拟正在运行态
+    axis.applyFeedback({AxisState::MovingAbsolute, 500.0}); 
 
-    // 此时执行 Stop
+    // 执行 Stop
     bool result = axis.stop();
     
-    // 验证：Stop 必须被接受
+    // 验证：
+    // A. Stop 必须被接受（穿透非 Idle 限制）
     EXPECT_TRUE(result);
-    EXPECT_TRUE(axis.hasPendingStop());
+    // B. 内部命令类型必须转换为 StopCommand
+    auto command = axis.getPendingCommand();
+    EXPECT_TRUE(std::holds_alternative<StopCommand>(command));
+    // C. 验证原有的 Move 意图已被自动覆盖（由 variant 特性保证）
+    EXPECT_FALSE(std::holds_alternative<MoveCommand>(command));
 }
 
-
-// 第九组：Stop 意图独立性
+// 2. 验证 Stop 意图的生命周期闭环
 TEST(AxisTest, ShouldHandleImmediateStopAndDisable)
 {
     Axis axis;
-    axis.applyFeedback({AxisState::MovingAbsolute});
+    axis.applyFeedback({AxisState::MovingAbsolute, 100.0});
     axis.stop();
 
-    // 模拟你说的现实：PLC 动作极快，直接关了使能
-    axis.applyFeedback({AxisState::Disabled});
+    // 模拟现实：PLC 响应并关闭使能（或回到 Idle）
+    axis.applyFeedback({AxisState::Disabled, 100.0});
 
-    // 测试重点：Axis 必须能够从 Disabled 状态推断出 Stop 意图已达成
-    EXPECT_FALSE(axis.hasPendingStop());
+    // 验证：
+    // A. 状态更新成功
     EXPECT_EQ(axis.state(), AxisState::Disabled);
+    // B. Stop 意图已被消费，槽位回归 monostate
+    EXPECT_FALSE(axis.hasPendingCommand());
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(axis.getPendingCommand()));
 }
 
 
