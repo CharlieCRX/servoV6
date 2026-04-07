@@ -45,6 +45,24 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
             m_pending_intent = std::monostate{}; 
         }
     }
+
+    // D. 设置相对原点闭环
+    if (std::holds_alternative<SetRelativeZeroCommand>(m_pending_intent)) {
+        // 判定：PLC 反馈的相对位置是否归零
+        if (std::abs(m_current_rel_pos) < POSITION_EPSILON) {
+            m_pending_intent = std::monostate{};
+        }
+    }
+
+
+    // E. 清除相对原点闭环
+    if (std::holds_alternative<ClearRelativeZeroCommand>(m_pending_intent)) {
+        // 判定：PLC 反馈的相对位置是否重新追平绝对位置
+        if (std::abs(m_current_rel_pos - m_current_abs_pos) < POSITION_EPSILON) {
+            m_pending_intent = std::monostate{};
+        }
+    }
+
 }
 
 bool Axis::jog(Direction dir)
@@ -94,6 +112,26 @@ bool Axis::zeroAbsolutePosition()
     }
     return false;
 }
+
+bool Axis::setRelativeZero() {
+    // 必须为 Idle 状态
+    if (m_state != AxisState::Idle) {
+        return false;
+    }
+    m_pending_intent = SetRelativeZeroCommand{};
+    return true;
+}
+
+
+bool Axis::clearRelativeZero() {
+    // 必须为 Idle 状态
+    if (m_state != AxisState::Idle) {
+        return false;
+    }
+    m_pending_intent = ClearRelativeZeroCommand{};
+    return true;
+}
+
 
 double Axis::currentAbsolutePosition() const
 {

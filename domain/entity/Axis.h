@@ -29,6 +29,7 @@ enum class AxisState {
 struct AxisFeedback {
     AxisState state;
     double absPos;
+    double relPos;
 };
 
 
@@ -46,13 +47,18 @@ struct StopCommand {};
 // 坐标控制
 struct ZeroAbsoluteCommand {};
 
+struct SetRelativeZeroCommand {};
+struct ClearRelativeZeroCommand {};
+
 // 2. 更新统一意图槽位
 using AxisCommand = std::variant<
     std::monostate, 
     JogCommand, 
     MoveCommand, 
     StopCommand,
-    ZeroAbsoluteCommand
+    ZeroAbsoluteCommand,
+    SetRelativeZeroCommand,
+    ClearRelativeZeroCommand
 >;
 
 class Axis {
@@ -71,17 +77,19 @@ public:
 
     bool zeroAbsolutePosition();
 
+    bool setRelativeZero();
+    bool clearRelativeZero();
+
     // 状态查询接口
     double currentAbsolutePosition() const;
+    double currentRelativePosition() const;
 
 
     bool hasPendingCommand() const;
     const AxisCommand& getPendingCommand() const;
 
     bool hasPendingStop() const;
-public:
-    // 定义物理容差：0.001mm
-    static constexpr double POSITION_EPSILON = 0.001;
+    
 
 private:
     AxisState m_state;
@@ -89,5 +97,8 @@ private:
     AxisCommand m_pending_intent = std::monostate{};
 
     double m_current_abs_pos = 0.0;
+    double m_current_rel_pos = 0.0;
+
+    static constexpr double POSITION_EPSILON = 0.01;
 };
 #endif // AXIS_H
