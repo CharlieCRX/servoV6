@@ -386,21 +386,23 @@ TEST(AxisTest, ZeroingIntentShouldClearWhenPositionIsNearZero)
 
 // --- 相对位置坐标体系测试 -- 
 // 第 1 组：相对坐标反馈同步测试
-TEST(AxisTest, ShouldSyncRelativePositionFromFeedback)
+TEST(AxisTest, ShouldSyncRelativePositionAndZeroBaseFromFeedback)
 {
     Axis axis;
     
-    // 模拟 PLC 反馈：绝对位置 100.0，但 PLC 已设原点，所以相对位置为 20.0
+    // 模拟 PLC 反馈：绝对 150.0，相对 50.0，基准寄存器记录在 100.0
     AxisFeedback fb;
     fb.state = AxisState::Idle;
-    fb.absPos = 100.0;
-    fb.relPos = 20.0; // 来自 PLC D126/D128 寄存器
+    fb.absPos = 150.0;
+    fb.relPos = 50.0; 
+    fb.relZeroAbsPos = 100.0; // 新增字段：基准绝对位置
+    
     axis.applyFeedback(fb);
 
-    // 验证：直接读取反馈值，不进行逻辑计算
-    EXPECT_DOUBLE_EQ(axis.currentRelativePosition(), 20.0);
+    // 验证双镜像
+    EXPECT_DOUBLE_EQ(axis.currentRelativePosition(), 50.0);
+    EXPECT_DOUBLE_EQ(axis.relativeZeroAbsolutePosition(), 100.0);
 }
-
 
 // 第 2 组：相对原点指令的准入屏蔽
 TEST(AxisTest, ShouldRejectRelativeZeroCommandsWhenNotIdle)
@@ -435,45 +437,48 @@ TEST(AxisTest, ShouldRejectRelativeZeroCommandsWhenNotIdle)
 
 
 // 第 3 组：设置相对原点的生命周期闭环
-TEST(AxisTest, SetRelativeZeroIntentShouldClearWhenRelPosConvergesToZero)
+// 在 120.0 处设置原点，PLC 必须反馈 relPos ≈ 0 且 relZeroAbsPos ≈ 120.0 意图才消失。
+TEST(AxisTest, SetRelativeZeroShouldWaitUntilBothPosAndBaseAreReady)
 {
     Axis axis;
-    axis.applyFeedback({AxisState::Idle, 100.0, 100.0});
+    // 初始：绝对位置 120.0，基准还在旧的 0.0，相对位置也是 120.0
+    axis.applyFeedback({AxisState::Idle, 120.0, 120.0, 0.0});
     
-    axis.setRelativeZero(); // 产生意图 
+    // 1. 在 120.0 处发起设置指令
+    axis.setRelativeZero(); 
     EXPECT_TRUE(axis.hasPendingCommand());
 
-    // 场景 A：PLC 尚未处理，relPos 还是旧值 
-    axis.applyFeedback({AxisState::Idle, 100.0, 100.0});
-    EXPECT_TRUE(axis.hasPendingCommand());
+    // 场景 A：PLC 逻辑处理中，relPos 已经变 0 了，但基准寄存器还没写进去（还是 0.0）
+    // 这种“半完成”状态下，意图必须保持，不能消失
+    axis.applyFeedback({AxisState::Idle, 120.0, 0.0, 0.0}); 
+    EXPECT_TRUE(axis.hasPendingCommand()); 
 
-    // 场景 B：PLC 处理中，relPos 开始变动但未到 0 
-    axis.applyFeedback({AxisState::Idle, 100.0, 0.5});
-    EXPECT_TRUE(axis.hasPendingCommand());
-
-    // 场景 C：relPos 进入容差范围 (0.0008 < 0.001) 
-    axis.applyFeedback({AxisState::Idle, 100.0, 0.0008});
+    // 场景 B：PLC 终于把基准寄存器也更新为 120.0 了
+    axis.applyFeedback({AxisState::Idle, 120.0, 0.0, 120.0});
     
-    // 验证：意图消失，操作成功 
+    // 验证：坐标归零 + 基准对齐，双重达标后意图才消失
     EXPECT_FALSE(axis.hasPendingCommand());
 }
 
+
 // 第 4 组：清除相对原点的生命周期闭环
-TEST(AxisTest, ClearRelativeZeroIntentShouldClearWhenRelPosEqualsAbsPos)
+// 清除后，PLC 必须反馈 relPos ≈ absPos 且 relZeroAbsPos ≈ 0 意图才消失。
+TEST(AxisTest, ClearRelativeZeroShouldWaitUntilRelPosRestoresAndBaseResets)
 {
     Axis axis;
-    // 初始状态：PLC 已设原点，abs=100, rel=0
-    axis.applyFeedback({AxisState::Idle, 100.0, 0.0});
+    // 初始状态：原点设在了 100.0，所以 abs=100, rel=0, base=100
+    axis.applyFeedback({AxisState::Idle, 100.0, 0.0, 100.0});
     
     axis.clearRelativeZero(); 
-
-    // 场景 A：PLC 反馈 relPos 尚未恢复
-    axis.applyFeedback({AxisState::Idle, 100.0, 0.0});
     EXPECT_TRUE(axis.hasPendingCommand());
 
-    // 场景 B：relPos 已经恢复到接近 absPos (误差 0.0005 < 0.001)
-    axis.applyFeedback({AxisState::Idle, 100.0, 99.9995});
+    // 场景 A：PLC 反馈 relPos 已经追平 absPos 了，但基准寄存器还没清零
+    axis.applyFeedback({AxisState::Idle, 100.0, 100.0, 100.0});
+    EXPECT_TRUE(axis.hasPendingCommand());
 
-    // 验证：意图消失
+    // 场景 B：基准寄存器也归零了（由 PLC 侧逻辑保证清零动作）
+    axis.applyFeedback({AxisState::Idle, 100.0, 100.0, 0.0});
+
+    // 验证：双重校验通过，意图消失
     EXPECT_FALSE(axis.hasPendingCommand());
 }

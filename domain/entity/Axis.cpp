@@ -14,8 +14,9 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
     m_state = feedback.state;
     m_current_abs_pos = feedback.absPos;
     m_current_rel_pos = feedback.relPos;
+    m_rel_zero_abs_pos = feedback.relZeroAbsPos;
 
-    // A. 运动类状态：清理运动意图
+    // 1. 运动类状态：清理运动意图
     if (m_state == AxisState::Jogging ||
         m_state == AxisState::MovingAbsolute ||
         m_state == AxisState::MovingRelative)
@@ -27,7 +28,7 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
         }
     }
 
-    // B. 静止类状态：清理停止意图 (含 Idle, Disabled, Error)
+    // 2. 静止类状态：清理停止意图 (含 Idle, Disabled, Error)
     if (m_state == AxisState::Idle ||
         m_state == AxisState::Disabled ||
         m_state == AxisState::Error)
@@ -39,7 +40,7 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
     }
 
 
-    // C. 绝对位置清零：根据反馈的绝对位置与零点的接近程度自动清理 ZeroAbsoluteCommand 意图
+    // 3. 绝对位置清零：根据反馈的绝对位置与零点的接近程度自动清理 ZeroAbsoluteCommand 意图
     if (std::holds_alternative<ZeroAbsoluteCommand>(m_pending_intent)) {
         // 判定公式：|CurrentPos - 0.0| < EPSILON
         if (std::abs(m_current_abs_pos) < POSITION_EPSILON) {
@@ -47,19 +48,27 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
         }
     }
 
-    // D. 设置相对原点闭环
+    // 4. 设置相对原点闭环
     if (std::holds_alternative<SetRelativeZeroCommand>(m_pending_intent)) {
-        // 判定：PLC 反馈的相对位置是否归零
-        if (std::abs(m_current_rel_pos) < POSITION_EPSILON) {
-            m_pending_intent = std::monostate{};
+        // 条件 A：相对坐标归零
+        bool isRelPosZero = std::abs(m_current_rel_pos) < POSITION_EPSILON;
+        // 条件 B：PLC 的基准寄存器对齐了我们当初“抓拍”的期望值
+        bool isBaseMatched = std::abs(m_rel_zero_abs_pos - m_expected_zero_base) < POSITION_EPSILON;
+
+        if (isRelPosZero && isBaseMatched) {
+            m_pending_intent = std::monostate{}; // 双重达标，消费意图
         }
     }
 
 
-    // E. 清除相对原点闭环
+    // 5. 清除相对原点闭环
     if (std::holds_alternative<ClearRelativeZeroCommand>(m_pending_intent)) {
-        // 判定：PLC 反馈的相对位置是否重新追平绝对位置
-        if (std::abs(m_current_rel_pos - m_current_abs_pos) < POSITION_EPSILON) {
+        // 条件 A：相对坐标恢复为绝对坐标
+        bool isRelPosRestored = std::abs(m_current_rel_pos - m_current_abs_pos) < POSITION_EPSILON;
+        // 条件 B：PLC 的基准寄存器已清零（通常清除后 PLC 会将基准设为 0）
+        bool isBaseReset = std::abs(m_rel_zero_abs_pos) < POSITION_EPSILON;
+
+        if (isRelPosRestored && isBaseReset) {
             m_pending_intent = std::monostate{};
         }
     }
@@ -119,6 +128,10 @@ bool Axis::setRelativeZero() {
     if (m_state != AxisState::Idle) {
         return false;
     }
+
+    // 核心逻辑：发起指令时，记录当前的绝对位置作为“期望基准”
+    m_expected_zero_base = m_current_abs_pos;
+
     m_pending_intent = SetRelativeZeroCommand{};
     return true;
 }
@@ -142,6 +155,11 @@ double Axis::currentAbsolutePosition() const
 double Axis::currentRelativePosition() const
 {
     return m_current_rel_pos;
+}
+
+double Axis::relativeZeroAbsolutePosition() const
+{
+    return m_rel_zero_abs_pos;
 }
 
 bool Axis::hasPendingCommand() const

@@ -30,6 +30,7 @@ struct AxisFeedback {
     AxisState state;
     double absPos;
     double relPos;
+    double relZeroAbsPos;
 };
 
 
@@ -83,6 +84,7 @@ public:
     // 状态查询接口
     double currentAbsolutePosition() const;
     double currentRelativePosition() const;
+    double relativeZeroAbsolutePosition() const;
 
 
     bool hasPendingCommand() const;
@@ -98,6 +100,9 @@ private:
 
     double m_current_abs_pos = 0.0;
     double m_current_rel_pos = 0.0;
+
+    double m_rel_zero_abs_pos = 0.0;    // PLC 记录的相对零点对应的绝对位置
+    double m_expected_zero_base = 0.0;  // 记录发起指令那一刻的绝对位置，用于闭环比对
 
     static constexpr double POSITION_EPSILON = 0.01;
 };
