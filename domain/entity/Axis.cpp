@@ -13,6 +13,7 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
 {
     m_state = feedback.state;
     m_current_abs_pos = feedback.absPos;
+    m_current_rel_pos = feedback.relPos;
 
     // A. 运动类状态：清理运动意图
     if (m_state == AxisState::Jogging ||
@@ -138,6 +139,10 @@ double Axis::currentAbsolutePosition() const
   return m_current_abs_pos;
 }
 
+double Axis::currentRelativePosition() const
+{
+    return m_current_rel_pos;
+}
 
 bool Axis::hasPendingCommand() const
 {
