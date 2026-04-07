@@ -41,6 +41,7 @@ struct JogCommand {
 struct MoveCommand {
     MoveType type;   // Absolute 或 Relative
     double target;   // 目标位置或距离
+    double startAbs;   // ⭐ 新增：记录发起指令那一刻的绝对位置快照
 };
 
 struct StopCommand {};

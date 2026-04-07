@@ -22,8 +22,7 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
         m_state == AxisState::MovingRelative)
     {
         // 只有当前存的是运动命令时才清理，防止误杀 Stop 指令
-        if (std::holds_alternative<JogCommand>(m_pending_intent) ||
-            std::holds_alternative<MoveCommand>(m_pending_intent)) {
+        if (std::holds_alternative<JogCommand>(m_pending_intent)) {
             m_pending_intent = std::monostate{};
         }
     }
@@ -73,6 +72,25 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
         }
     }
 
+    // --- ⭐ 新增 6. Move 定位指令的数值收敛判定 ---
+    if (auto* moveCmd = std::get_if<MoveCommand>(&m_pending_intent)) {
+        // 约束：必须同时满足 状态为 Idle 且 数值进入容差
+        if (m_state == AxisState::Idle) {
+            double physicalTarget = 0.0;
+            
+            if (moveCmd->type == MoveType::Absolute) {
+                physicalTarget = moveCmd->target; // 绝对目标
+            } else {
+                physicalTarget = moveCmd->startAbs + moveCmd->target; // 相对计算
+            }
+
+            // 物理闭环判定：|当前绝对位置 - 物理终点| < ε
+            if (std::abs(m_current_abs_pos - physicalTarget) < POSITION_EPSILON) {
+                m_pending_intent = std::monostate{};
+            }
+        }
+    }
+
 }
 
 bool Axis::jog(Direction dir)
@@ -91,7 +109,7 @@ bool Axis::moveAbsolute(double target)
         return false;
     }
 
-    m_pending_intent = MoveCommand{ MoveType::Absolute, target };
+    m_pending_intent = MoveCommand{ MoveType::Absolute, target, m_current_abs_pos };
     return true;
 }
 
@@ -101,7 +119,7 @@ bool Axis::moveRelative(double distance)
         return false;
     }
 
-    m_pending_intent = MoveCommand{ MoveType::Relative, distance };
+    m_pending_intent = MoveCommand{ MoveType::Relative, distance, m_current_abs_pos };
     return true;
 }
 bool Axis::stop()

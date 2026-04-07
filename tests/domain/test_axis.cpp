@@ -211,38 +211,55 @@ TEST(AxisTest, ShouldDistinguishRelativeMoveIntent)
 }
 
 
-// 第七组：Move 语义闭环重构
-
-TEST(AxisTest, ShouldHandleAbsoluteMoveLifecycle)
+// 7.1 绝对定位：数值收敛闭环
+TEST(AxisTest, AbsoluteMoveShouldOnlyClearWhenArrivedAndIdle)
 {
     Axis axis;
-    axis.applyFeedback({AxisState::Idle, 0.0});
+    axis.applyFeedback({AxisState::Idle, 0.0, 0.0, 0.0});
 
-    axis.moveAbsolute(100.0);
-    ASSERT_TRUE(axis.hasPendingCommand());
+    double targetPos = 100.0;
+    axis.moveAbsolute(targetPos);
+    
+    // 场景 A：PLC 反馈正在移动，坐标 50.0
+    // 约束：状态不是 Idle，意图必须保持
+    axis.applyFeedback({AxisState::MovingAbsolute, 50.0, 50.0, 0.0});
+    EXPECT_TRUE(axis.hasPendingCommand());
 
-    // 模拟 PLC 反馈：进入绝对移动状态
-    axis.applyFeedback({AxisState::MovingAbsolute, 5.0});
+    // 场景 B：PLC 反馈已停止（Idle），但坐标在 90.0（未到达容差范围）
+    // 约束：坐标未达标，意图必须保持
+    axis.applyFeedback({AxisState::Idle, 90.0, 90.0, 0.0});
+    EXPECT_TRUE(axis.hasPendingCommand());
 
-    // 验证：意图被消费，插槽应回归 monostate
+    // 场景 C：PLC 反馈已停止（Idle），坐标在 100.0005（进入 0.001 容差）
+    axis.applyFeedback({AxisState::Idle, 100.0005, 100.0005, 0.0});
+    
+    // 验证：状态与数值双重达标，意图消失
     EXPECT_FALSE(axis.hasPendingCommand());
-    EXPECT_TRUE(std::holds_alternative<std::monostate>(axis.getPendingCommand()));
 }
 
-TEST(AxisTest, ShouldHandleRelativeMoveLifecycle)
+// 7.2 相对定位：起跳点捕获与数值收敛
+TEST(AxisTest, RelativeMoveShouldCaptureStartAndVerifyDistance)
 {
     Axis axis;
-    axis.applyFeedback({AxisState::Idle, 0.0});
+    // 初始位置在 50.0
+    axis.applyFeedback({AxisState::Idle, 50.0, 50.0, 0.0});
 
-    axis.moveRelative(-50.0);
-    ASSERT_TRUE(axis.hasPendingCommand());
+    double distance = 30.0; // 预期终点应该是 80.0
+    axis.moveRelative(distance);
+    
+    // 场景 A：移动中，到达 60.0
+    axis.applyFeedback({AxisState::MovingRelative, 60.0, 60.0, 0.0});
+    EXPECT_TRUE(axis.hasPendingCommand());
 
-    // 模拟 PLC 反馈：进入相对移动状态
-    axis.applyFeedback({AxisState::MovingRelative, 2.0});
+    // 场景 B：停止了，但由于机械原因只到了 70.0
+    axis.applyFeedback({AxisState::Idle, 70.0, 70.0, 0.0});
+    EXPECT_TRUE(axis.hasPendingCommand());
 
-    // 验证：意图被消费
+    // 场景 C：停止了，坐标在 79.9998（接近 80.0）
+    axis.applyFeedback({AxisState::Idle, 79.9998, 79.9998, 0.0});
+
+    // 验证：意图消失
     EXPECT_FALSE(axis.hasPendingCommand());
-    EXPECT_TRUE(std::holds_alternative<std::monostate>(axis.getPendingCommand()));
 }
 
 
@@ -251,18 +268,25 @@ TEST(AxisTest, ShouldHandleRelativeMoveLifecycle)
 TEST(AxisTest, ShouldShieldJogDuringAbsoluteMove)
 {
     Axis axis;
-    axis.applyFeedback({AxisState::Idle});
-    axis.moveAbsolute(1000.0); // 产生意图
+    axis.applyFeedback({AxisState::Idle, 0.0});
+    axis.moveAbsolute(1000.0); // 产生 Move 意图
     
-    // 模拟 PLC 响应，进入运行态
-    axis.applyFeedback({AxisState::MovingAbsolute});
+    // 模拟 PLC 响应，进入运行态，但还没到终点
+    axis.applyFeedback({AxisState::MovingAbsolute, 50.0}); 
     
     // 此时尝试 Jog
     bool result = axis.jog(Direction::Forward);
     
-    // 验证：必须拒绝，且不能破坏当前的移动意图（因为移动还没完）
-    EXPECT_FALSE(result);
-    EXPECT_FALSE(axis.hasPendingCommand()); 
+    // 验证：
+    EXPECT_FALSE(result); // 1. Jog 指令必须被拒绝 (Shielding 成功)
+    
+    // 2. ⭐ 关键：意图必须还在！因为 1000.0 的移动任务还没完成
+    EXPECT_TRUE(axis.hasPendingCommand()); 
+    
+    // 3. 深度验证：意图依然是之前的 Move，而不是被 Jog 覆盖了
+    auto command = axis.getPendingCommand();
+    ASSERT_TRUE(std::holds_alternative<MoveCommand>(command));
+    EXPECT_DOUBLE_EQ(std::get<MoveCommand>(command).target, 1000.0);
 }
 
 //2. 正在 Jog 时，屏蔽 Move 指令
@@ -324,6 +348,23 @@ TEST(AxisTest, ShouldHandleImmediateStopAndDisable)
 
 
 // --- 绝对位置坐标体系测试 -- 
+// 核心约束：所有 Move 意图的闭环都必须基于绝对坐标来判定，而不能被相对坐标误导
+TEST(AxisTest, MoveCommandsShouldAlwaysUseAbsoluteSystemForClosure)
+{
+    Axis axis;
+    // 轴在绝对 100，相对 0 (意味着偏移量在 100)
+    axis.applyFeedback({AxisState::Idle, 100.0, 0.0, 100.0});
+
+    // 触发绝对定位到 150.0
+    axis.moveAbsolute(150.0);
+
+    // 场景：PLC 报告已经停了，相对坐标显示为 50.0，绝对坐标显示为 150.0
+    // 虽然相对坐标变成了 50，但我们的 MoveAbsolute 应该盯死 absPos == 150
+    axis.applyFeedback({AxisState::Idle, 150.0, 50.0, 100.0});
+
+    EXPECT_FALSE(axis.hasPendingCommand());
+}
+
 // 第1组：绝对位置反馈同步
 TEST(AxisTest, ShouldSyncAbsolutePositionFromFeedback)
 {
