@@ -31,6 +31,11 @@ struct AxisFeedback {
     double absPos;
     double relPos;
     double relZeroAbsPos;
+
+    bool posLimit;        // 正限位状态位
+    bool negLimit;        // 负限位状态位
+    double posLimitValue; // 正限位数值
+    double negLimitValue; // 负限位数值
 };
 
 
@@ -87,6 +92,10 @@ public:
     double currentRelativePosition() const;
     double relativeZeroAbsolutePosition() const;
 
+    // 软限位查询接口
+    double positiveSoftLimit() const;
+    double negativeSoftLimit() const;
+
 
     bool hasPendingCommand() const;
     const AxisCommand& getPendingCommand() const;
@@ -104,6 +113,19 @@ private:
 
     double m_rel_zero_abs_pos = 0.0;    // PLC 记录的相对零点对应的绝对位置
     double m_expected_zero_base = 0.0;  // 记录发起指令那一刻的绝对位置，用于闭环比对
+
+    // 镜像 PLC 的限位状态
+    bool m_pos_limit_active = false;
+    bool m_neg_limit_active = false;
+    
+    // 镜像 PLC 的限位数值
+    double m_pos_limit_value = 0.0;
+    double m_neg_limit_value = 0.0;
+
+    // 内部辅助：判断一个绝对目标位置是否合法
+    bool isPositionWithinLimits(double target) const {
+        return target <= m_pos_limit_value && target >= m_neg_limit_value;
+    }
 
     static constexpr double POSITION_EPSILON = 0.01;
 };

@@ -1,6 +1,9 @@
 #include "Axis.h"
 #include <cmath>
-Axis::Axis() : m_state(AxisState::Unknown)
+#include <limits>
+Axis::Axis(): m_state(AxisState::Unknown),
+    m_pos_limit_value(std::numeric_limits<double>::max()),  // 默认正限位无穷大
+    m_neg_limit_value(std::numeric_limits<double>::lowest()) // 默认负限位无穷小
 {
 }
 
@@ -15,6 +18,21 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
     m_current_abs_pos = feedback.absPos;
     m_current_rel_pos = feedback.relPos;
     m_rel_zero_abs_pos = feedback.relZeroAbsPos;
+
+    m_pos_limit_active = feedback.posLimit;   // 更新限位 Bit
+    m_neg_limit_active = feedback.negLimit;
+    m_pos_limit_value = feedback.posLimitValue; // 更新限位数值
+    m_neg_limit_value = feedback.negLimitValue;
+
+    // --- 限位运行中熔断逻辑 ---
+    // 只要有任何限位触发，且当前有 Move 或 Jog 意图，立即清理
+    // 这里采用最严苛策略：一旦限位触发，当前所有运动意图立即失效
+    if (m_pos_limit_active || m_neg_limit_active) {
+        if (std::holds_alternative<MoveCommand>(m_pending_intent) || 
+            std::holds_alternative<JogCommand>(m_pending_intent)) {
+            m_pending_intent = std::monostate{};
+        }
+    }
 
     // 1. 运动类状态：清理运动意图
     if (m_state == AxisState::Jogging ||
@@ -99,6 +117,10 @@ bool Axis::jog(Direction dir)
         return false;
     }
 
+    // 约束：触发正限位时禁止正向，触发负限位时禁止负向
+    if (dir == Direction::Forward && m_pos_limit_active) return false;
+    if (dir == Direction::Backward && m_neg_limit_active) return false;
+
     m_pending_intent = JogCommand{ dir };
     return true;
 }
@@ -109,6 +131,12 @@ bool Axis::moveAbsolute(double target)
         return false;
     }
 
+    // 约束 1：如果已经在限位状态位触发中，禁止所有定位指令
+    if (m_pos_limit_active || m_neg_limit_active) return false;
+
+    // 约束 2：数值边界预检
+    if (!isPositionWithinLimits(target)) return false;
+
     m_pending_intent = MoveCommand{ MoveType::Absolute, target, m_current_abs_pos };
     return true;
 }
@@ -118,6 +146,13 @@ bool Axis::moveRelative(double distance)
     if (m_state != AxisState::Idle)  {
         return false;
     }
+
+    // 约束 1：限位位触发中禁止定位
+    if (m_pos_limit_active || m_neg_limit_active) return false;
+
+    // 约束 2：计算预期终点并进行数值预检
+    double expectedTarget = m_current_abs_pos + distance;
+    if (!isPositionWithinLimits(expectedTarget)) return false;
 
     m_pending_intent = MoveCommand{ MoveType::Relative, distance, m_current_abs_pos };
     return true;
@@ -178,6 +213,16 @@ double Axis::currentRelativePosition() const
 double Axis::relativeZeroAbsolutePosition() const
 {
     return m_rel_zero_abs_pos;
+}
+
+double Axis::positiveSoftLimit() const
+{
+  return m_pos_limit_value;
+}
+
+double Axis::negativeSoftLimit() const
+{
+  return m_neg_limit_value;
 }
 
 bool Axis::hasPendingCommand() const

@@ -173,7 +173,12 @@ TEST(AxisTest, ShouldClearPendingCommandWhenJoggingStarts)
 TEST(AxisTest, ShouldDistinguishAbsoluteMoveIntent)
 {
     Axis axis;
-    axis.applyFeedback({AxisState::Idle, 0.0});
+    axis.applyFeedback({
+        .state = AxisState::Idle, 
+        .absPos = 0.0, 
+        .posLimitValue = 1000.0,  // 给够空间
+        .negLimitValue = -1000.0
+    });
 
     double targetPos = 123.4;
     // 触发绝对定位
@@ -194,7 +199,12 @@ TEST(AxisTest, ShouldDistinguishAbsoluteMoveIntent)
 TEST(AxisTest, ShouldDistinguishRelativeMoveIntent)
 {
     Axis axis;
-    axis.applyFeedback({AxisState::Idle});
+    axis.applyFeedback({
+        .state = AxisState::Idle, 
+        .absPos = 0.0, 
+        .posLimitValue = 1000.0,  // 给够空间
+        .negLimitValue = -1000.0
+    });
 
     double distance = 50.0;
     // 触发相对定位
@@ -215,7 +225,12 @@ TEST(AxisTest, ShouldDistinguishRelativeMoveIntent)
 TEST(AxisTest, AbsoluteMoveShouldOnlyClearWhenArrivedAndIdle)
 {
     Axis axis;
-    axis.applyFeedback({AxisState::Idle, 0.0, 0.0, 0.0});
+    axis.applyFeedback({
+        .state = AxisState::Idle, 
+        .absPos = 0.0, 
+        .posLimitValue = 1000.0,  // 给够空间
+        .negLimitValue = -1000.0
+    });
 
     double targetPos = 100.0;
     axis.moveAbsolute(targetPos);
@@ -242,7 +257,12 @@ TEST(AxisTest, RelativeMoveShouldCaptureStartAndVerifyDistance)
 {
     Axis axis;
     // 初始位置在 50.0
-    axis.applyFeedback({AxisState::Idle, 50.0, 50.0, 0.0});
+    axis.applyFeedback({
+        .state = AxisState::Idle, 
+        .absPos = 50.0, 
+        .posLimitValue = 1000.0,  // 给够空间
+        .negLimitValue = -1000.0
+    });
 
     double distance = 30.0; // 预期终点应该是 80.0
     axis.moveRelative(distance);
@@ -268,7 +288,12 @@ TEST(AxisTest, RelativeMoveShouldCaptureStartAndVerifyDistance)
 TEST(AxisTest, ShouldShieldJogDuringAbsoluteMove)
 {
     Axis axis;
-    axis.applyFeedback({AxisState::Idle, 0.0});
+    axis.applyFeedback({
+        .state = AxisState::Idle, 
+        .absPos = 0.0, 
+        .posLimitValue = 1000.0,  // 给够空间
+        .negLimitValue = -1000.0
+    });
     axis.moveAbsolute(1000.0); // 产生 Move 意图
     
     // 模拟 PLC 响应，进入运行态，但还没到终点
@@ -521,5 +546,99 @@ TEST(AxisTest, ClearRelativeZeroShouldWaitUntilRelPosRestoresAndBaseResets)
     axis.applyFeedback({AxisState::Idle, 100.0, 100.0, 0.0});
 
     // 验证：双重校验通过，意图消失
+    EXPECT_FALSE(axis.hasPendingCommand());
+}
+
+
+// 软限位功能
+// 第 1 组：软限位数值镜像同步
+TEST(AxisTest, ShouldSyncSoftLimitValuesFromFeedback)
+{
+    Axis axis;
+    AxisFeedback fb;
+    fb.state = AxisState::Idle;
+    fb.absPos = 0.0;
+    fb.relPos = 0.0;
+    fb.relZeroAbsPos = 0.0;
+    
+    // 模拟 PLC 传回的软限位配置值
+    fb.posLimitValue = 5000.0;
+    fb.negLimitValue = -100.0;
+    
+    axis.applyFeedback(fb);
+
+    // 验证 Domain 接口返回的数值是否与 PLC 一致
+    EXPECT_DOUBLE_EQ(axis.positiveSoftLimit(), 5000.0);
+    EXPECT_DOUBLE_EQ(axis.negativeSoftLimit(), -100.0);
+}
+
+
+// 第 2 组：定位指令的数值越界拦截
+TEST(AxisTest, ShouldRejectMoveCommandsExceedingNumericalLimits)
+{
+    Axis axis;
+    // 设定限位范围：[-100, 1000]
+    axis.applyFeedback({AxisState::Idle, 1000.0, 1000.0, 0.0, false, false, 1000.0, -100.0});
+
+    // 场景 A：moveAbsolute 目标超出正极限
+    EXPECT_FALSE(axis.moveAbsolute(1001.0)); 
+    EXPECT_FALSE(axis.hasPendingCommand());
+
+    // 场景 B：moveAbsolute 目标超出负极限
+    EXPECT_FALSE(axis.moveAbsolute(-101.0));
+
+    // 场景 C：moveRelative 预期终点超出极限 (当前 0.0 + 增量 1100.0 > 1000.0)
+    EXPECT_FALSE(axis.moveRelative(1100.0));
+    
+    // 场景 D：合法范围内的指令应被接受
+    EXPECT_TRUE(axis.moveAbsolute(500.0));
+}
+
+// 第 3 组：限位 Bit 触发时的指令锁死与逃逸
+TEST(AxisTest, ShouldOnlyAllowReverseJogToRecoverFromLimitBit)
+{
+    Axis axis;
+
+    // 场景 A：正限位触发 (posLimit = true)
+    // 绝对 1000，相对 1000，基准 0，正限位触发，负限位未触发
+    axis.applyFeedback({AxisState::Idle, 1000.0, 1000.0, 0.0, true, false, 1000.0, -100.0});
+
+    // 1. 严禁所有定位指令（强制要求手动撤离）
+    EXPECT_FALSE(axis.moveAbsolute(500.0));
+    EXPECT_FALSE(axis.moveRelative(-10.0));
+
+    // 2. 严禁继续向正向点动
+    EXPECT_FALSE(axis.jog(Direction::Forward));
+
+    // 3. 允许向反方向（负向）点动以撤离限位区
+    EXPECT_TRUE(axis.jog(Direction::Backward));
+
+
+    // 场景 B：负限位触发 (negLimit = true)
+    axis.applyFeedback({AxisState::Idle, -100.0, -100.0, 0.0, false, true, 1000.0, -100.0});
+
+    // 1. 严禁向负向点动
+    EXPECT_FALSE(axis.jog(Direction::Backward));
+
+    // 2. 允许向正向点动撤离
+    EXPECT_TRUE(axis.jog(Direction::Forward));
+}
+
+
+// 第 4 组：运行中触发限位的意图清理
+TEST(AxisTest, ShouldCancelMoveIntentImmediatelyWhenLimitIsHitDuringMotion)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Idle, 0.0, 0.0, 0.0, false, false, 1000.0, -100.0});
+
+    // 发起移动
+    axis.moveAbsolute(800.0);
+    axis.applyFeedback({AxisState::MovingAbsolute, 100.0});
+    ASSERT_TRUE(axis.hasPendingCommand());
+
+    // 模拟意外：在 100.0 处由于某种原因（如软限位动态调整）触发了正限位
+    axis.applyFeedback({AxisState::MovingAbsolute, 100.0, 100.0, 0.0, true, false});
+
+    // 验证：意图必须被强制清理，即使轴还没到 800.0
     EXPECT_FALSE(axis.hasPendingCommand());
 }
