@@ -50,6 +50,7 @@ TEST(AxisTest, ShouldRejectJogWhenDisabled)
 
     EXPECT_FALSE(result);
     EXPECT_FALSE(axis.hasPendingCommand());
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidState);
 }
 
 // Unknown 也不能 Jog
@@ -70,7 +71,12 @@ TEST(AxisTest, ShouldAcceptJogWhenIdle)
 {
     Axis axis;
 
-    axis.applyFeedback({AxisState::Idle});
+    axis.applyFeedback({
+        .state = AxisState::Idle, 
+        .absPos = 0.0, 
+        .posLimitValue = 1000.0,  // 给够空间
+        .negLimitValue = -1000.0
+    });
 
     bool result = axis.jog(Direction::Forward);
 
@@ -82,7 +88,12 @@ TEST(AxisTest, ShouldAcceptJogWhenIdle)
 TEST(AxisTest, ShouldStoreJogDirection)
 {
     Axis axis;
-    axis.applyFeedback({AxisState::Idle, 0.0});
+    axis.applyFeedback({
+        .state = AxisState::Idle, 
+        .absPos = 0.0, 
+        .posLimitValue = 1000.0,  // 给够空间
+        .negLimitValue = -1000.0
+    });
 
     axis.jog(Direction::Backward);
 
@@ -307,6 +318,9 @@ TEST(AxisTest, ShouldShieldJogDuringAbsoluteMove)
     
     // 2. ⭐ 关键：意图必须还在！因为 1000.0 的移动任务还没完成
     EXPECT_TRUE(axis.hasPendingCommand()); 
+
+    // ⭐ 新增验证：拒绝原因必须是 InvalidState，说明屏障逻辑正确触发了状态检查，而不是其他逻辑误伤了意图
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidState);
     
     // 3. 深度验证：意图依然是之前的 Move，而不是被 Jog 覆盖了
     auto command = axis.getPendingCommand();
@@ -449,6 +463,68 @@ TEST(AxisTest, ZeroingIntentShouldClearWhenPositionIsNearZero)
     // 验证：意图消失，清零成功
     EXPECT_FALSE(axis.hasPendingCommand());
 }
+
+
+// 4. 验证：绝对定位目标预检
+TEST(AxisTest, ShouldRejectMoveAbsoluteWhenTargetExceedsLimit)
+{
+    Axis axis;
+    // 环境：限位 [-100, 1000]，当前在 0.0 (安全区)
+    axis.applyFeedback({.state = AxisState::Idle, .absPos = 0.0, .posLimitValue = 1000.0, .negLimitValue = -100.0});
+
+    // 动作：尝试移动到 1001.0
+    bool result = axis.moveAbsolute(1001.0);
+
+    EXPECT_FALSE(result);
+    // ⭐ 验证：报错原因为“目标超限”，说明逻辑判断点在【参数校验】
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::TargetOutOfPositiveLimit);
+}
+
+// 5. 验证：相对定位预期终点预检
+TEST(AxisTest, ShouldRejectMoveRelativeWhenExpectedTargetExceedsLimit)
+{
+    Axis axis;
+    // 环境：当前在 900.0，限位 1000.0
+    axis.applyFeedback({.state = AxisState::Idle, .absPos = 900.0, .posLimitValue = 1000.0});
+
+    // 动作：尝试相对移动 +200.0 (预期 1100.0)
+    bool result = axis.moveRelative(200.0);
+
+    EXPECT_FALSE(result);
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::TargetOutOfPositiveLimit);
+}
+
+
+// 6. 验证：已在正限位时，拦截所有正向运动
+TEST(AxisTest, ShouldBlockMotionWhenAlreadyAtPositiveLimit)
+{
+    Axis axis;
+    // 环境：限位 1000.0，当前轴已经在 1000.0 或 1001.0 了
+    axis.applyFeedback({.state = AxisState::Idle, .absPos = 1001.0, .posLimit = true, .posLimitValue = 1000.0});
+
+    // 1. 拦截正向点动
+    EXPECT_FALSE(axis.jog(Direction::Forward));
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::AtPositiveLimit); // ⭐ 原因是“已在限位”
+
+    // 2. 拦截绝对定位（哪怕目标 500.0 是合法的，由于已超限，系统应先保护）
+    EXPECT_FALSE(axis.moveAbsolute(500.0));
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::AtPositiveLimit);
+}
+
+// 7. 验证：边界“反向逃逸”成功后重置原因
+TEST(AxisTest, ShouldResetRejectionWhenEscapingFromLimit)
+{
+    Axis axis;
+    axis.applyFeedback({.state = AxisState::Idle, .absPos = 1001.0, .posLimitValue = 1000.0});
+
+    // 执行反向点动（合法逃逸）
+    bool result = axis.jog(Direction::Backward);
+
+    EXPECT_TRUE(result);
+    // ⭐ 验证：成功后原因必须重置为 None
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::None);
+}
+
 
 // --- 相对位置坐标体系测试 -- 
 // 第 1 组：相对坐标反馈同步测试

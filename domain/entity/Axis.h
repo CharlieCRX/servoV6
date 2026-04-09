@@ -26,6 +26,20 @@ enum class AxisState {
     Error           // 对应 6: 报警
 };
 
+enum class RejectionReason {
+    None,               // 无拒绝（成功）
+    InvalidState,       // 轴状态非法
+
+    // ⭐ 场景 1：针对 Move 指令的目标预检
+    TargetOutOfPositiveLimit, // 目标位置超出了正向软限位
+    TargetOutOfNegativeLimit, // 目标位置超出了负向软限位
+
+    // ⭐ 场景 2：针对当前已经处于边界的状态拦截
+    AtPositiveLimit,          // 当前已处于正向限位点（禁正向点动/定位）
+    AtNegativeLimit           // 当前已处于负向限位点（禁负向点动/定位）
+};
+
+
 struct AxisFeedback {
     AxisState state;
     double absPos;
@@ -98,6 +112,7 @@ public:
 
 
     bool hasPendingCommand() const;
+    RejectionReason lastRejection() const;
     const AxisCommand& getPendingCommand() const;
 
     bool hasPendingStop() const;
@@ -122,11 +137,8 @@ private:
     double m_pos_limit_value = 0.0;
     double m_neg_limit_value = 0.0;
 
-    // 内部辅助：判断一个绝对目标位置是否合法
-    bool isPositionWithinLimits(double target) const {
-        return target <= m_pos_limit_value && target >= m_neg_limit_value;
-    }
-
     static constexpr double POSITION_EPSILON = 0.01;
+
+    RejectionReason m_last_rejection = RejectionReason::None;
 };
 #endif // AXIS_H

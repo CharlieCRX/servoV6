@@ -3,7 +3,8 @@
 #include <limits>
 Axis::Axis(): m_state(AxisState::Unknown),
     m_pos_limit_value(std::numeric_limits<double>::max()),  // 默认正限位无穷大
-    m_neg_limit_value(std::numeric_limits<double>::lowest()) // 默认负限位无穷小
+    m_neg_limit_value(std::numeric_limits<double>::lowest()), // 默认负限位无穷小
+    m_last_rejection(RejectionReason::None) // 初始化拒绝原因
 {
 }
 
@@ -113,21 +114,31 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
 
 bool Axis::jog(Direction dir)
 {
+    // 1. 状态准入：只有 Idle 才能发起点动
     if (m_state != AxisState::Idle) {
+        m_last_rejection = RejectionReason::InvalidState;
         return false;
     }
 
     // 约束：触发正限位时禁止正向，触发负限位时禁止负向
-    if (dir == Direction::Forward && m_pos_limit_active) return false;
-    if (dir == Direction::Backward && m_neg_limit_active) return false;
+    if (dir == Direction::Forward && m_pos_limit_active) {
+        m_last_rejection = RejectionReason::AtPositiveLimit;
+        return false;
+    }
+    if (dir == Direction::Backward && m_neg_limit_active) {
+        m_last_rejection = RejectionReason::AtNegativeLimit;
+        return false;
+    }
 
     m_pending_intent = JogCommand{ dir };
+    m_last_rejection = RejectionReason::None;
     return true;
 }
 
 bool Axis::moveAbsolute(double target)
 {
     if (m_state != AxisState::Idle)  {
+        m_last_rejection = RejectionReason::InvalidState;
         return false;
     }
 
@@ -135,15 +146,24 @@ bool Axis::moveAbsolute(double target)
     if (m_pos_limit_active || m_neg_limit_active) return false;
 
     // 约束 2：数值边界预检
-    if (!isPositionWithinLimits(target)) return false;
+    if (target > m_pos_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
+        return false;
+    }
+    if (target < m_neg_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
+        return false;
+    }
 
     m_pending_intent = MoveCommand{ MoveType::Absolute, target, m_current_abs_pos };
+    m_last_rejection = RejectionReason::None;
     return true;
 }
 
 bool Axis::moveRelative(double distance)
 {
     if (m_state != AxisState::Idle)  {
+        m_last_rejection = RejectionReason::InvalidState;
         return false;
     }
 
@@ -152,14 +172,23 @@ bool Axis::moveRelative(double distance)
 
     // 约束 2：计算预期终点并进行数值预检
     double expectedTarget = m_current_abs_pos + distance;
-    if (!isPositionWithinLimits(expectedTarget)) return false;
+    if (expectedTarget > m_pos_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
+        return false;
+    }
+    if (expectedTarget < m_neg_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
+        return false;
+    }
 
     m_pending_intent = MoveCommand{ MoveType::Relative, distance, m_current_abs_pos };
+    m_last_rejection = RejectionReason::None;
     return true;
 }
 bool Axis::stop()
 {
     m_pending_intent = StopCommand{};
+    m_last_rejection = RejectionReason::None;
 
     return true;
 }
@@ -171,14 +200,17 @@ bool Axis::zeroAbsolutePosition()
         m_state == AxisState::Disabled)
     {
         m_pending_intent = ZeroAbsoluteCommand{};
+        m_last_rejection = RejectionReason::None;
         return true;
     }
+    m_last_rejection = RejectionReason::InvalidState;
     return false;
 }
 
 bool Axis::setRelativeZero() {
     // 必须为 Idle 状态
     if (m_state != AxisState::Idle) {
+        m_last_rejection = RejectionReason::InvalidState;
         return false;
     }
 
@@ -186,6 +218,7 @@ bool Axis::setRelativeZero() {
     m_expected_zero_base = m_current_abs_pos;
 
     m_pending_intent = SetRelativeZeroCommand{};
+    m_last_rejection = RejectionReason::None;
     return true;
 }
 
@@ -193,9 +226,11 @@ bool Axis::setRelativeZero() {
 bool Axis::clearRelativeZero() {
     // 必须为 Idle 状态
     if (m_state != AxisState::Idle) {
+        m_last_rejection = RejectionReason::InvalidState;
         return false;
     }
     m_pending_intent = ClearRelativeZeroCommand{};
+    m_last_rejection = RejectionReason::None;
     return true;
 }
 
@@ -231,6 +266,10 @@ bool Axis::hasPendingCommand() const
     return !std::holds_alternative<std::monostate>(m_pending_intent);
 }
 
+RejectionReason Axis::lastRejection() const
+{
+    return m_last_rejection;
+}
 
 const AxisCommand &Axis::getPendingCommand() const
 {
