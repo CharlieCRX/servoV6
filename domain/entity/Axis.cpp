@@ -176,10 +176,19 @@ bool Axis::jog(Direction dir)
         return false;
     }
 
-    m_pending_intent = JogCommand{ dir };
+    m_pending_intent = JogCommand{ dir, true };
+    m_last_jog_dir = dir; // ⭐ 记住方向，为停止做准备
     m_last_rejection = RejectionReason::None;
     return true;
 }
+
+bool Axis::stopJog() {
+    // 停止点动是安全操作，无条件允许
+    m_pending_intent = JogCommand{ m_last_jog_dir, false }; // 停止
+    m_last_rejection = RejectionReason::None;
+    return true;
+}
+
 
 bool Axis::moveAbsolute(double target)
 {

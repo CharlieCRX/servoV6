@@ -801,3 +801,38 @@ TEST(AxisTest, DisableIntentShouldClearWhenStateBecomesDisabled)
 
     EXPECT_FALSE(axis.hasPendingCommand());
 }
+
+
+// 第十四组：单独停止接口测试 (stopJog)
+
+TEST(AxisTest, ShouldGenerateFalseActiveCommandWhenStopJogCalled)
+{
+    Axis axis;
+    axis.applyFeedback({.state = AxisState::Idle, .posLimitValue = 1000.0});
+    
+    // 1. 先启动一个正向点动
+    axis.jog(Direction::Forward);
+    
+    // 2. 调用新接口停止
+    bool result = axis.stopJog();
+
+    // 验证：
+    EXPECT_TRUE(result);
+    auto cmd = std::get<JogCommand>(axis.getPendingCommand());
+    EXPECT_EQ(cmd.dir, Direction::Forward); // 应该能记住之前的方向
+    EXPECT_FALSE(cmd.active);               // 必须是停止信号
+}
+
+TEST(AxisTest, StopJogShouldWorkEvenInErrorState)
+{
+    Axis axis;
+    // 模拟轴在点动时突然报错
+    axis.applyFeedback({AxisState::Error}); 
+
+    // 动作：松开按钮触发停止
+    bool result = axis.stopJog();
+
+    // 验证：即使报错也必须允许停止（下发 false 信号给 PLC）
+    EXPECT_TRUE(result);
+    EXPECT_FALSE(std::get<JogCommand>(axis.getPendingCommand()).active);
+}
