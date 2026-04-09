@@ -110,6 +110,52 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
         }
     }
 
+
+    // --- 7. 使能/掉电指令的生命周期闭环 ---
+    if (auto* cmd = std::get_if<EnableCommand>(&m_pending_intent)) {
+    if (cmd->active) {
+        // 意图是上电：只要状态脱离了 Disabled 和 Unknown，视为上电成功
+        if (m_state != AxisState::Disabled && m_state != AxisState::Unknown) {
+            m_pending_intent = std::monostate{};
+        }
+    } else {
+        // 意图是掉电：只有状态确认为 Disabled 时才清理意图
+        if (m_state == AxisState::Disabled) {
+            m_pending_intent = std::monostate{};
+        }
+    }
+}
+
+}
+
+bool Axis::enable(bool active)
+{
+    // 约束 1：安全屏障 - 故障状态下严禁上电
+    if (active && m_state == AxisState::Error) {
+        m_last_rejection = RejectionReason::InvalidState;
+        return false;
+    }
+
+    // 约束 2：安全屏障 - 运动中严禁直接切断动力
+    if (!active && (m_state == AxisState::Jogging || 
+                    m_state == AxisState::MovingAbsolute || 
+                    m_state == AxisState::MovingRelative)) {
+        m_last_rejection = RejectionReason::AlreadyMoving;
+        return false;
+    }
+
+    // 约束 3：幂等性处理 - 如果状态已经达标，不产生新指令
+    if (active && (m_state != AxisState::Disabled && m_state != AxisState::Unknown)) {
+        return true; 
+    }
+    if (!active && m_state == AxisState::Disabled) {
+        return true;
+    }
+
+    // 4. 生成意图
+    m_pending_intent = EnableCommand{ active };
+    m_last_rejection = RejectionReason::None;
+    return true;
 }
 
 bool Axis::jog(Direction dir)
@@ -195,9 +241,8 @@ bool Axis::stop()
 
 bool Axis::zeroAbsolutePosition()
 {
-    // 只有在静止态（Idle/Disabled）才允许修改基准
-    if (m_state == AxisState::Idle ||
-        m_state == AxisState::Disabled)
+    // 只有在静止态 Idle 才允许修改基准
+    if (m_state == AxisState::Idle)
     {
         m_pending_intent = ZeroAbsoluteCommand{};
         m_last_rejection = RejectionReason::None;

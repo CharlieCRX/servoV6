@@ -386,7 +386,7 @@ TEST(AxisTest, ShouldHandleImmediateStopAndDisable)
 }
 
 
-// --- 绝对位置坐标体系测试 -- 
+// ---第十组： 绝对位置坐标体系测试 -- 
 // 核心约束：所有 Move 意图的闭环都必须基于绝对坐标来判定，而不能被相对坐标误导
 TEST(AxisTest, MoveCommandsShouldAlwaysUseAbsoluteSystemForClosure)
 {
@@ -526,7 +526,7 @@ TEST(AxisTest, ShouldResetRejectionWhenEscapingFromLimit)
 }
 
 
-// --- 相对位置坐标体系测试 -- 
+// 第十一组: 相对位置坐标体系测试
 // 第 1 组：相对坐标反馈同步测试
 TEST(AxisTest, ShouldSyncRelativePositionAndZeroBaseFromFeedback)
 {
@@ -626,7 +626,7 @@ TEST(AxisTest, ClearRelativeZeroShouldWaitUntilRelPosRestoresAndBaseResets)
 }
 
 
-// 软限位功能
+// 第十二组：软限位功能
 // 第 1 组：软限位数值镜像同步
 TEST(AxisTest, ShouldSyncSoftLimitValuesFromFeedback)
 {
@@ -716,5 +716,88 @@ TEST(AxisTest, ShouldCancelMoveIntentImmediatelyWhenLimitIsHitDuringMotion)
     axis.applyFeedback({AxisState::MovingAbsolute, 100.0, 100.0, 0.0, true, false});
 
     // 验证：意图必须被强制清理，即使轴还没到 800.0
+    EXPECT_FALSE(axis.hasPendingCommand());
+}
+
+
+
+// 第十三组：使能 (Enable/Disable) 语义约束测试
+
+// 1. 意图产生：Disabled 时申请上电
+TEST(AxisTest, ShouldCreateEnableIntentWhenDisabled)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Disabled});
+
+    bool result = axis.enable(true); // 申请上电
+
+    EXPECT_TRUE(result);
+    auto cmd = axis.getPendingCommand();
+    ASSERT_TRUE(std::holds_alternative<EnableCommand>(cmd));
+    EXPECT_TRUE(std::get<EnableCommand>(cmd).active);
+}
+
+// 2. 安全屏障：Error 状态下严禁上电
+TEST(AxisTest, ShouldRejectEnableWhenInErrorState)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Error});
+
+    bool result = axis.enable(true);
+
+    EXPECT_FALSE(result);
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidState);
+    EXPECT_FALSE(axis.hasPendingCommand());
+}
+
+// 3. 安全屏障：运动中严禁直接断电
+TEST(AxisTest, ShouldRejectDisableWhenMoving)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::MovingAbsolute});
+
+    bool result = axis.enable(false); // 尝试运行中直接断电
+
+    EXPECT_FALSE(result);
+    // 应当提示“已经在动”，不能强制切断动力
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::AlreadyMoving);
+}
+
+// 4. 幂等性：已经是 Idle 时再次上电不产生新意图
+TEST(AxisTest, ShouldBeIdempotentWhenEnablingAlreadyActiveAxis)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Idle});
+
+    bool result = axis.enable(true);
+
+    EXPECT_TRUE(result); // 业务逻辑返回真（已经是你要的状态）
+    EXPECT_FALSE(axis.hasPendingCommand()); // ⭐ 但不产生任何发送给 PLC 的指令
+}
+
+// 5. 生命周期闭环：上电意图在状态变为 Idle 后消失
+TEST(AxisTest, EnableIntentShouldClearWhenStateBecomesIdle)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Disabled});
+    axis.enable(true);
+    ASSERT_TRUE(axis.hasPendingCommand());
+
+    // 模拟 PLC 响应：状态变为 Idle
+    axis.applyFeedback({AxisState::Idle});
+
+    // 意图应当消失
+    EXPECT_FALSE(axis.hasPendingCommand());
+}
+
+// 6. 生命周期闭环：掉电意图在状态变为 Disabled 后消失
+TEST(AxisTest, DisableIntentShouldClearWhenStateBecomesDisabled)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Idle});
+    axis.enable(false); // 申请掉电
+
+    axis.applyFeedback({AxisState::Disabled});
+
     EXPECT_FALSE(axis.hasPendingCommand());
 }

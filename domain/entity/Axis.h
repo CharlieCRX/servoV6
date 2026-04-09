@@ -29,6 +29,7 @@ enum class AxisState {
 enum class RejectionReason {
     None,               // 无拒绝（成功）
     InvalidState,       // 轴状态非法
+    AlreadyMoving,      // 已经在运动中（针对 Move 指令）
 
     // ⭐ 场景 1：针对 Move 指令的目标预检
     TargetOutOfPositiveLimit, // 目标位置超出了正向软限位
@@ -65,6 +66,10 @@ struct MoveCommand {
 
 struct StopCommand {};
 
+struct EnableCommand { 
+    bool active; // true: 使能(上电), false: 掉电 
+};
+
 // 坐标控制
 struct ZeroAbsoluteCommand {};
 
@@ -79,7 +84,8 @@ using AxisCommand = std::variant<
     StopCommand,
     ZeroAbsoluteCommand,
     SetRelativeZeroCommand,
-    ClearRelativeZeroCommand
+    ClearRelativeZeroCommand,
+    EnableCommand
 >;
 
 class Axis {
@@ -90,6 +96,8 @@ public:
 
     void applyFeedback(const AxisFeedback& feedback);
 
+    bool enable(bool active);
+    
     bool jog(Direction dir);
     bool moveAbsolute(double target);
     bool moveRelative(double distance);
