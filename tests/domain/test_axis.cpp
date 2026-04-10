@@ -120,6 +120,7 @@ TEST(AxisTest, ShouldRejectJogWhenJogging)
 
     EXPECT_FALSE(result);
     EXPECT_FALSE(axis.hasPendingCommand());
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::AlreadyMoving);
 }
 
 // MovingAbsolute 时不能 Jog
@@ -133,6 +134,7 @@ TEST(AxisTest, ShouldRejectJogWhenMovingAbsolute)
 
     EXPECT_FALSE(result);
     EXPECT_FALSE(axis.hasPendingCommand());
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::AlreadyMoving);
 }
 
 // MovingRelative 时不能 Jog
@@ -146,6 +148,7 @@ TEST(AxisTest, ShouldRejectJogWhenMovingRelative)
 
     EXPECT_FALSE(result);
     EXPECT_FALSE(axis.hasPendingCommand());
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::AlreadyMoving);
 }
 
 // 第四组：Error 状态锁死
@@ -319,8 +322,8 @@ TEST(AxisTest, ShouldShieldJogDuringAbsoluteMove)
     // 2. ⭐ 关键：意图必须还在！因为 1000.0 的移动任务还没完成
     EXPECT_TRUE(axis.hasPendingCommand()); 
 
-    // ⭐ 新增验证：拒绝原因必须是 InvalidState，说明屏障逻辑正确触发了状态检查，而不是其他逻辑误伤了意图
-    EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidState);
+    // ⭐ 新增验证：拒绝原因必须是 AlreadyMoving，而不是被误判成了 InvalidState
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::AlreadyMoving);
     
     // 3. 深度验证：意图依然是之前的 Move，而不是被 Jog 覆盖了
     auto command = axis.getPendingCommand();
@@ -719,6 +722,25 @@ TEST(AxisTest, ShouldCancelMoveIntentImmediatelyWhenLimitIsHitDuringMotion)
     EXPECT_FALSE(axis.hasPendingCommand());
 }
 
+
+// 第 5 组：数值极限状态下的JOG指令拦截
+TEST(AxisTest, ShouldRejectJogWhenAtNumericalLimit)
+{
+    Axis axis;
+    // 环境：当前位置在 1000.0，正限位设定也是 1000.0
+    axis.applyFeedback({
+        .state = AxisState::Idle, 
+        .absPos = 1000.0, 
+        .posLimitValue = 1000.0
+    });
+
+    // 动作：尝试向正向点动
+    bool result = axis.jog(Direction::Forward);
+
+    // 验证：应当因为“已在正限位”被拦截
+    EXPECT_FALSE(result);
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::AtPositiveLimit);
+}
 
 
 // 第十三组：使能 (Enable/Disable) 语义约束测试

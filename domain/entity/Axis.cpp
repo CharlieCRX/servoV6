@@ -160,13 +160,22 @@ bool Axis::enable(bool active)
 
 bool Axis::jog(Direction dir)
 {
-    // 1. 状态准入：只有 Idle 才能发起点动
+    // 1. 状态准入细化检查
     if (m_state != AxisState::Idle) {
-        m_last_rejection = RejectionReason::InvalidState;
+        // 如果轴处于任何运动状态，报错“正忙”
+        if (m_state == AxisState::Jogging || 
+            m_state == AxisState::MovingAbsolute || 
+            m_state == AxisState::MovingRelative) {
+            m_last_rejection = RejectionReason::AlreadyMoving;
+        } 
+        // 否则（Disabled, Error, Unknown），视为状态非法
+        else {
+            m_last_rejection = RejectionReason::InvalidState;
+        }
         return false;
     }
 
-    // 约束：触发正限位时禁止正向，触发负限位时禁止负向
+    // 2. 硬件限位 Bit 拦截
     if (dir == Direction::Forward && m_pos_limit_active) {
         m_last_rejection = RejectionReason::AtPositiveLimit;
         return false;
@@ -176,11 +185,24 @@ bool Axis::jog(Direction dir)
         return false;
     }
 
+    // 3. 软件限位数值预检
+    // 即使 Bit 没触发，如果坐标已超限，也禁止继续向超限方向点动
+    if (dir == Direction::Forward && m_current_abs_pos >= m_pos_limit_value) {
+        m_last_rejection = RejectionReason::AtPositiveLimit;
+        return false;
+    }
+    if (dir == Direction::Backward && m_current_abs_pos <= m_neg_limit_value) {
+        m_last_rejection = RejectionReason::AtNegativeLimit;
+        return false;
+    }
+
+    // 4. 准入通过：生成点动意图
     m_pending_intent = JogCommand{ dir, true };
-    m_last_jog_dir = dir; // ⭐ 记住方向，为停止做准备
+    m_last_jog_dir = dir; // 记录方向，以便 stopJog() 寻址
     m_last_rejection = RejectionReason::None;
     return true;
 }
+
 
 bool Axis::stopJog() {
     // 停止点动是安全操作，无条件允许
