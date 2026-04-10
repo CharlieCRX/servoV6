@@ -343,8 +343,11 @@ TEST(AxisTest, ShouldShieldMoveDuringJog)
        
     // 验证：必须拒绝，且不能破坏当前的 Jog 意图
     EXPECT_FALSE(axis.moveAbsolute(500.0));
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::AlreadyMoving);
+
     EXPECT_FALSE(axis.moveRelative(500.0));
     EXPECT_FALSE(axis.hasPendingCommand()); 
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::AlreadyMoving);
 }
 
 
@@ -684,7 +687,11 @@ TEST(AxisTest, ShouldOnlyAllowReverseJogToRecoverFromLimitBit)
 
     // 1. 严禁所有定位指令（强制要求手动撤离）
     EXPECT_FALSE(axis.moveAbsolute(500.0));
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::AtPositiveLimit);
+
+
     EXPECT_FALSE(axis.moveRelative(-10.0));
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::AtPositiveLimit);
 
     // 2. 严禁继续向正向点动
     EXPECT_FALSE(axis.jog(Direction::Forward));
@@ -698,6 +705,7 @@ TEST(AxisTest, ShouldOnlyAllowReverseJogToRecoverFromLimitBit)
 
     // 1. 严禁向负向点动
     EXPECT_FALSE(axis.jog(Direction::Backward));
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::AtNegativeLimit);
 
     // 2. 允许向正向点动撤离
     EXPECT_TRUE(axis.jog(Direction::Forward));

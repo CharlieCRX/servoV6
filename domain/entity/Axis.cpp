@@ -214,13 +214,30 @@ bool Axis::stopJog() {
 
 bool Axis::moveAbsolute(double target)
 {
-    if (m_state != AxisState::Idle)  {
-        m_last_rejection = RejectionReason::InvalidState;
+    if (m_state != AxisState::Idle) {
+        // 如果轴处于任何运动状态，报错“正忙”
+        if (m_state == AxisState::Jogging || 
+            m_state == AxisState::MovingAbsolute || 
+            m_state == AxisState::MovingRelative) {
+            m_last_rejection = RejectionReason::AlreadyMoving;
+        } 
+        // 否则（Disabled, Error, Unknown），视为状态非法
+        else {
+            m_last_rejection = RejectionReason::InvalidState;
+        }
         return false;
     }
 
     // 约束 1：如果已经在限位状态位触发中，禁止所有定位指令
-    if (m_pos_limit_active || m_neg_limit_active) return false;
+    if (m_pos_limit_active) {
+        m_last_rejection = RejectionReason::AtPositiveLimit;
+        return false;
+    }
+
+    if (m_neg_limit_active) {
+        m_last_rejection = RejectionReason::AtNegativeLimit;
+        return false;
+    }
 
     // 约束 2：数值边界预检
     if (target > m_pos_limit_value) {
@@ -239,13 +256,30 @@ bool Axis::moveAbsolute(double target)
 
 bool Axis::moveRelative(double distance)
 {
-    if (m_state != AxisState::Idle)  {
-        m_last_rejection = RejectionReason::InvalidState;
+    if (m_state != AxisState::Idle) {
+        // 如果轴处于任何运动状态，报错“正忙”
+        if (m_state == AxisState::Jogging || 
+            m_state == AxisState::MovingAbsolute || 
+            m_state == AxisState::MovingRelative) {
+            m_last_rejection = RejectionReason::AlreadyMoving;
+        } 
+        // 否则（Disabled, Error, Unknown），视为状态非法
+        else {
+            m_last_rejection = RejectionReason::InvalidState;
+        }
         return false;
     }
 
-    // 约束 1：限位位触发中禁止定位
-    if (m_pos_limit_active || m_neg_limit_active) return false;
+    // 约束 1：如果已经在限位状态位触发中，禁止所有定位指令
+    if (m_pos_limit_active) {
+        m_last_rejection = RejectionReason::AtPositiveLimit;
+        return false;
+    }
+
+    if (m_neg_limit_active) {
+        m_last_rejection = RejectionReason::AtNegativeLimit;
+        return false;
+    }
 
     // 约束 2：计算预期终点并进行数值预检
     double expectedTarget = m_current_abs_pos + distance;
