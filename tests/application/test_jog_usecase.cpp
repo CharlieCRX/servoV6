@@ -24,25 +24,7 @@ TEST(JogAxisUseCaseTest, ShouldSendJogCommandWhenAxisIsIdle) {
     EXPECT_TRUE(std::holds_alternative<JogCommand>(driver.history[0]));
 }
 
-// 场景 2：Disabled 状态下自动下发使能指令
-TEST(JogAxisUseCaseTest, ShouldSendEnableCommandWhenAxisIsDisabled) {
-    FakeAxisDriver driver;
-    Axis axis;
-    // 准备环境：Disabled 状态
-    axis.applyFeedback({.state = AxisState::Disabled});
-
-    JogAxisUseCase usecase(driver);
-    usecase.execute(axis, Direction::Forward);
-
-    // 验证：
-    // 1. 驱动器收到了指令
-    ASSERT_EQ(driver.history.size(), 1);
-    // 2. 该指令必须是 EnableCommand(true)
-    ASSERT_TRUE(std::holds_alternative<EnableCommand>(driver.history[0]));
-    EXPECT_TRUE(std::get<EnableCommand>(driver.history[0]).active);
-}
-
-// 场景 3：Error 状态下既不点动也不使能
+// 场景 2：Error 状态下既不点动也不使能
 TEST(JogAxisUseCaseTest, ShouldSendNothingWhenAxisIsInError) {
     FakeAxisDriver driver;
     Axis axis;
@@ -105,25 +87,8 @@ TEST(JogAxisUseCaseTest, ShouldReturnInvalidStateWhenAxisIsInError) {
     EXPECT_EQ(driver.history.size(), 0);
 }
 
-// 场景 4：自动使能触发时，视为“流程启动”，返回 None
-TEST(JogAxisUseCaseTest, ShouldReturnNoneWhenAutoEnabling) {
-    FakeAxisDriver driver;
-    Axis axis;
-    axis.applyFeedback({.state = AxisState::Disabled});
-
-    JogAxisUseCase usecase(driver);
-    RejectionReason result = usecase.execute(axis, Direction::Forward);
-
-    // 虽然没直接 Jog，但成功发送了上电指令，对用户来说是“动作已响应”
-    EXPECT_EQ(result, RejectionReason::None);
-    ASSERT_EQ(driver.history.size(), 1);
-    EXPECT_TRUE(std::holds_alternative<EnableCommand>(driver.history[0]));
-}
-
-
-
 // stopJog 的测试
-// 场景 5：验证停止点动意图的下发
+// 场景 4：验证停止点动意图的下发
 TEST(JogAxisUseCaseTest, ShouldSendStopCommandWhenStopJogRequested) {
     FakeAxisDriver driver;
     Axis axis;
@@ -158,7 +123,7 @@ TEST(JogAxisUseCaseTest, ShouldSendStopCommandWhenStopJogRequested) {
     EXPECT_EQ(lastCmd.dir, Direction::Forward); // 验证方向记忆是否正确
 }
 
-// 场景 6：即使在错误状态下，停止也必须被允许并下发
+// 场景 5：即使在错误状态下，停止也必须被允许并下发
 TEST(JogAxisUseCaseTest, ShouldSendStopCommandEvenIfAxisIsInError) {
     FakeAxisDriver driver;
     Axis axis;
@@ -170,4 +135,76 @@ TEST(JogAxisUseCaseTest, ShouldSendStopCommandEvenIfAxisIsInError) {
     // 验证：驱动器依然收到了指令，确保硬件能收到“设为 False”的信号
     ASSERT_EQ(driver.history.size(), 1);
     EXPECT_FALSE(std::get<JogCommand>(driver.history[0]).active);
+}
+
+
+
+// Disabled 必须失败
+TEST(JogAxisUseCaseTest, ShouldRejectWhenAxisIsDisabled)
+{
+    FakeAxisDriver driver;
+    Axis axis;
+
+    axis.applyFeedback({ .state = AxisState::Disabled });
+
+    JogAxisUseCase usecase(driver);
+
+    RejectionReason result = usecase.execute(axis, Direction::Forward);
+
+    EXPECT_EQ(result, RejectionReason::InvalidState);
+    EXPECT_EQ(driver.history.size(), 0);
+}
+
+
+// UseCase 不允许“修复状态”
+TEST(JogAxisUseCaseTest, ShouldNotAutoEnableAxis)
+{
+    FakeAxisDriver driver;
+    Axis axis;
+
+    axis.applyFeedback({ .state = AxisState::Disabled });
+
+    JogAxisUseCase usecase(driver);
+
+    usecase.execute(axis, Direction::Forward);
+
+    // 核心验证：绝对不能发送 EnableCommand
+    EXPECT_EQ(driver.history.size(), 0);
+}
+
+
+// 只允许纯 Jog 行为
+TEST(JogAxisUseCaseTest, ShouldOnlySendJogCommand)
+{
+    FakeAxisDriver driver;
+    Axis axis;
+
+    axis.applyFeedback({
+        .state = AxisState::Idle,
+        .posLimitValue = 1000,
+        .negLimitValue = -1000
+    });
+
+    JogAxisUseCase usecase(driver);
+
+    usecase.execute(axis, Direction::Forward);
+
+    ASSERT_EQ(driver.history.size(), 1);
+    EXPECT_TRUE(std::holds_alternative<JogCommand>(driver.history[0]));
+}
+
+
+// 返回值必须忠实透传
+TEST(JogAxisUseCaseTest, ShouldReturnDomainRejectionWithoutModification)
+{
+    FakeAxisDriver driver;
+    Axis axis;
+
+    axis.applyFeedback({ .state = AxisState::Disabled });
+
+    JogAxisUseCase usecase(driver);
+
+    auto result = usecase.execute(axis, Direction::Forward);
+
+    EXPECT_EQ(result, RejectionReason::InvalidState);
 }

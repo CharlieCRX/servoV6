@@ -13,17 +13,6 @@ public:
         // 1. 调用领域规则，尝试产生点动意图
         if (!axis.jog(dir)) {
             RejectionReason reason = axis.lastRejection();
-
-            // 2. 自动上电逻辑：如果失败是因为轴处于禁用状态，则尝试产生使能意图
-            if (axis.state() == AxisState::Disabled && 
-                axis.lastRejection() == RejectionReason::InvalidState) {
-                
-                if (axis.enable(true)) {
-                    // 下发使能意图给驱动器
-                    driver_.send(axis.getPendingCommand());
-                    return RejectionReason::None; // 成功下发了使能指令，视为流程启动成功
-                }
-            }
             return reason; // 流程终止，等待状态同步后再由用户或逻辑再次触发点动
         }
 
