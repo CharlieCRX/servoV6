@@ -7,6 +7,8 @@ add_executable(unit_tests
     application/test_move_relative_usecase.cpp
     application/test_enable_usecase.cpp
     application/test_stop_usecase.cpp
+
+    infrastructure/test_fake_plc.cpp
 )
 
 target_include_directories(unit_tests
