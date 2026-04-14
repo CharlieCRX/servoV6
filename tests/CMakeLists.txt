@@ -9,6 +9,7 @@ add_executable(unit_tests
     application/test_stop_usecase.cpp
 
     infrastructure/test_fake_plc.cpp
+    infrastructure/test_system_integration.cpp
 )
 
 target_include_directories(unit_tests

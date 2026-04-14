@@ -3,11 +3,13 @@
 #include "application/axis/JogAxisUseCase.h"
 
 // 构造一个 FakeDriver 用于验证命令流向
-class FakeAxisDriver : public IAxisDriver {
-public:
-    void send(const AxisCommand& cmd) override { history.push_back(cmd); }
-    std::vector<AxisCommand> history;
-};
+namespace { 
+    class FakeAxisDriver : public IAxisDriver {
+    public:
+        void send(const AxisCommand& cmd) override { history.push_back(cmd); }
+        std::vector<AxisCommand> history;
+    };
+}
 
 // 场景 1：Idle 状态下直接点动
 TEST(JogAxisUseCaseTest, ShouldSendJogCommandWhenAxisIsIdle) {

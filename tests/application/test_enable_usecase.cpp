@@ -1,11 +1,13 @@
 // tests/application/test_enable_usecase.cpp
 #include <gtest/gtest.h>
 #include "application/axis/EnableUseCase.h"
-class FakeAxisDriver : public IAxisDriver {
-public:
-    void send(const AxisCommand& cmd) override { history.push_back(cmd); }
-    std::vector<AxisCommand> history;
-};
+namespace { 
+    class FakeAxisDriver : public IAxisDriver {
+    public:
+        void send(const AxisCommand& cmd) override { history.push_back(cmd); }
+        std::vector<AxisCommand> history;
+    };
+}
 // 场景 1：正常上电
 TEST(EnableUseCaseTest, ShouldSendEnableCommandWhenAxisIsDisabled) {
     FakeAxisDriver driver;

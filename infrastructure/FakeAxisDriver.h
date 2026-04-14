@@ -1,0 +1,20 @@
+#ifndef FAKE_AXIS_DRIVER_H
+#define FAKE_AXIS_DRIVER_H
+
+#include "../application/axis/IAxisDriver.h"
+#include "FakePLC.h"
+
+class FakeAxisDriver : public IAxisDriver {
+public:
+    explicit FakeAxisDriver(FakePLC& plc) : m_plc(plc) {}
+
+    // 实现接口：将 Axis 产生的意图，无情地砸向 FakePLC
+    void send(const AxisCommand& cmd) override {
+        m_plc.onCommand(cmd);
+    }
+
+private:
+    FakePLC& m_plc;
+};
+
+#endif // FAKE_AXIS_DRIVER_H

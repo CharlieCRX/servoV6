@@ -1,12 +1,13 @@
 #include <gtest/gtest.h>
 #include "application/axis/MoveRelativeUseCase.h" // 🔴 红灯：文件尚不存在
 
-class FakeAxisDriver : public IAxisDriver {
-public:
-    void send(const AxisCommand& cmd) override { history.push_back(cmd); }
-    std::vector<AxisCommand> history;
-};
-
+namespace { 
+    class FakeAxisDriver : public IAxisDriver {
+    public:
+        void send(const AxisCommand& cmd) override { history.push_back(cmd); }
+        std::vector<AxisCommand> history;
+    };
+}
 // 场景 1：正常相对位移下发
 TEST(MoveRelativeUseCaseTest, ShouldSendMoveCommandWhenDistanceIsLegal) {
     FakeAxisDriver driver;
