@@ -5,6 +5,7 @@ add_executable(unit_tests
     application/test_jog_usecase.cpp
     application/test_move_absolute_usecase.cpp
     application/test_move_relative_usecase.cpp
+    application/test_enable_usecase.cpp
 )
 
 target_include_directories(unit_tests

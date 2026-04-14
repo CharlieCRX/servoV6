@@ -1,6 +1,5 @@
 #pragma once
 #include "application/axis/IAxisDriver.h"
-#include "domain/entity/Axis.h"
 
 /**
  * @brief 相对位置移动执行案例（纯净动作层）
