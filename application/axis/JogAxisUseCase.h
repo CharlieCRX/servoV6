@@ -12,8 +12,7 @@ public:
     RejectionReason execute(Axis& axis, Direction dir) {
         // 1. 调用领域规则，尝试产生点动意图
         if (!axis.jog(dir)) {
-            RejectionReason reason = axis.lastRejection();
-            return reason; // 流程终止，等待状态同步后再由用户或逻辑再次触发点动
+            return axis.lastRejection();
         }
 
         // 3. 规则允许，将 Axis 产生的命令发送给驱动
