@@ -58,6 +58,11 @@ public:
             break;
 
         case Step::WaitingMotionStart:
+            if (axis.state() == AxisState::Error) {
+                m_step = Step::Error;
+                return;
+            }
+
             // ⭐ 修正点：用“位置变化 OR Moving”
             if (axis.state() == AxisState::MovingAbsolute ||
                 std::abs(pos - startPos) > epsilon) {

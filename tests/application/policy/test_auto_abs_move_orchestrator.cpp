@@ -296,3 +296,186 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldEnterWaitingMotionStartAfterMoveSucces
     EXPECT_EQ(orchestrator.currentStep(),
               AutoAbsMoveOrchestrator::Step::WaitingMotionStart);
 }
+
+
+/**
+ * 
+WaitingMotionStart 语义约束
+1. 进入前提：
+   已成功发送 MoveCommand
+
+2. 目标：
+   确认“运动已经发生”（不是命令发了，而是物理运动）
+
+3. 判定“运动发生”的条件（任一成立）：
+   ✔ AxisState == MovingAbsolute
+   ✔ abs(currentPos - startPos) > epsilon
+
+4. 未满足条件：
+   → 保持 WaitingMotionStart（不能误推进）
+
+5. 一旦确认运动发生：
+   → motionObserved = true（锁存）
+   → 进入 WaitingMotionFinish
+
+6. Error 优先级最高：
+   AxisState == Error → 立即进入 Error
+ */
+
+// Test 1：小位移（无 Moving）也必须进入下一阶段
+TEST_F(AutoAbsMoveOrchestratorTest, ShouldDetectMotionByPositionDeltaEvenWithoutMovingState)
+{
+    axis.applyFeedback({
+        AxisState::Idle,
+        0.0, 0.0, 0.0,
+        false, false,
+        1000.0, -1000.0
+    });
+
+    orchestrator.start(0.5);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoAbsMoveOrchestrator::Step::WaitingMotionStart);
+
+    // 模拟：直接跳到新位置（没有 Moving）
+    axis.applyFeedback({
+        AxisState::Idle,
+        0.5, 0.5, 0.0,
+        false, false,
+        1000.0, -1000.0
+    });
+
+    orchestrator.update(axis);
+
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoAbsMoveOrchestrator::Step::WaitingMotionFinish);
+}
+
+// Test 2：通过 MovingAbsolute 进入下一阶段
+TEST_F(AutoAbsMoveOrchestratorTest, ShouldEnterWaitingMotionFinishWhenAxisStartsMoving)
+{
+    axis.applyFeedback({
+        AxisState::Idle,
+        0.0, 0.0, 0.0,
+        false, false,
+        1000.0, -1000.0
+    });
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    axis.applyFeedback({
+        AxisState::MovingAbsolute,
+        0.1, 0.1, 0.0,
+        false, false,
+        1000.0, -1000.0
+    });
+
+    orchestrator.update(axis);
+
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoAbsMoveOrchestrator::Step::WaitingMotionFinish);
+}
+
+// Test 3：Idle + 无位移 → 不允许推进
+TEST_F(AutoAbsMoveOrchestratorTest, ShouldStayIfNoMotionObserved)
+{
+    axis.applyFeedback({
+        AxisState::Idle,
+        0.0, 0.0, 0.0,
+        false, false,
+        1000.0, -1000.0
+    });
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    // 仍然没动
+    axis.applyFeedback({
+        AxisState::Idle,
+        0.0, 0.0, 0.0,
+        false, false,
+        1000.0, -1000.0
+    });
+
+    orchestrator.update(axis);
+
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoAbsMoveOrchestrator::Step::WaitingMotionStart);
+}
+
+// Test 4：Error 立即中断
+TEST_F(AutoAbsMoveOrchestratorTest, ShouldEnterErrorWhenAxisReportsError)
+{
+    axis.applyFeedback({
+        AxisState::Idle,
+        0.0, 0.0, 0.0,
+        false, false,
+        1000.0, -1000.0
+    });
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    axis.applyFeedback({
+        AxisState::Error,
+        0.0, 0.0, 0.0,
+        false, false,
+        1000.0, -1000.0
+    });
+
+    orchestrator.update(axis);
+
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoAbsMoveOrchestrator::Step::Error);
+}
+
+
+// Test 5：motionObserved 一旦成立不能回退
+TEST_F(AutoAbsMoveOrchestratorTest, ShouldLatchMotionObserved)
+{
+    axis.applyFeedback({
+        AxisState::Idle,
+        0.0, 0.0, 0.0,
+        false, false,
+        1000.0, -1000.0
+    });
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    // 第一次：发生位移
+    axis.applyFeedback({
+        AxisState::Idle,
+        0.2, 0.2, 0.0,
+        false, false,
+        1000.0, -1000.0
+    });
+
+    orchestrator.update(axis);
+
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoAbsMoveOrchestrator::Step::WaitingMotionFinish);
+
+    // 即使后面回到接近原点（抖动）
+    axis.applyFeedback({
+        AxisState::Idle,
+        0.01, 0.01, 0.0,
+        false, false,
+        1000.0, -1000.0
+    });
+
+    // 不应回到 WaitingMotionStart（不会回退）
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoAbsMoveOrchestrator::Step::WaitingMotionFinish);
+}
