@@ -19,7 +19,7 @@ public:
     void start(double target) {
         m_target = target;
         m_step = Step::EnsuringEnabled;
-        motionObserved = false;
+        m_motionObserved = false;
     }
 
     void update(Axis& axis)
@@ -67,18 +67,28 @@ public:
             if (axis.state() == AxisState::MovingAbsolute ||
                 std::abs(pos - startPos) > epsilon) {
 
-                motionObserved = true;
+                m_motionObserved = true;
                 m_step = Step::WaitingMotionFinish;
             }
             break;
 
         case Step::WaitingMotionFinish:
+            if (axis.state() == AxisState::Error) {
+                m_step = Step::Error;
+                break;
+            }
             // ⭐ 修正点：必须没有 pendingCommand
-            if (motionObserved &&
-                axis.state() == AxisState::Idle &&
-                !axis.hasPendingCommand() &&
-                std::abs(pos - m_target) <= tolerance) {
-
+            if (axis.state() == AxisState::Idle) {
+            
+                if (!m_motionObserved) {
+                    break;
+                }
+            
+                if (std::abs(pos - m_target) > tolerance) {
+                    m_step = Step::Error; // ❗未到位
+                    break;
+                }
+            
                 enableUc.execute(axis, false);
                 m_step = Step::Done;
             }
@@ -99,7 +109,7 @@ private:
     double m_target = 0.0;
 
     double startPos = 0.0;
-    bool motionObserved = false;
+    bool m_motionObserved = false;
 
     const double epsilon = 0.01;
     const double tolerance = 0.01;

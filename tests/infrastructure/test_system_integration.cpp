@@ -13,7 +13,6 @@ TEST(SystemIntegrationTest, FullMoveAbsoluteLifeCycle) {
     MoveAbsoluteUseCase moveUseCase(driver);
     AxisSyncService syncService;
 
-    std::cerr << "[Debug] 1. 组装系统完成" << std::endl;
     plc.forceState(AxisState::Idle); 
     plc.setSimulatedMoveVelocity(50.0);
     syncService.sync(axis, plc);     

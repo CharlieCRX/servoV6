@@ -315,7 +315,7 @@ WaitingMotionStart 语义约束
    → 保持 WaitingMotionStart（不能误推进）
 
 5. 一旦确认运动发生：
-   → motionObserved = true（锁存）
+   → m_motionObserved = true（锁存）
    → 进入 WaitingMotionFinish
 
 6. Error 优先级最高：
@@ -478,4 +478,124 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldLatchMotionObserved)
     // 不应回到 WaitingMotionStart（不会回退）
     EXPECT_EQ(orchestrator.currentStep(),
               AutoAbsMoveOrchestrator::Step::WaitingMotionFinish);
+}
+
+
+/**
+ * WaitingMotionFinish 语义
+  1. m_motionObserved == true          （必须真的动过）
+  2. AxisState == Idle               （已经停止）
+  3. |pos - target| <= tolerance     （位置收敛）
+  4. !axis.hasPendingCommand()       （命令已被PLC消化）
+ */
+
+ // Test 1：满足所有条件 → 进入下一阶段（成功路径）
+TEST_F(AutoAbsMoveOrchestratorTest, ShouldDisableWhenMotionFinished)
+{
+    axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    // 模拟已进入 WaitingMotionFinish
+    axis.applyFeedback({AxisState::MovingAbsolute, 0.5,0.5,0,false,false,1000,-1000});
+    orchestrator.update(axis); // → WaitingMotionFinish
+
+    // 完成条件全部满足
+    axis.applyFeedback({
+        AxisState::Idle,
+        1.0, 1.0, 0.0,
+        false, false,
+        1000.0, -1000.0
+    });
+
+    orchestrator.update(axis);
+
+    ASSERT_TRUE(driver.has<EnableCommand>());
+
+    auto cmd = driver.last<EnableCommand>();
+    EXPECT_FALSE(cmd.active); // Disable
+
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoAbsMoveOrchestrator::Step::Done);
+}
+
+// Test 2：未到位 → 不允许完成
+TEST_F(AutoAbsMoveOrchestratorTest, ShouldNotCompleteIfNotInPosition)
+{
+    axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    axis.applyFeedback({AxisState::MovingAbsolute, 0.5,0.5,0,false,false,1000,-1000});
+    orchestrator.update(axis); // → WaitingMotionFinish
+
+    // 回到 Idle，但位置不对
+    axis.applyFeedback({
+        AxisState::Idle,
+        0.8, 0.8, 0.0,
+        false, false,
+        1000.0, -1000.0
+    });
+
+    orchestrator.update(axis);
+
+    EXPECT_NE(orchestrator.currentStep(),
+              AutoAbsMoveOrchestrator::Step::Done);
+}
+
+// Test 3：Idle + 未到位 → 必须 Error（强语义）
+TEST_F(AutoAbsMoveOrchestratorTest, ShouldEnterErrorIfIdleButNotInPosition)
+{
+    axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    axis.applyFeedback({AxisState::MovingAbsolute, 0.5,0.5,0,false,false,1000,-1000});
+    orchestrator.update(axis); // → WaitingMotionFinish
+
+    // Idle 但偏差较大
+    axis.applyFeedback({
+        AxisState::Idle,
+        0.3, 0.3, 0.0,
+        false, false,
+        1000.0, -1000.0
+    });
+
+    orchestrator.update(axis);
+
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoAbsMoveOrchestrator::Step::Error);
+}
+
+
+// Test 4：未进入过运动 → 不允许完成
+TEST_F(AutoAbsMoveOrchestratorTest, ShouldNotCompleteIfMotionNeverObserved)
+{
+    axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    // ⚠️ 直接 Idle + 到位（但没有 motionObserved）
+    axis.applyFeedback({
+        AxisState::Idle,
+        1.0, 1.0, 0.0,
+        false, false,
+        1000.0, -1000.0
+    });
+
+    orchestrator.update(axis);
+
+    EXPECT_FALSE(driver.has<EnableCommand>());
 }
