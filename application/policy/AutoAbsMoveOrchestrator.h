@@ -24,16 +24,16 @@ public:
 
     void update(Axis& axis)
     {
+        // ⭐ 全局错误拦截（最高优先级）
+        if (axis.state() == AxisState::Error) {
+            m_step = Step::Error;
+            return;
+        }
         double pos = axis.currentAbsolutePosition();
 
         switch (m_step)
         {
         case Step::EnsuringEnabled:
-                
-            if (axis.state() == AxisState::Error) {
-                m_step = Step::Error;
-                break;
-            }
         
             if (axis.state() == AxisState::Disabled) {
                 enableUc.execute(axis, true);   // ⭐ 主动发 Enable
@@ -58,10 +58,6 @@ public:
             break;
 
         case Step::WaitingMotionStart:
-            if (axis.state() == AxisState::Error) {
-                m_step = Step::Error;
-                return;
-            }
 
             // ⭐ 修正点：用“位置变化 OR Moving”
             if (axis.state() == AxisState::MovingAbsolute ||
@@ -73,10 +69,6 @@ public:
             break;
 
         case Step::WaitingMotionFinish:
-            if (axis.state() == AxisState::Error) {
-                m_step = Step::Error;
-                break;
-            }
             // ⭐ 修正点：必须没有 pendingCommand
             if (axis.state() == AxisState::Idle) {
             
