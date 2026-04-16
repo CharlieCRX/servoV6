@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 #include "application/axis/MoveAbsoluteUseCase.h" 
 
-class FakeAxisDriver : public IAxisDriver {
-public:
-    void send(const AxisCommand& cmd) override { history.push_back(cmd); }
-    std::vector<AxisCommand> history;
-};
+namespace { 
+    class FakeAxisDriver : public IAxisDriver {
+    public:
+        void send(const AxisCommand& cmd) override { history.push_back(cmd); }
+        std::vector<AxisCommand> history;
+    };
+}
 
 // 1. 成功场景：Idle 状态下正常发送定位指令
 TEST(MoveAbsoluteUseCaseTest, ShouldSendMoveCommandWhenIdle) {

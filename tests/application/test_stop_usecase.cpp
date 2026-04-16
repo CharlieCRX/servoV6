@@ -1,11 +1,13 @@
 #include <gtest/gtest.h>
 #include "application/axis/StopAxisUseCase.h" // 🔴 红灯：文件尚不存在
 
-class FakeAxisDriver : public IAxisDriver {
-public:
-    void send(const AxisCommand& cmd) override { history.push_back(cmd); }
-    std::vector<AxisCommand> history;
-};
+namespace { 
+    class FakeAxisDriver : public IAxisDriver {
+    public:
+        void send(const AxisCommand& cmd) override { history.push_back(cmd); }
+        std::vector<AxisCommand> history;
+    };
+}
 
 // 场景 1：验证停止指令的下发与意图覆盖
 TEST(StopAxisUseCaseTest, ShouldSendStopCommandAndClearMovingIntent) {
