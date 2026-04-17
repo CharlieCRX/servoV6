@@ -313,3 +313,165 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldEnterErrorEvenIfAxisStateIsStillIdleWh
     EXPECT_EQ(orchestrator.currentStep(),
               AutoRelMoveOrchestrator::Step::Error);
 }
+
+/**
+ * WaitingMotionStart（RelMove）语义约束
+ *
+ * 1. 进入前提
+ *    - 已成功发送 MoveRelative（来自 IssuingMove）
+ *
+ * 2. 阶段目标
+ *    - 确认“运动已经发生”（不是命令发送成功，而是物理运动发生）
+ *
+ * 3. 运动发生判定（任一成立）
+ *    - AxisState == MovingRelative
+ *    - abs(currentAbsPos - startPos) > epsilon
+ *
+ * 4. 状态推进
+ *    - 一旦检测到运动发生：
+ *      → m_motionObserved = true
+ *      → 进入 WaitingMotionFinish
+ *
+ * 5. 未发生运动
+ *    - 保持 WaitingMotionStart（不得误推进）
+ *
+ * 6. Error 优先级最高
+ *    - AxisState == Error → 立即进入 Error
+ *
+ * 7. 单调性（关键）
+ *    - m_motionObserved 一旦为 true，不允许回退为 false
+ *
+ * 8. RelMove 特别约束
+ *    - 运动判定必须基于“startPos”
+ *    - 不允许使用 target（因为 target = startPos + Δ）
+ */
+
+// Test 1：Idle + 无位移 → 不允许推进
+TEST_F(AutoRelMoveOrchestratorTest, ShouldStayIfNoMotionObserved)
+{
+    axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    // 没有发生任何位移
+    axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+
+    orchestrator.update(axis);
+
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoRelMoveOrchestrator::Step::WaitingMotionStart);
+}
+
+// Test 2：通过 MovingRelative 判定运动
+TEST_F(AutoRelMoveOrchestratorTest, ShouldDetectMotionWhenStateIsMovingRelative)
+{
+    axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    axis.applyFeedback({
+        AxisState::MovingRelative,
+        0.1,0.1,0,
+        false,false,
+        1000,-1000
+    });
+
+    orchestrator.update(axis);
+
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoRelMoveOrchestrator::Step::WaitingMotionFinish);
+}
+
+// Test 3：通过“位置变化”判定（无 Moving 状态）
+TEST_F(AutoRelMoveOrchestratorTest, ShouldDetectMotionByPositionDelta)
+{
+    axis.applyFeedback({
+        AxisState::Idle,
+        5.0, 5.0, 0.0,
+        false,false,
+        1000,-1000
+    });
+
+    orchestrator.start(0.5);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    // 直接跳位置（无 MovingRelative）
+    axis.applyFeedback({
+        AxisState::Idle,
+        5.5, 5.5, 0.0,
+        false,false,
+        1000,-1000
+    });
+
+    orchestrator.update(axis);
+
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoRelMoveOrchestrator::Step::WaitingMotionFinish);
+}
+
+// Test 4：Error 优先级最高
+TEST_F(AutoRelMoveOrchestratorTest, ShouldEnterErrorWhenAxisReportsError)
+{
+    axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    axis.applyFeedback({
+        AxisState::Error,
+        0,0,0,false,false,
+        1000,-1000
+    });
+
+    orchestrator.update(axis);
+
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoRelMoveOrchestrator::Step::Error);
+}
+
+// Test 5：一旦进入 Finish，不允许回退（锁存）
+TEST_F(AutoRelMoveOrchestratorTest, ShouldLatchMotionObserved)
+{
+    axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    // 第一次：发生位移
+    axis.applyFeedback({
+        AxisState::Idle,
+        0.2,0.2,0,
+        false,false,
+        1000,-1000
+    });
+
+    orchestrator.update(axis);
+
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoRelMoveOrchestrator::Step::WaitingMotionFinish);
+
+    // 再次 update，不允许回退
+    axis.applyFeedback({
+        AxisState::Idle,
+        0.01,0.01,0,
+        false,false,
+        1000,-1000
+    });
+
+    orchestrator.update(axis);
+
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoRelMoveOrchestrator::Step::WaitingMotionFinish);
+}
