@@ -25,6 +25,9 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
     m_pos_limit_value = feedback.posLimitValue; // 更新限位数值
     m_neg_limit_value = feedback.negLimitValue;
 
+    m_jog_velocity = feedback.getjogVelocity;
+    m_move_velocity = feedback.getMoveVelocity;
+
     // --- 限位运行中熔断逻辑 ---
     // 只要有任何限位触发，且当前有 Move 或 Jog 意图，立即清理
     // 这里采用最严苛策略：一旦限位触发，当前所有运动意图立即失效
@@ -113,18 +116,32 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
 
     // --- 7. 使能/掉电指令的生命周期闭环 ---
     if (auto* cmd = std::get_if<EnableCommand>(&m_pending_intent)) {
-    if (cmd->active) {
-        // 意图是上电：只要状态脱离了 Disabled 和 Unknown，视为上电成功
-        if (m_state != AxisState::Disabled && m_state != AxisState::Unknown) {
-            m_pending_intent = std::monostate{};
+        if (cmd->active) {
+            // 意图是上电：只要状态脱离了 Disabled 和 Unknown，视为上电成功
+            if (m_state != AxisState::Disabled && m_state != AxisState::Unknown) {
+                m_pending_intent = std::monostate{};
+            }
+        } else {
+            // 意图是掉电：只有状态确认为 Disabled 时才清理意图
+            if (m_state == AxisState::Disabled) {
+                m_pending_intent = std::monostate{};
+            }
         }
-    } else {
-        // 意图是掉电：只有状态确认为 Disabled 时才清理意图
-        if (m_state == AxisState::Disabled) {
+    }
+
+    // --- 8. SetVelocity 闭环 ---
+    if (auto* cmd = std::get_if<SetJogVelocityCommand>(&m_pending_intent)) {
+        // 只要 PLC 返回的速度与命令一致, 就认为完成
+        if (m_jog_velocity ==  cmd->velocity) {
             m_pending_intent = std::monostate{};
         }
     }
-}
+    
+    if (auto* cmd = std::get_if<SetMoveVelocityCommand>(&m_pending_intent)) {
+        if (m_move_velocity == cmd->velocity) {
+            m_pending_intent = std::monostate{};
+        }
+    }
 
 }
 
@@ -378,6 +395,50 @@ double Axis::positiveSoftLimit() const
 double Axis::negativeSoftLimit() const
 {
   return m_neg_limit_value;
+}
+
+bool Axis::setJogVelocity(double v)
+{
+    if (v <= 0.0) {
+        m_last_rejection = RejectionReason::InvalidArgument;
+        return false;
+    }
+    
+    if (m_state == AxisState::Idle || m_state == AxisState::Disabled) {
+        m_jog_velocity = v;
+        m_pending_intent = SetJogVelocityCommand{ .velocity = v };
+        m_last_rejection = RejectionReason::None;
+        return true;
+    }
+    m_last_rejection = RejectionReason::InvalidState;
+    return false;
+}
+
+bool Axis::setMoveVelocity(double v)
+{
+    if (v <= 0.0) {
+        m_last_rejection = RejectionReason::InvalidArgument;
+        return false;
+    }
+
+    if (m_state == AxisState::Idle || m_state == AxisState::Disabled) {
+        m_move_velocity = v;
+        m_pending_intent = SetMoveVelocityCommand{ .velocity = v };
+        m_last_rejection = RejectionReason::None;
+        return true;
+    }
+    m_last_rejection = RejectionReason::InvalidState;
+    return false;
+}
+
+double Axis::getjogVelocity() const
+{
+    return m_jog_velocity;
+}
+
+double Axis::getMoveVelocity() const
+{
+    return m_move_velocity;
 }
 
 bool Axis::hasPendingCommand() const

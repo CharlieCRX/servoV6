@@ -124,6 +124,14 @@ private:
         if (m_feedback.state == AxisState::Idle) m_feedback.relZeroAbsPos = 0.0;
     }
 
+    void processCommand(const SetJogVelocityCommand& cmd) {
+        m_jog_velocity = std::abs(cmd.velocity); // 速度必须为正
+    }
+
+    void processCommand(const SetMoveVelocityCommand& cmd) {
+        m_move_velocity = std::abs(cmd.velocity); // 速度必须为正
+    }
+
     void handleStop() {
         // Stop 只对运动态生效
         if (m_feedback.state == AxisState::Jogging || 

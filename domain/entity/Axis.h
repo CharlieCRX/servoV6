@@ -37,7 +37,9 @@ enum class RejectionReason {
 
     // ⭐ 场景 2：针对当前已经处于边界的状态拦截
     AtPositiveLimit,          // 当前已处于正向限位点（禁正向点动/定位）
-    AtNegativeLimit           // 当前已处于负向限位点（禁负向点动/定位）
+    AtNegativeLimit,          // 当前已处于负向限位点（禁负向点动/定位）
+
+    InvalidArgument
 };
 
 
@@ -51,6 +53,9 @@ struct AxisFeedback {
     bool negLimit;        // 负限位状态位
     double posLimitValue; // 正限位数值
     double negLimitValue; // 负限位数值
+
+    double getjogVelocity;
+    double getMoveVelocity;
 };
 
 
@@ -71,6 +76,14 @@ struct EnableCommand {
     bool active; // true: 使能(上电), false: 掉电 
 };
 
+struct SetJogVelocityCommand {
+    double velocity;
+};
+
+struct SetMoveVelocityCommand {
+    double velocity;
+};
+
 // 坐标控制
 struct ZeroAbsoluteCommand {};
 
@@ -86,7 +99,9 @@ using AxisCommand = std::variant<
     ZeroAbsoluteCommand,
     SetRelativeZeroCommand,
     ClearRelativeZeroCommand,
-    EnableCommand
+    EnableCommand,
+    SetJogVelocityCommand,
+    SetMoveVelocityCommand
 >;
 
 class Axis {
@@ -125,6 +140,14 @@ public:
     double positiveSoftLimit() const;
     double negativeSoftLimit() const;
 
+    // 设置速度
+    bool setJogVelocity(double v);
+    bool setMoveVelocity(double v);
+
+    // 获取系统速度设置
+    double getjogVelocity() const;
+    double getMoveVelocity() const;
+
 
     bool hasPendingCommand() const;
     RejectionReason lastRejection() const;
@@ -154,8 +177,11 @@ private:
     double m_pos_limit_value = 0.0;
     double m_neg_limit_value = 0.0;
 
-    static constexpr double POSITION_EPSILON = 0.01;
+    // 速度
+    double m_jog_velocity = 0.0;
+    double m_move_velocity = 0.0;
 
+    static constexpr double POSITION_EPSILON = 0.01;
     RejectionReason m_last_rejection = RejectionReason::None;
 };
 #endif // AXIS_H

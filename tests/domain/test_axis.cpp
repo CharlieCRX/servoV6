@@ -867,3 +867,152 @@ TEST(AxisTest, StopJogShouldWorkEvenInErrorState)
     EXPECT_TRUE(result);
     EXPECT_FALSE(std::get<JogCommand>(axis.getPendingCommand()).active);
 }
+
+
+// 速度模式相关测试
+// 1. Idle 时允许发起命令
+TEST(AxisTest, SetJogVelocityShouldEmitCommandWhenAxisIsIdle)
+{
+    Axis axis;
+
+    axis.applyFeedback({
+        .state = AxisState::Idle
+    });
+
+    bool ok = axis.setJogVelocity(100.0);
+
+    EXPECT_TRUE(ok);
+
+    auto intent = axis.getPendingCommand();
+
+    ASSERT_TRUE(std::holds_alternative<SetJogVelocityCommand>(intent));
+    EXPECT_DOUBLE_EQ(std::get<SetJogVelocityCommand>(intent).velocity, 100.0);
+}
+
+
+// 2. Disabled → 也允许
+TEST(AxisTest, SetJogVelocityShouldWorkEvenWhenAxisIsDisabled)
+{
+    Axis axis;
+
+    axis.applyFeedback({
+        .state = AxisState::Disabled
+    });
+
+    bool ok = axis.setJogVelocity(100.0);
+
+    EXPECT_TRUE(ok);
+}
+
+// 3. Moving → 必须拒绝
+TEST(AxisTest, SetJogVelocityShouldBeRejectedWhenAxisIsMoving)
+{
+    Axis axis;
+
+    axis.applyFeedback({
+        .state = AxisState::MovingAbsolute
+    });
+
+    bool ok = axis.setJogVelocity(100.0);
+
+    EXPECT_FALSE(ok);
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidState);
+}
+
+// 5. Error → 必须拒绝
+TEST(AxisTest, SetJogVelocityShouldWorkEvenInErrorState)
+{
+    Axis axis;
+
+    axis.applyFeedback({
+        .state = AxisState::Error
+    });
+
+    bool ok = axis.setJogVelocity(100.0);
+
+    EXPECT_FALSE(ok);
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidState);
+}
+
+
+// 6. 命令内容正确
+TEST(AxisTest, SetJogVelocityShouldGenerateCorrectCommand)
+{
+    Axis axis;
+
+    axis.applyFeedback({
+        .state = AxisState::Idle
+    });
+
+    axis.setJogVelocity(123.0);
+
+    auto intent = axis.getPendingCommand();
+    auto cmd = std::get<SetJogVelocityCommand>(intent);
+
+    EXPECT_DOUBLE_EQ(cmd.velocity, 123.0);
+}
+
+
+// 7. Feedback 更新（PLC 才是真相）
+TEST(AxisTest, JogVelocityShouldUpdateFromFeedback)
+{
+    Axis axis;
+
+    axis.applyFeedback({
+        .state = AxisState::Idle,
+        .getjogVelocity = 150.0
+    });
+
+    EXPECT_DOUBLE_EQ(axis.getjogVelocity(), 150.0);
+}
+
+
+// 8. 读取必须不依赖状态
+TEST(AxisTest, JogVelocityShouldBeReadableAnytime)
+{
+    Axis axis;
+
+    axis.applyFeedback({
+        .state = AxisState::MovingAbsolute,
+        .getjogVelocity = 180.0
+    });
+
+    EXPECT_DOUBLE_EQ(axis.getjogVelocity(), 180.0);
+}
+
+// 9. 速度为零时必须拒绝
+TEST(AxisTest, SetJogVelocityShouldBeRejectedWhenVelocityIsZero)
+{
+    Axis axis;
+
+    axis.applyFeedback({ .state = AxisState::Idle });
+
+    bool ok = axis.setJogVelocity(0.0);
+
+    EXPECT_FALSE(ok);
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidArgument);
+}
+
+// 10. 速度为负数时必须拒绝
+TEST(AxisTest, SetJogVelocityShouldBeRejectedWhenVelocityIsNegative)
+{
+    Axis axis;
+
+    axis.applyFeedback({ .state = AxisState::Idle });
+
+    bool ok = axis.setJogVelocity(-10.0);
+
+    EXPECT_FALSE(ok);
+}
+
+// 11. 速度为负数时必须拒绝
+TEST(AxisTest, SetMoveVelocityShouldBeRejectedWhenVelocityIsNegative)
+{
+    Axis axis;
+
+    axis.applyFeedback({ .state = AxisState::Idle });
+
+    bool ok = axis.setMoveVelocity(-10.0);
+
+    EXPECT_FALSE(ok);
+}
