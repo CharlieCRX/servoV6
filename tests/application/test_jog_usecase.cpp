@@ -109,7 +109,7 @@ TEST(JogAxisUseCaseTest, ShouldSendStopCommandWhenStopJogRequested) {
     usecase.execute(axis, Direction::Forward);
     
     // 3. 动作 B：调用停止接口
-    usecase.stop(axis);
+    usecase.stop(axis, Direction::Forward);
 
     // 验证：
     // A. 驱动器收到了两条指令：启动 和 停止
@@ -132,7 +132,7 @@ TEST(JogAxisUseCaseTest, ShouldSendStopCommandEvenIfAxisIsInError) {
     axis.applyFeedback({.state = AxisState::Error});
 
     JogAxisUseCase usecase(driver);
-    usecase.stop(axis);
+    usecase.stop(axis, Direction::Backward);
 
     // 验证：驱动器依然收到了指令，确保硬件能收到“设为 False”的信号
     ASSERT_EQ(driver.history.size(), 1);

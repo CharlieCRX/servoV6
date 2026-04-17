@@ -115,7 +115,7 @@ public:
     bool enable(bool active);
     
     bool jog(Direction dir);
-    bool stopJog();
+    bool stopJog(Direction dir);
     
     bool moveAbsolute(double target);
     bool moveRelative(double distance);
@@ -166,8 +166,6 @@ private:
 
     double m_rel_zero_abs_pos = 0.0;    // PLC 记录的相对零点对应的绝对位置
     double m_expected_zero_base = 0.0;  // 记录发起指令那一刻的绝对位置，用于闭环比对
-
-    Direction m_last_jog_dir = Direction::Forward; // 记录上次点动方向
 
     // 镜像 PLC 的限位状态
     bool m_pos_limit_active = false;

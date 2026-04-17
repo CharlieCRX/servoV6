@@ -215,15 +215,14 @@ bool Axis::jog(Direction dir)
 
     // 4. 准入通过：生成点动意图
     m_pending_intent = JogCommand{ dir, true };
-    m_last_jog_dir = dir; // 记录方向，以便 stopJog() 寻址
     m_last_rejection = RejectionReason::None;
     return true;
 }
 
 
-bool Axis::stopJog() {
+bool Axis::stopJog(Direction dir) {
     // 停止点动是安全操作，无条件允许
-    m_pending_intent = JogCommand{ m_last_jog_dir, false }; // 停止
+    m_pending_intent = JogCommand{ dir, false }; // 停止
     m_last_rejection = RejectionReason::None;
     return true;
 }

@@ -845,7 +845,7 @@ TEST(AxisTest, ShouldGenerateFalseActiveCommandWhenStopJogCalled)
     axis.jog(Direction::Forward);
     
     // 2. 调用新接口停止
-    bool result = axis.stopJog();
+    bool result = axis.stopJog(Direction::Forward);
 
     // 验证：
     EXPECT_TRUE(result);
@@ -861,7 +861,7 @@ TEST(AxisTest, StopJogShouldWorkEvenInErrorState)
     axis.applyFeedback({AxisState::Error}); 
 
     // 动作：松开按钮触发停止
-    bool result = axis.stopJog();
+    bool result = axis.stopJog(Direction::Forward);
 
     // 验证：即使报错也必须允许停止（下发 false 信号给 PLC）
     EXPECT_TRUE(result);

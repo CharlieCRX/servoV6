@@ -25,10 +25,10 @@ public:
      * @brief 停止点动
      * 这是一个安全操作，不返回 RejectionReason，因为在业务逻辑上它永远不应被拒绝
      */
-    void stop(Axis& axis) {
+    void stop(Axis& axis, Direction dir) {
         // 1. 调用领域层产生的停止点动意图
         // 即使 Axis 处于 Error 态，Domain 层的 stopJog() 也应返回 true 并生成 active=false 的意图
-        if (axis.stopJog()) {
+        if (axis.stopJog(dir)) {
             // 2. 将产生的指令（JogCommand {active: false}）下发
             driver_.send(axis.getPendingCommand());
         }
