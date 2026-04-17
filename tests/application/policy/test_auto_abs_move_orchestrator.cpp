@@ -550,7 +550,7 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldNotCompleteIfNotInPosition)
 }
 
 // Test 3：Idle + 未到位 → 必须 Error（强语义）
-TEST_F(AutoAbsMoveOrchestratorTest, ShouldEnterErrorIfIdleButNotInPosition)
+TEST_F(AutoAbsMoveOrchestratorTest, ShouldNotCompleteIfNotInPosition2)
 {
     axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
 
@@ -559,21 +559,32 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldEnterErrorIfIdleButNotInPosition)
     orchestrator.update(axis); // → IssuingMove
     orchestrator.update(axis); // → Move
 
-    axis.applyFeedback({AxisState::MovingAbsolute, 0.5,0.5,0,false,false,1000,-1000});
+    axis.applyFeedback({
+        AxisState::MovingAbsolute,
+        0.5,0.5,0,
+        false,false,
+        1000,-1000
+    });
+
     orchestrator.update(axis); // → WaitingMotionFinish
 
-    // Idle 但偏差较大
+    // Idle 但未到位（Axis 不会清 pending）
     axis.applyFeedback({
         AxisState::Idle,
-        0.3, 0.3, 0.0,
-        false, false,
-        1000.0, -1000.0
+        0.3,0.3,0,
+        false,false,
+        1000,-1000
     });
 
     orchestrator.update(axis);
 
+    // ❗不应该完成
+    EXPECT_NE(orchestrator.currentStep(),
+              AutoAbsMoveOrchestrator::Step::Done);
+
+    // ❗应该继续等待
     EXPECT_EQ(orchestrator.currentStep(),
-              AutoAbsMoveOrchestrator::Step::Error);
+              AutoAbsMoveOrchestrator::Step::WaitingMotionFinish);
 }
 
 

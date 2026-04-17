@@ -69,18 +69,12 @@ public:
             break;
 
         case Step::WaitingMotionFinish:
-            // ⭐ 修正点：必须没有 pendingCommand
-            if (axis.state() == AxisState::Idle) {
-            
-                if (!m_motionObserved) {
-                    break;
-                }
-            
-                if (std::abs(pos - m_target) > tolerance) {
-                    m_step = Step::Error; // ❗未到位
-                    break;
-                }
-            
+
+            if (!m_motionObserved) {
+                break;
+            }
+        
+            if (axis.isMoveCompleted()) {
                 enableUc.execute(axis, false);
                 m_step = Step::Done;
             }
