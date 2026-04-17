@@ -475,3 +475,138 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldLatchMotionObserved)
     EXPECT_EQ(orchestrator.currentStep(),
               AutoRelMoveOrchestrator::Step::WaitingMotionFinish);
 }
+
+
+/**
+ * WaitingMotionFinish（RelMove）语义约束
+ *
+ * 1. 进入前提
+ *    - 已观测到运动发生（m_motionObserved == true）
+ *
+ * 2. 完成判定（唯一标准）
+ *    - 必须依赖 Axis 提供的语义接口：
+ *      axis.isMoveCompleted()
+ *
+ * 3. 状态推进
+ *    - 当 isMoveCompleted() == true：
+ *      → 发送 Enable(false)
+ *      → 进入 Done
+ *
+ * 4. 未完成
+ *    - isMoveCompleted() == false：
+ *      → 保持 WaitingMotionFinish
+ *
+ * 5. 防假完成（关键）
+ *    - 若 m_motionObserved == false：
+ *      → 不允许完成
+ *
+ * 6. 职责边界（非常重要）
+ *    - 不允许在该阶段：
+ *      ❌ 判断位置误差（pos-target）
+ *      ❌ 计算 target（startPos + Δ）
+ *
+ * 7. Error 优先级（由外层统一处理）
+ */
+
+
+// Test 1：完成 → 进入 Done + Disable
+TEST_F(AutoRelMoveOrchestratorTest, ShouldDisableAndEnterDoneWhenMoveCompleted)
+{
+    axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    // 发生运动
+    axis.applyFeedback({AxisState::MovingRelative, 0.5,0.5,0,false,false,1000,-1000});
+    orchestrator.update(axis); // → WaitingMotionFinish
+
+    // ⭐ 模拟 Axis 已完成（pending 被清）
+    axis.applyFeedback({AxisState::Idle, 1.0,1.0,0,false,false,1000,-1000});
+
+    orchestrator.update(axis);
+
+    ASSERT_TRUE(driver.has<EnableCommand>());
+    auto cmd = driver.last<EnableCommand>();
+    EXPECT_FALSE(cmd.active);
+
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoRelMoveOrchestrator::Step::Done);
+}
+
+// Test 2：未完成 → 不能 Done
+TEST_F(AutoRelMoveOrchestratorTest, ShouldStayIfMoveNotCompleted)
+{
+    axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    // 已开始运动
+    axis.applyFeedback({AxisState::MovingRelative, 0.5,0.5,0,false,false,1000,-1000});
+    orchestrator.update(axis); // → WaitingMotionFinish
+
+    // ⭐ 未到位（pending仍存在）
+    axis.applyFeedback({AxisState::Idle, 0.8,0.8,0,false,false,1000,-1000});
+
+    orchestrator.update(axis);
+
+    EXPECT_EQ(orchestrator.currentStep(),
+              AutoRelMoveOrchestrator::Step::WaitingMotionFinish);
+
+    EXPECT_FALSE(driver.has<EnableCommand>());
+}
+
+
+// Test 3：未观测到运动 → 不允许完成（防假完成）
+TEST_F(AutoRelMoveOrchestratorTest, ShouldNotCompleteIfMotionNeverObserved)
+{
+    axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis); // → IssuingMove
+    orchestrator.update(axis); // → Move
+
+    // ⚠️ 直接 Idle + 到位（没有 motionObserved）
+    axis.applyFeedback({AxisState::Idle, 1.0,1.0,0,false,false,1000,-1000});
+
+    orchestrator.update(axis);
+
+    EXPECT_NE(orchestrator.currentStep(),
+              AutoRelMoveOrchestrator::Step::Done);
+}
+
+
+// Test 4：完成后不重复发送 Disable（幂等）
+TEST_F(AutoRelMoveOrchestratorTest, ShouldDisableOnlyOnce)
+{
+    axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+
+    orchestrator.start(1.0);
+
+    orchestrator.update(axis);
+    orchestrator.update(axis);
+
+    axis.applyFeedback({AxisState::MovingRelative, 0.5,0.5,0,false,false,1000,-1000});
+    orchestrator.update(axis);
+
+    axis.applyFeedback({AxisState::Idle, 1.0,1.0,0,false,false,1000,-1000});
+    orchestrator.update(axis);
+
+    orchestrator.update(axis);
+    orchestrator.update(axis);
+
+    int count = std::count_if(
+        driver.history.begin(), driver.history.end(),
+        [](const AxisCommand& c){
+            return std::holds_alternative<EnableCommand>(c) &&
+                   !std::get<EnableCommand>(c).active;
+        });
+
+    EXPECT_EQ(count, 1);
+}

@@ -98,5 +98,4 @@ private:
     bool m_motionObserved = false;
 
     const double epsilon = 0.01;
-    const double tolerance = 0.01;
 };

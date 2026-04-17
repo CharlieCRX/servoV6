@@ -89,9 +89,22 @@ public:
               }
           }
           break;
+        case Step::WaitingMotionFinish:
+
+          // ❗防假完成
+          if (!m_motionObserved) {
+              break;
+          }
+        
+          // ❗唯一完成判定
+          if (axis.isMoveCompleted()) {
+              enableUc.execute(axis, false);
+              m_step = Step::Done;
+          }
+        
+          break;
 
         default:
-            // 当前阶段不实现（TDD：只写必要逻辑）
             break;
         }
     }
