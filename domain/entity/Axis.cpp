@@ -360,6 +360,16 @@ double Axis::relativeZeroAbsolutePosition() const
     return m_rel_zero_abs_pos;
 }
 
+bool Axis::isMoveInProgress() const
+{
+    return std::holds_alternative<MoveCommand>(m_pending_intent);
+}
+
+bool Axis::isMoveCompleted() const
+{
+    return !isMoveInProgress();
+}
+
 double Axis::positiveSoftLimit() const
 {
   return m_pos_limit_value;

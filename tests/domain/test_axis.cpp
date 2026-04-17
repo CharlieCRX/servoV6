@@ -264,6 +264,7 @@ TEST(AxisTest, AbsoluteMoveShouldOnlyClearWhenArrivedAndIdle)
     
     // 验证：状态与数值双重达标，意图消失
     EXPECT_FALSE(axis.hasPendingCommand());
+    EXPECT_FALSE(axis.isMoveInProgress());
 }
 
 // 7.2 相对定位：起跳点捕获与数值收敛

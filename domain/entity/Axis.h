@@ -117,6 +117,10 @@ public:
     double currentRelativePosition() const;
     double relativeZeroAbsolutePosition() const;
 
+    // 位置移动流程查询接口
+    bool isMoveInProgress() const;
+    bool isMoveCompleted() const;
+
     // 软限位查询接口
     double positiveSoftLimit() const;
     double negativeSoftLimit() const;

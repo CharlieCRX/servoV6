@@ -78,21 +78,17 @@ public:
 
             break;
         
-          case Step::WaitingMotionStart:
-
-            // ⭐ 只在尚未观测到运动时检测
-            if (!m_motionObserved) {
-
-                // ⭐ 判定条件：MovingRelative 或 位置变化
-                if (axis.state() == AxisState::MovingRelative ||
-                    std::abs(pos - m_startPos) > m_epsilon) {
-
-                    m_motionObserved = true;
-                    m_step = Step::WaitingMotionFinish;
-                }
-            }
-
-            break;
+        case Step::WaitingMotionStart:
+          // ⭐ 只在尚未观测到运动时检测
+          if (!m_motionObserved) {
+              // ⭐ 判定条件：MovingRelative 或 位置变化
+              if (axis.state() == AxisState::MovingRelative ||
+                  std::abs(pos - m_startPos) > m_epsilon) {
+                  m_motionObserved = true;
+                  m_step = Step::WaitingMotionFinish;
+              }
+          }
+          break;
 
         default:
             // 当前阶段不实现（TDD：只写必要逻辑）
