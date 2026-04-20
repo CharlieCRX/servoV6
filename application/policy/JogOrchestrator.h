@@ -27,6 +27,8 @@ public:
         m_rejectionReason = RejectionReason::None;
 
         m_jogIssued = false;
+        m_stopIssued = false;
+        m_disableIssued = false;
     }
 
     void stopJog(Direction dir) {
@@ -112,6 +114,27 @@ public:
                     m_step = Step::EnsuringDisabled;
                 }
                 break;
+
+            case Step::EnsuringDisabled:
+                // 下发掉电指令，且利用 m_disableIssued 保证幂等性
+                if (!m_disableIssued) {
+                    m_enableUc.execute(axis, false);
+                    m_disableIssued = true;
+                }
+                
+                // 阻塞等待，直到彻底掉电，撞线 Done
+                if (axis.state() == AxisState::Disabled) {
+                    m_step = Step::Done;
+                }
+                break;
+            
+            case Step::Done:
+                // 终态沉默。什么都不做，等待下一次 startJog 重置状态机。
+                break;
+            
+            case Step::Error:
+                // 发生错误后的终态，同样保持沉默
+                break;
                 
             default:
                 // 其他状态在当前的 TDD 阶段尚未进入，直接跳过
@@ -134,4 +157,5 @@ private:
     // 用于防重入的标志位
     bool m_jogIssued = false;
     bool m_stopIssued = false;
+    bool m_disableIssued = false;
 };

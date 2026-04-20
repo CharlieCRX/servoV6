@@ -69,6 +69,15 @@ protected:
         orchestrator.update(axis);          // Tick: 执行 IssuingStop，流转到 WaitingForIdle
         driver.history.clear();             // 清理干净历史记录
     }
+
+    // 辅助函数：快速把状态机推入 EnsuringDisabled 阶段
+    void runToEnsuringDisabledState(Direction dir = Direction::Forward) {
+        runToWaitingForIdleState(dir);
+        // 模拟底层完全停稳
+        axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+        orchestrator.update(axis); // Tick: WaitingForIdle -> EnsuringDisabled
+        driver.history.clear();    // 清理干净历史记录
+    }
 };
 
 /**
@@ -457,4 +466,90 @@ TEST_F(JogOrchestratorTest, ShouldTransitionToEnsuringDisabledWhenAxisBecomesIdl
 
     // Assert: 状态必须干净利落地进入断电准备阶段
     EXPECT_EQ(orchestrator.currentStep(), JogOrchestrator::Step::EnsuringDisabled);
+}
+
+
+/**
+ * ========================
+ * EnsuringDisabled & Done 语义约束
+ * ========================
+ */
+
+// Test 17：进入 EnsuringDisabled 后，必须下发掉电指令，并等待底层断电
+TEST_F(JogOrchestratorTest, ShouldIssueDisableCommandAndWait)
+{
+    // Arrange: 刚刚处于 WaitingForIdle
+    runToWaitingForIdleState(Direction::Forward);
+
+    // Act 1: 模拟底层停稳，消耗第 1 个 Tick 推动状态机流转
+    axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+    orchestrator.update(axis); 
+
+    // Assert 1: 验证状态确实进入了掉电阶段
+    EXPECT_EQ(orchestrator.currentStep(), JogOrchestrator::Step::EnsuringDisabled);
+
+    // Act 2: ⭐ 消耗第 2 个 Tick，让 EnsuringDisabled 阶段真正开始干活
+    orchestrator.update(axis);
+
+    // Assert 2: 验证下发了掉电指令 (EnableCommand 且 active 为 false)
+    ASSERT_TRUE(driver.has<EnableCommand>());
+    EXPECT_FALSE(driver.last<EnableCommand>().active);
+}
+
+// Test 18：掉电指令必须具有幂等性（防重发）
+TEST_F(JogOrchestratorTest, ShouldIssueDisableCommandOnlyOnce)
+{
+    // Arrange: 进入掉电阶段
+    runToEnsuringDisabledState();
+
+    // Act: 疯狂调用 update，模拟底层断电很慢，等待了好几个周期
+    axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000}); // 还没断电
+    orchestrator.update(axis);
+    orchestrator.update(axis);
+    orchestrator.update(axis);
+
+    // Assert: 无论等了多久，掉电指令只发了 1 次（启动流程和掉电流程分别可能发，但在我们清空了历史的当前阶段，只能是 1 次）
+    int disableCommandCount = std::count_if(
+        driver.history.begin(), driver.history.end(),
+        [](const AxisCommand& c){
+            if (auto* enableCmd = std::get_if<EnableCommand>(&c)) {
+                return !enableCmd->active; // 筛选掉电指令
+            }
+            return false;
+        });
+
+    EXPECT_EQ(disableCommandCount, 1);
+}
+
+// Test 19：一旦底层断电成功，必须流转至 Done
+TEST_F(JogOrchestratorTest, ShouldTransitionToDoneWhenAxisIsDisabled)
+{
+    // Arrange: 处于掉电等待阶段
+    runToEnsuringDisabledState();
+
+    // Act: 模拟底层反馈：动力已切断
+    axis.applyFeedback({AxisState::Disabled, 0,0,0,false,false,1000,-1000});
+    orchestrator.update(axis);
+
+    // Assert: 完美撞线！
+    EXPECT_EQ(orchestrator.currentStep(), JogOrchestrator::Step::Done);
+}
+
+// Test 20：处于 Done 阶段时，状态机必须保持沉默（终态属性）
+TEST_F(JogOrchestratorTest, ShouldRemainSilentWhenInDoneState)
+{
+    // Arrange: 把状态机推到 Done
+    runToEnsuringDisabledState();
+    axis.applyFeedback({AxisState::Disabled, 0,0,0,false,false,1000,-1000});
+    orchestrator.update(axis); // 进入 Done
+    driver.history.clear();    // 清理战场
+
+    // Act: 底层可能因为噪音反馈一些无关紧要的状态，或者只是普通的 Idle
+    axis.applyFeedback({AxisState::Disabled, 0,0,0,false,false,1000,-1000});
+    orchestrator.update(axis);
+    orchestrator.update(axis);
+
+    // Assert: 必须保持在 Done 状态，且绝对不许发任何指令
+    EXPECT_EQ(orchestrator.currentStep(), JogOrchestrator::Step::Done);
+    EXPECT_TRUE(driver.history.empty());
 }
