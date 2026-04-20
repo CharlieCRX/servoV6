@@ -93,6 +93,16 @@ public:
                     m_step = Step::IssuingStop; // 主动接管，切入停止收尾流程
                 }
                 break;
+
+            case Step::IssuingStop:
+                // 指令幂等性，保证只发一次 stop
+                if (!m_stopIssued) {
+                    m_jogUc.stop(axis, m_dir);
+                    m_stopIssued = true;
+                }
+                // 无论是否刚刚发完指令，只要进入此阶段，立刻推进到等待停止
+                m_step = Step::WaitingForIdle;
+                break;
                 
             default:
                 // 其他状态在当前的 TDD 阶段尚未进入，直接跳过
@@ -112,6 +122,7 @@ private:
     Direction m_dir = Direction::Forward;
     RejectionReason m_rejectionReason = RejectionReason::None;
 
-    // ⭐ 新增：用于防重入的标志位
+    // 用于防重入的标志位
     bool m_jogIssued = false;
+    bool m_stopIssued = false;
 };

@@ -339,3 +339,65 @@ TEST_F(JogOrchestratorTest, ShouldEnterErrorWhenAxisReportsErrorDuringJogging)
     // Assert
     EXPECT_EQ(orchestrator.currentStep(), JogOrchestrator::Step::Error);
 }
+
+
+/**
+ * ========================
+ * IssuingStop 语义约束
+ * ========================
+ */
+
+// Test 13：进入 IssuingStop 后，必须下发停止指令并推进到 WaitingForIdle
+TEST_F(JogOrchestratorTest, ShouldIssueStopCommandAndTransitionToWaitingForIdle)
+{
+    // Arrange: 让系统先跑起来
+    runToJoggingState(Direction::Forward);
+
+    // 外部请求停止，状态机切入 IssuingStop
+    orchestrator.stopJog(Direction::Forward);
+    
+    // 清空之前启动时的历史记录，方便断言
+    driver.history.clear(); 
+
+    // Act: Tick 驱动执行 IssuingStop 逻辑
+    orchestrator.update(axis);
+
+    // Assert 1: 验证确实下发了停止指令 (JogCommand 且 active 为 false)
+    ASSERT_TRUE(driver.has<JogCommand>());
+    auto cmd = driver.last<JogCommand>();
+    EXPECT_EQ(cmd.dir, Direction::Forward); // 方向必须匹配
+    EXPECT_FALSE(cmd.active);               // active 必须为 false (代表停止)
+
+    // Assert 2: 验证状态流转到了下一步（等待停稳）
+    EXPECT_EQ(orchestrator.currentStep(), JogOrchestrator::Step::WaitingForIdle);
+}
+
+// Test 14：指令幂等性 - 无论由于何种异常导致 update 多次执行，停止指令只发一次
+TEST_F(JogOrchestratorTest, ShouldIssueStopCommandOnlyOnce)
+{
+    // Arrange
+    runToJoggingState(Direction::Backward); // 这次测一下反转
+    orchestrator.stopJog(Direction::Backward);
+    driver.history.clear();
+
+    // Act: 模拟系统异常，在极短时间内疯狂调用 update
+    orchestrator.update(axis); // 第一次：应该发指令并流转
+    
+    // 假设因为某种 Bug，状态被强行改回了 IssuingStop，或者多线程重入
+    // 我们要确保底层 Driver 依然安全
+    orchestrator.update(axis);
+    orchestrator.update(axis);
+
+    // Assert: 统计发送的 Stop 指令数量
+    int stopCommandCount = std::count_if(
+        driver.history.begin(), driver.history.end(),
+        [](const AxisCommand& c){
+            if (auto* jogCmd = std::get_if<JogCommand>(&c)) {
+                return jogCmd->active == false; // 只统计停止指令
+            }
+            return false;
+        });
+
+    // 必须严格等于 1
+    EXPECT_EQ(stopCommandCount, 1);
+}
