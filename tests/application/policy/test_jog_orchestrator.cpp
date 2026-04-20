@@ -61,6 +61,14 @@ protected:
         orchestrator.update(axis); // -> 发送 JogCommand，进入 Jogging
         driver.history.clear();    // 清理历史，保证接下来的断言干净
     }
+
+    // 辅助函数：快速把状态机推入 WaitingForIdle 阶段
+    void runToWaitingForIdleState(Direction dir = Direction::Forward) {
+        runToJoggingState(dir);             // 先跑起来
+        orchestrator.stopJog(dir);          // 喊停
+        orchestrator.update(axis);          // Tick: 执行 IssuingStop，流转到 WaitingForIdle
+        driver.history.clear();             // 清理干净历史记录
+    }
 };
 
 /**
@@ -400,4 +408,53 @@ TEST_F(JogOrchestratorTest, ShouldIssueStopCommandOnlyOnce)
 
     // 必须严格等于 1
     EXPECT_EQ(stopCommandCount, 1);
+}
+
+
+
+/**
+ * ========================
+ * WaitingForIdle 语义约束
+ * ========================
+ */
+
+// Test 15：阻塞等待 - 如果轴尚未停稳（非 Idle），必须保持等待，且不发任何指令
+TEST_F(JogOrchestratorTest, ShouldStayInWaitingForIdleIfAxisIsNotYetIdle)
+{
+    // Arrange: 进入等待停止阶段
+    runToWaitingForIdleState(Direction::Forward);
+
+    // 模拟底层反馈：电机还在减速中，状态仍为 Jogging
+    axis.applyFeedback({
+        AxisState::Jogging, 
+        0,0,0,false,false,1000,-1000
+    });
+
+    // Act
+    orchestrator.update(axis);
+
+    // Assert 1: 状态必须保持不变
+    EXPECT_EQ(orchestrator.currentStep(), JogOrchestrator::Step::WaitingForIdle);
+    
+    // Assert 2: 绝对不能在这个等待期间瞎发任何指令（包括 stop 或 enable）
+    EXPECT_TRUE(driver.history.empty()); 
+}
+
+// Test 16：平滑跃迁 - 一旦轴彻底停稳（变为 Idle），必须流转至 EnsuringDisabled
+TEST_F(JogOrchestratorTest, ShouldTransitionToEnsuringDisabledWhenAxisBecomesIdle)
+{
+    // Arrange: 进入等待停止阶段
+    runToWaitingForIdleState(Direction::Forward);
+
+    // 模拟底层反馈：电机减速完毕，完全停稳
+    axis.applyFeedback({
+        AxisState::Idle, 
+        0,0,0,false,false,1000,-1000
+    });
+
+    // Act
+    orchestrator.update(axis);
+
+    // Assert: 状态必须干净利落地进入断电准备阶段
+    EXPECT_EQ(orchestrator.currentStep(), JogOrchestrator::Step::EnsuringDisabled);
 }

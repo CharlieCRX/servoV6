@@ -103,6 +103,15 @@ public:
                 // 无论是否刚刚发完指令，只要进入此阶段，立刻推进到等待停止
                 m_step = Step::WaitingForIdle;
                 break;
+
+            case Step::WaitingForIdle:
+                // 阻塞等待与平滑跃迁
+                // 只要状态不是 Idle，这里什么都不做（阻塞等待，不发指令）
+                // 一旦发现底层完全停稳（变为 Idle），立刻推进到断电阶段
+                if (axis.state() == AxisState::Idle) {
+                    m_step = Step::EnsuringDisabled;
+                }
+                break;
                 
             default:
                 // 其他状态在当前的 TDD 阶段尚未进入，直接跳过
