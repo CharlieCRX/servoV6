@@ -21,11 +21,12 @@ public:
     JogOrchestrator(EnableUseCase& enableUc, JogAxisUseCase& jogUc)
         : m_enableUc(enableUc), m_jogUc(jogUc) {}
 
-    // 满足 Test 1, 2, 3, 4 的入口初始化
     void startJog(Direction dir) {
         m_dir = dir;
         m_step = Step::EnsuringEnabled;
         m_rejectionReason = RejectionReason::None;
+
+        m_jogIssued = false;
     }
 
     // 最小化实现的 update
@@ -39,17 +40,36 @@ public:
         // 目前只处理 EnsuringEnabled 的业务语义
         switch (m_step) {
             case Step::EnsuringEnabled:
-                // Test 2: Disabled → 必须触发 Enable
+
                 if (axis.state() == AxisState::Disabled) {
                     m_enableUc.execute(axis, true);
                     break; 
                 } 
-                // Test 4: Idle → 进入 IssuingJog（仅仅流转状态）
+
                 if (axis.state() == AxisState::Idle) {
                     m_step = Step::IssuingJog;
                     break;
                 }
-                // Test 3: Unknown -> 默认无动作，依靠 break 保持当前状态
+
+                break;
+            case Step::IssuingJog:
+                // Test 7: 幂等性保护，如果已经发过指令，直接跳过
+                if (m_jogIssued) {
+                    break;
+                }
+
+                // 尝试执行领域层动作 (Test 5, Test 6 方向透传)
+                m_rejectionReason = m_jogUc.execute(axis, m_dir);
+                
+                if (m_rejectionReason == RejectionReason::None) {
+                    // Test 5: 成功下发，流转到 Jogging
+                    m_jogIssued = true;
+                    m_step = Step::Jogging;
+                } else {
+                    // Test 8: 失败熔断（如被限位拦截） -> 安全掉电 + 报错
+                    m_enableUc.execute(axis, false);
+                    m_step = Step::Error;
+                }
                 break;
                 
             default:
@@ -69,4 +89,7 @@ private:
     Step m_step = Step::Idle;
     Direction m_dir = Direction::Forward;
     RejectionReason m_rejectionReason = RejectionReason::None;
+
+    // ⭐ 新增：用于防重入的标志位
+    bool m_jogIssued = false;
 };

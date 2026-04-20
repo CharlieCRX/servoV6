@@ -158,3 +158,101 @@ TEST_F(JogOrchestratorTest, ShouldTransitionToIssuingJogButNotSendJogCommandYet)
     // 严苛约束：状态流转的瞬间不允许跨阶段执行（不允许带出 Jog 指令）
     EXPECT_FALSE(driver.has<JogCommand>());
 }
+
+
+/**
+ * ========================
+ * IssuingJog 语义约束
+ * ========================
+ */
+
+// Test 5：成功下发 Jog 指令，并进入 Jogging 阶段
+TEST_F(JogOrchestratorTest, ShouldSendJogCommandAndEnterJogging)
+{
+    // Arrange: 处于 Idle 状态
+    axis.applyFeedback({
+        AxisState::Idle,
+        0,0,0,false,false,1000,-1000
+    });
+    orchestrator.startJog(Direction::Forward);
+    orchestrator.update(axis); // Tick 1: EnsuringEnabled -> IssuingJog
+
+    // Act: Tick 2: 在 IssuingJog 阶段执行
+    orchestrator.update(axis); 
+
+    // Assert: 验证指令下发
+    ASSERT_TRUE(driver.has<JogCommand>());
+    auto cmd = driver.last<JogCommand>();
+    EXPECT_EQ(cmd.dir, Direction::Forward);
+    EXPECT_TRUE(cmd.active); // active 为 true 代表开始点动
+
+    // Assert: 验证状态流转
+    EXPECT_EQ(orchestrator.currentStep(), JogOrchestrator::Step::Jogging);
+}
+
+// Test 6：反向点动测试，确保方向参数正确透传
+TEST_F(JogOrchestratorTest, ShouldSendBackwardJogCommandCorrectly)
+{
+    axis.applyFeedback({ AxisState::Idle, 0,0,0,false,false,1000,-1000 });
+    
+    orchestrator.startJog(Direction::Backward); // ⭐ 发起反向点动
+    orchestrator.update(axis); // -> IssuingJog
+    orchestrator.update(axis); // -> 执行 IssuingJog
+
+    ASSERT_TRUE(driver.has<JogCommand>());
+    auto cmd = driver.last<JogCommand>();
+    EXPECT_EQ(cmd.dir, Direction::Backward); // 必须是 Backward
+    EXPECT_TRUE(cmd.active);
+}
+
+// Test 7：幂等性 - 无论 update 多少次，JogCommand 只能发送一次
+TEST_F(JogOrchestratorTest, ShouldSendJogCommandOnlyOnce)
+{
+    axis.applyFeedback({ AxisState::Idle, 0,0,0,false,false,1000,-1000 });
+    orchestrator.startJog(Direction::Forward);
+    orchestrator.update(axis); // -> IssuingJog
+    
+    // Act: 疯狂调用 update
+    orchestrator.update(axis); // -> 发送 Jog，进入 Jogging
+    orchestrator.update(axis); 
+    orchestrator.update(axis);
+    orchestrator.update(axis);
+
+    // Assert: 统计 JogCommand 发送次数，必须严格等于 1
+    int count = std::count_if(
+        driver.history.begin(), driver.history.end(),
+        [](const AxisCommand& c){
+            return std::holds_alternative<JogCommand>(c);
+        });
+
+    EXPECT_EQ(count, 1);
+}
+
+// Test 8：失败熔断 - 触发限位被拒时，必须安全掉电并记录 Error
+TEST_F(JogOrchestratorTest, ShouldDisableAndEnterErrorWhenJogRejected)
+{
+    // Arrange: 处于 Idle，但是正限位已经被触发 (posLimit = true)
+    axis.applyFeedback({
+        AxisState::Idle,
+        0,0,0,
+        true, false, // ⭐ 正限位触发
+        1000,-1000
+    });
+
+    orchestrator.startJog(Direction::Forward); // 尝试向限位方向点动
+    orchestrator.update(axis); // -> IssuingJog
+
+    // Act: 执行 IssuingJog，此时底层实体 Axis 将拒绝此操作
+    orchestrator.update(axis);
+
+    // Assert 1: 验证状态进入 Error
+    EXPECT_EQ(orchestrator.currentStep(), JogOrchestrator::Step::Error);
+
+    // Assert 2: 验证记录了正确的拒绝原因
+    EXPECT_EQ(orchestrator.errorReason(), RejectionReason::AtPositiveLimit);
+
+    // Assert 3: 验证发出了掉电保护指令
+    ASSERT_TRUE(driver.has<EnableCommand>());
+    auto cmd = driver.last<EnableCommand>();
+    EXPECT_FALSE(cmd.active); // 必须是掉电 (active = false)
+}
