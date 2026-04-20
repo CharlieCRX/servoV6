@@ -1,6 +1,8 @@
 include(GoogleTest)
 
 add_executable(unit_tests
+    infrastructure/test_system_integration.cpp
+
     application/policy/test_jog_orchestrator.cpp
     application/policy/test_auto_rel_move_orchestrator.cpp
     application/policy/test_auto_abs_move_orchestrator.cpp
@@ -13,7 +15,6 @@ add_executable(unit_tests
     application/test_stop_usecase.cpp
 
     infrastructure/test_fake_plc.cpp
-    infrastructure/test_system_integration.cpp
 )
 
 target_include_directories(unit_tests
