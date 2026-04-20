@@ -52,6 +52,15 @@ protected:
             1000.0, -1000.0
         });
     }
+
+    // 辅助函数：快速把状态机推入 Jogging 阶段
+    void runToJoggingState(Direction dir = Direction::Forward) {
+        axis.applyFeedback({AxisState::Idle, 0,0,0,false,false,1000,-1000});
+        orchestrator.startJog(dir);
+        orchestrator.update(axis); // -> 到 EnsuringEnabled (发现Idle) -> IssuingJog
+        orchestrator.update(axis); // -> 发送 JogCommand，进入 Jogging
+        driver.history.clear();    // 清理历史，保证接下来的断言干净
+    }
 };
 
 /**
@@ -255,4 +264,78 @@ TEST_F(JogOrchestratorTest, ShouldDisableAndEnterErrorWhenJogRejected)
     ASSERT_TRUE(driver.has<EnableCommand>());
     auto cmd = driver.last<EnableCommand>();
     EXPECT_FALSE(cmd.active); // 必须是掉电 (active = false)
+}
+
+
+
+/**
+ * ========================
+ * Jogging 语义约束
+ * ========================
+ */
+
+// Test 9：收到方向匹配的 stopJog 请求，必须进入 IssuingStop
+TEST_F(JogOrchestratorTest, ShouldTransitionToIssuingStopOnValidStopJog)
+{
+    // Arrange
+    runToJoggingState(Direction::Forward);
+
+    // Act
+    orchestrator.stopJog(Direction::Forward);
+
+    // Assert
+    // 注意：stopJog 是直接改变状态的外部事件，不需要等 update
+    EXPECT_EQ(orchestrator.currentStep(), JogOrchestrator::Step::IssuingStop);
+}
+
+// Test 10：方向防误杀 - 收到错误的 stopJog 方向，必须忽略
+TEST_F(JogOrchestratorTest, ShouldIgnoreStopJogWithWrongDirection)
+{
+    // Arrange
+    runToJoggingState(Direction::Forward);
+
+    // Act
+    orchestrator.stopJog(Direction::Backward); // 传一个错的方向
+
+    // Assert
+    EXPECT_EQ(orchestrator.currentStep(), JogOrchestrator::Step::Jogging);
+}
+
+// Test 11：意外跌落保护 - 如果底层自动 Idle，必须主动进入 IssuingStop
+TEST_F(JogOrchestratorTest, ShouldAutoTransitionToIssuingStopIfAxisDropsToIdle)
+{
+    // Arrange
+    runToJoggingState(Direction::Forward);
+
+    // 模拟一种跌落场景：触发了正限位。
+    // 根据我们之前的 Axis 实体逻辑，如果限位触发，它会自动清空 m_pending_intent 并跌落
+    axis.applyFeedback({
+        AxisState::Idle,  // 状态变成了空闲
+        0,0,0,
+        true, false,      // ⭐ 正限位被压下
+        1000,-1000
+    });
+
+    // Act
+    orchestrator.update(axis);
+
+    // Assert
+    // 尽管外部没人调 stopJog，编排器也应该敏锐地发现异常并切入停止流程
+    EXPECT_EQ(orchestrator.currentStep(), JogOrchestrator::Step::IssuingStop);
+}
+
+// Test 12：全局熔断 - 运行中报错
+TEST_F(JogOrchestratorTest, ShouldEnterErrorWhenAxisReportsErrorDuringJogging)
+{
+    // Arrange
+    runToJoggingState(Direction::Forward);
+
+    // 模拟运行中硬件报警
+    axis.applyFeedback({AxisState::Error, 0,0,0, false, false, 1000,-1000});
+
+    // Act
+    orchestrator.update(axis);
+
+    // Assert
+    EXPECT_EQ(orchestrator.currentStep(), JogOrchestrator::Step::Error);
 }

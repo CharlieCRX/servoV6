@@ -29,6 +29,20 @@ public:
         m_jogIssued = false;
     }
 
+    void stopJog(Direction dir) {
+        // 方向防误杀 - 校验停止方向与当前运行意图是否一致
+        if (dir != m_dir) {
+            return;
+        }
+
+        // 只有在启动或运行流程中，才允许被外部打断并流转到停止流程
+        if (m_step == Step::EnsuringEnabled || 
+            m_step == Step::IssuingJog || 
+            m_step == Step::Jogging) {
+            m_step = Step::IssuingStop;
+        }
+    }
+
     // 最小化实现的 update
     void update(Axis& axis) {
         // ⭐ 全局最高优先级：硬件/状态错误拦截 (满足 Test 1)
@@ -52,8 +66,9 @@ public:
                 }
 
                 break;
+
             case Step::IssuingJog:
-                // Test 7: 幂等性保护，如果已经发过指令，直接跳过
+                // 幂等性保护，如果已经发过指令，直接跳过
                 if (m_jogIssued) {
                     break;
                 }
@@ -62,13 +77,20 @@ public:
                 m_rejectionReason = m_jogUc.execute(axis, m_dir);
                 
                 if (m_rejectionReason == RejectionReason::None) {
-                    // Test 5: 成功下发，流转到 Jogging
+                    // 成功下发，流转到 Jogging
                     m_jogIssued = true;
                     m_step = Step::Jogging;
                 } else {
-                    // Test 8: 失败熔断（如被限位拦截） -> 安全掉电 + 报错
+                    // 失败熔断（如被限位拦截） -> 安全掉电 + 报错
                     m_enableUc.execute(axis, false);
                     m_step = Step::Error;
+                }
+                break;
+
+            case Step::Jogging:
+                // 监控异常跌落场景：如果轴意外从 Jogging 跌落到 Idle，必须主动切入 IssuingStop
+                if (axis.state() == AxisState::Idle && !axis.hasPendingCommand()) {
+                    m_step = Step::IssuingStop; // 主动接管，切入停止收尾流程
                 }
                 break;
                 
