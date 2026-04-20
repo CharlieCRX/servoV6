@@ -4,7 +4,9 @@
 #include "infrastructure/FakeAxisDriver.h"
 #include "application/axis/MoveAbsoluteUseCase.h"
 #include "application/axis/AxisSyncService.h"
+#include "application/axis/StopAxisUseCase.h"
 #include "application/policy/AutoAbsMoveOrchestrator.h"
+#include "application/policy/JogOrchestrator.h"
 
 TEST(SystemIntegrationTest, FullMoveAbsoluteLifeCycle) {
     
@@ -39,6 +41,8 @@ TEST(SystemIntegrationTest, FullMoveAbsoluteLifeCycle) {
 }
 
 
+
+// 案例 1：Orchestrator 驱动的端到端绝对定位测试
 TEST(SystemIntegrationTest, ShouldCompleteAbsoluteMoveEndToEnd) {
     // 1. 基础设施与 Domain 装配 (Infrastructure & Domain Setup)
     Axis axis;
@@ -110,4 +114,97 @@ TEST(SystemIntegrationTest, ShouldCompleteAbsoluteMoveEndToEnd) {
     // 此时物理层收到 Disable 会直接掉电，反馈回来的状态应该是 Disabled
     EXPECT_EQ(axis.state(), AxisState::Disabled) << "AutoDisablePolicy failed: Axis did not disable after move!";
     EXPECT_FALSE(axis.hasPendingCommand()) << "Pending command was not consumed!";
+}
+
+// 案例 2：Jog 持续型行为与中断的端到端验证
+TEST(SystemIntegrationTest, ShouldJogStartAndStopCorrectly) {
+    // 1. 基础设施与 Domain 装配
+    Axis axis;
+    FakePLC plc;
+    FakeAxisDriver driver(plc);
+    AxisSyncService syncService;
+
+    // 2. 动作层装配 (Stateless UseCases)
+    EnableUseCase enableUc(driver);
+    JogAxisUseCase jogUc(driver);
+
+    // 3. 策略层装配 (Stateful Orchestrator)
+    JogOrchestrator orchestrator(enableUc, jogUc);
+
+    // 初始化物理世界状态：初始断电
+    plc.forceState(AxisState::Disabled);
+    plc.setSimulatedJogVelocity(10.0); // 设定点动速度 10 unit/s
+    syncService.sync(axis, plc.getFeedback());
+
+    // ==========================================
+    // 阶段 A：按下正向点动按钮 (模拟 UI MousePress)
+    // ==========================================
+    orchestrator.startJog(Direction::Forward);
+
+    const int TICK_MS = 10;
+    int ticks = 0;
+    const int MAX_TICKS = 500;
+    bool startedJogging = false;
+    double posBeforeJog = axis.currentAbsolutePosition();
+
+    // 循环 1：等待系统自动上电并切入 Jogging 状态
+    while (ticks < MAX_TICKS) {
+        orchestrator.update(axis);
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback());
+
+        if (axis.state() == AxisState::Jogging) {
+            startedJogging = true;
+            // 物理世界持续运行 500ms (50 * 10ms)，积累位移
+            for (int i = 0; i < 50; ++i) {
+                orchestrator.update(axis);
+                plc.tick(TICK_MS);
+                syncService.sync(axis, plc.getFeedback());
+            }
+            break;
+        }
+        ticks++;
+    }
+
+    // 断言 A：必须成功进入点动状态，且物理位置必须发生真实改变
+    EXPECT_TRUE(startedJogging) << "System failed to enter Jogging state! Stuck at Enabling?";
+    double posDuringJog = axis.currentAbsolutePosition();
+    EXPECT_GT(posDuringJog, posBeforeJog) << "Observability Failed: Position did not increase during Forward Jog!";
+
+
+    // ==========================================
+    // 阶段 B：松开点动按钮 (模拟 UI MouseRelease)
+    // ==========================================
+    // 触发防误杀逻辑的正常停止 (向底层发送 JogCommand {active: false})
+    orchestrator.stopJog(Direction::Forward); 
+
+    ticks = 0;
+    bool fullyStopped = false;
+
+    // 循环 2：等待系统制动 -> 回落 Idle -> 触发 EnsuringDisabled -> 断电 (Done)
+    while (ticks < MAX_TICKS) {
+        orchestrator.update(axis);
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback());
+
+        // 根据你的状态机，最终会停在 Done 状态
+        if (orchestrator.currentStep() == JogOrchestrator::Step::Done) {
+            fullyStopped = true;
+            break;
+        }
+        ticks++;
+    }
+
+    // 断言 B：必须成功走到 Done，并且策略层成功执行了掉电逻辑
+    EXPECT_TRUE(fullyStopped) << "Orchestrator did not reach Done state after stopping!";
+    EXPECT_EQ(axis.state(), AxisState::Disabled) << "Axis did not disable after Jogging completed!";
+    EXPECT_FALSE(axis.hasPendingCommand()) << "Pending command was not cleared!";
+
+    // 断言 C：物理边界约束（停止后不可漂移）
+    double posAfterStop = axis.currentAbsolutePosition();
+    for (int i = 0; i < 20; ++i) {
+        plc.tick(TICK_MS); 
+    }
+    syncService.sync(axis, plc.getFeedback());
+    EXPECT_DOUBLE_EQ(axis.currentAbsolutePosition(), posAfterStop) << "Physical Violation: Axis drifted after completely stopping!";
 }
