@@ -48,7 +48,8 @@ public:
             break;
 
         case Step::IssuingMove:
-            if (moveUc.execute(axis, m_target) == RejectionReason::None) {
+            m_rejectionReason = moveUc.execute(axis, m_target);
+            if (m_rejectionReason == RejectionReason::None) {
                 startPos = axis.currentAbsolutePosition();
                 m_step = Step::WaitingMotionStart;
             } else {
@@ -86,6 +87,7 @@ public:
     }
 
     Step currentStep() const { return m_step; }
+    RejectionReason errorReason() const { return m_rejectionReason; } // 新增接口
 
 private:
     EnableUseCase& enableUc;
@@ -98,4 +100,7 @@ private:
     bool m_motionObserved = false;
 
     const double epsilon = 0.01;
+
+
+    RejectionReason m_rejectionReason = RejectionReason::None;
 };

@@ -65,8 +65,8 @@ public:
             }
 
             // ⭐ 发起相对运动
-            if (moveUc.execute(axis, m_distance) == RejectionReason::None) {
-
+            m_rejectionReason = moveUc.execute(axis, m_distance);
+            if (m_rejectionReason == RejectionReason::None) {
                 // ⭐ 记录起点（用于后续阶段）
                 m_startPos = axis.currentAbsolutePosition();
 
@@ -113,6 +113,7 @@ public:
     }
 
     Step currentStep() const { return m_step; }
+    RejectionReason errorReason() const { return m_rejectionReason; }
 
 private:
     EnableUseCase& enableUc;
@@ -128,6 +129,8 @@ private:
     // WaitingMotionStart
     bool m_motionObserved = false;
     const double m_epsilon = 0.01;
+
+    RejectionReason m_rejectionReason = RejectionReason::None;
 };
 
 #endif // AUTO_REL_MOVE_ORCHESTRATOR_H

@@ -363,3 +363,117 @@ TEST(SystemIntegrationTest, ShouldCompleteRelativeMoveEndToEnd) {
     EXPECT_NEAR(axis.currentAbsolutePosition(), 30.0, 0.01) << "Math Error: Second relative move did not stack correctly!";
     EXPECT_EQ(axis.state(), AxisState::Disabled);
 }
+
+
+TEST(SystemIntegrationTest, ShouldInterruptJogAtLimitAndRestrictFurtherMoves) {
+    // ==========================================
+    // 0. 系统基础设施与防腐层装配
+    // ==========================================
+    Axis axis;
+    FakePLC plc;
+    FakeAxisDriver driver(plc);
+    AxisSyncService syncService;
+
+    EnableUseCase enableUc(driver);
+    JogAxisUseCase jogUc(driver);
+    MoveAbsoluteUseCase moveUc(driver);
+
+    JogOrchestrator jogOrchestrator(enableUc, jogUc);
+    AutoAbsMoveOrchestrator moveOrchestrator(enableUc, moveUc);
+
+    // 物理世界埋雷：正限位卡在 50.0
+    plc.forceState(AxisState::Disabled);
+    plc.setSimulatedJogVelocity(20.0); 
+    plc.setLimits(50.0, -1000.0); // 设置正软限位
+    syncService.sync(axis, plc.getFeedback());
+
+    const int TICK_MS = 10;
+    int ticks = 0;
+
+    // ==========================================
+    // 阶段 1：作死测试 -> 一路向正方向点动，直到撞墙
+    // ==========================================
+    jogOrchestrator.startJog(Direction::Forward);
+    
+    while (ticks < 500) { // 跑 5 秒物理时间，足够撞上 50.0
+        jogOrchestrator.update(axis);
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback());
+
+        // 观测点：如果 Orchestrator 完成了中断收尾并回落到终态，跳出
+        if (jogOrchestrator.currentStep() == JogOrchestrator::Step::Done || 
+            jogOrchestrator.currentStep() == JogOrchestrator::Step::Error) {
+            break;
+        }
+        ticks++;
+    }
+
+    // 断言 1：必须精确停在 50.0 限位点，并且触发中断导致掉电
+    EXPECT_TRUE(plc.getFeedback().posLimit) << "FakePLC did not trigger the hardware limit bit!";
+    EXPECT_NEAR(axis.currentAbsolutePosition(), 50.0, 0.01) << "Axis position broke through the limit!";
+    EXPECT_EQ(axis.state(), AxisState::Disabled) << "Axis must be safely disabled after hitting the hardware limit!";
+
+
+    // ==========================================
+    // 阶段 2：安全死锁验证 A -> 企图继续向同向(Forward)点动
+    // ==========================================
+    jogOrchestrator.startJog(Direction::Forward); // 再次作死按正向
+    ticks = 0;
+    while (ticks < 100) {
+        jogOrchestrator.update(axis);
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback());
+        if (jogOrchestrator.currentStep() == JogOrchestrator::Step::Error) break;
+        ticks++;
+    }
+    
+    // 断言 2：必须被无情拒绝，报错原因必须是 AtPositiveLimit
+    EXPECT_EQ(jogOrchestrator.currentStep(), JogOrchestrator::Step::Error) << "Orchestrator failed to block forward jog at limit!";
+    EXPECT_EQ(jogOrchestrator.errorReason(), RejectionReason::AtPositiveLimit);
+
+
+    // ==========================================
+    // 阶段 3：安全死锁验证 B -> 企图使用 Move 指令(禁止位置移动)
+    // ==========================================
+    moveOrchestrator.start(0.0); // 哪怕是企图走回 0.0 安全区，只要在限位上，Move 统统不许用
+    ticks = 0;
+    while (ticks < 100) {
+        moveOrchestrator.update(axis);
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback());
+        if (moveOrchestrator.currentStep() == AutoAbsMoveOrchestrator::Step::Error) break;
+        ticks++;
+    }
+
+    // 断言 3：Move 指令必须被全局锁死
+    EXPECT_EQ(moveOrchestrator.currentStep(), AutoAbsMoveOrchestrator::Step::Error) << "Orchestrator failed to block Absolute Move at limit!";
+    EXPECT_EQ(moveOrchestrator.errorReason(), RejectionReason::AtPositiveLimit);
+
+
+    // ==========================================
+    // 阶段 4：唯一生路 -> 反向逃逸 (Jog Backward)
+    // ==========================================
+    jogOrchestrator.startJog(Direction::Backward); // 正确操作：反向点动逃离
+    ticks = 0;
+    bool escapedLimit = false;
+
+    while (ticks < 300) { // 等待上电 + 反向运动脱离 50.0
+        jogOrchestrator.update(axis);
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback());
+
+        // 观测点：如果成功进入 Jogging，并且位置从 50.0 降下来导致限位位复位，说明逃逸成功
+        if (axis.state() == AxisState::Jogging && !plc.getFeedback().posLimit) {
+            escapedLimit = true;
+            break;
+        }
+        ticks++;
+    }
+
+    // 断言 4：必须成功进入反向运动，并且物理限制解除
+    EXPECT_TRUE(escapedLimit) << "System completely locked up! Failed to allow backward escape jog!";
+    EXPECT_LT(axis.currentAbsolutePosition(), 49.9) << "Axis position did not decrease during escape!";
+
+    // 最后别忘了安全停止逃逸动作
+    jogOrchestrator.stopJog(Direction::Backward);
+}
