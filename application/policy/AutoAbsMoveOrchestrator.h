@@ -76,8 +76,18 @@ public:
             }
         
             if (axis.isMoveCompleted()) {
-                enableUc.execute(axis, false);
-                m_step = Step::Done;
+                // 物理级终极验证：意图虽然消失了，但我真的到了吗？
+                double currentPos = axis.currentAbsolutePosition();
+                if (std::abs(currentPos - m_target) < epsilon) {
+                    // 只有物理到位，才是真正的 Done
+                    enableUc.execute(axis, false);
+                    m_step = Step::Done;
+                } else {
+                    // 意图消失了但物理没到位 -> 说明是被半路截杀了（如急停）
+                    enableUc.execute(axis, false);
+                    m_rejectionReason = RejectionReason::InvalidState; // 记录为非法中止
+                    m_step = Step::Error; 
+                }
             }
             break;
 

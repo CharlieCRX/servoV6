@@ -383,7 +383,7 @@ bool Axis::isMoveInProgress() const
 
 bool Axis::isMoveCompleted() const
 {
-    return !isMoveInProgress();
+    return std::holds_alternative<std::monostate>(m_pending_intent);
 }
 
 double Axis::positiveSoftLimit() const

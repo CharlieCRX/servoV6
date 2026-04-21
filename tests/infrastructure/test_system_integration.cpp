@@ -7,6 +7,7 @@
 #include "application/policy/AutoAbsMoveOrchestrator.h"
 #include "application/policy/AutoRelMoveOrchestrator.h"
 #include "application/policy/JogOrchestrator.h"
+#include "application/axis/StopAxisUseCase.h"
 
 TEST(SystemIntegrationTest, FullMoveAbsoluteLifeCycle) {
     
@@ -476,4 +477,79 @@ TEST(SystemIntegrationTest, ShouldInterruptJogAtLimitAndRestrictFurtherMoves) {
 
     // 最后别忘了安全停止逃逸动作
     jogOrchestrator.stopJog(Direction::Backward);
+}
+
+
+TEST(SystemIntegrationTest, ShouldHaltCompletelyAndReportErrorWhenEmergencyStopInvoked) {
+    // 1. 系统装配
+    Axis axis;
+    FakePLC plc;
+    FakeAxisDriver driver(plc);
+    AxisSyncService syncService;
+
+    EnableUseCase enableUc(driver);
+    MoveAbsoluteUseCase moveUc(driver);
+    StopAxisUseCase stopUc(driver); // 专门用于紧急打断
+
+    AutoAbsMoveOrchestrator orchestrator(enableUc, moveUc);
+
+    // 初始物理环境：速度设慢点，目标设远点，拉长运动时间
+    plc.forceState(AxisState::Disabled);
+    plc.setSimulatedMoveVelocity(20.0); // 20 unit/s
+    syncService.sync(axis, plc.getFeedback());
+
+    // 2. 发起一个很长的移动任务 (目标 200.0，需要 10秒 才能跑完)
+    orchestrator.start(200.0);
+
+    const int TICK_MS = 10;
+    int ticks = 0;
+    bool startedMoving = false;
+
+    // 3. 先让它正常跑 2 秒钟 (200 个 tick)
+    while (ticks < 200) {
+        orchestrator.update(axis);
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback());
+        
+        if (axis.state() == AxisState::MovingAbsolute) {
+            startedMoving = true;
+        }
+        ticks++;
+    }
+
+    // 确认它真的跑起来了
+    EXPECT_TRUE(startedMoving) << "Axis never started moving!";
+    
+    // 4. 💥 突发急停！用户拍下了 E-Stop 按钮！
+    // 绕过 Orchestrator，直接用最高优的 StopUseCase 发送指令
+    stopUc.execute(axis);
+
+    // 5. 继续运行系统循环，观察 Orchestrator 的收敛行为
+    int stopTicks = 0;
+    while (stopTicks < 500) { // 最多再等 5 秒
+        orchestrator.update(axis);
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback());
+
+        // 等待 Orchestrator 结束它的生命周期
+        if (orchestrator.currentStep() == AutoAbsMoveOrchestrator::Step::Error ||
+            orchestrator.currentStep() == AutoAbsMoveOrchestrator::Step::Done) {
+            break;
+        }
+        stopTicks++;
+    }
+
+    // 6. 核心语义断言
+    
+    // 物理层断言：绝对不能跑到 200.0，必须在半路停下
+    EXPECT_LT(axis.currentAbsolutePosition(), 150.0) << "Axis failed to stop in time!";
+
+    // 🌟 逻辑层断言（最容易挂的地方）：
+    // 任务中途被打断，绝对不能谎报军情说自己 Done 了！
+    EXPECT_NE(orchestrator.currentStep(), AutoAbsMoveOrchestrator::Step::Done) 
+        << "FATAL LOGIC ERROR: Orchestrator falsely claimed the move was Done after an Emergency Stop!";
+        
+    // 必须以 Error (或某种 Aborted) 态结束
+    EXPECT_EQ(orchestrator.currentStep(), AutoAbsMoveOrchestrator::Step::Error) 
+        << "Orchestrator failed to realize it was interrupted!";
 }
