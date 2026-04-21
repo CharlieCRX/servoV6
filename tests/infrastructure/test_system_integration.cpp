@@ -208,3 +208,96 @@ TEST(SystemIntegrationTest, ShouldJogStartAndStopCorrectly) {
     syncService.sync(axis, plc.getFeedback());
     EXPECT_DOUBLE_EQ(axis.currentAbsolutePosition(), posAfterStop) << "Physical Violation: Axis drifted after completely stopping!";
 }
+
+
+// 异常场景 A：事前拦截（预检失败）
+TEST(SystemIntegrationTest, ShouldFailToStartWhenTargetExceedsLimit) {
+    Axis axis;
+    FakePLC plc;
+    FakeAxisDriver driver(plc);
+    AxisSyncService syncService;
+
+    EnableUseCase enableUc(driver);
+    MoveAbsoluteUseCase moveUc(driver);
+    AutoAbsMoveOrchestrator orchestrator(enableUc, moveUc);
+
+    // 设置初始物理环境
+    plc.forceState(AxisState::Disabled);
+    plc.setLimits(80.0, -80.0); // 软限位同步为 80
+    syncService.sync(axis, plc.getFeedback());
+
+    // 尝试走到 150.0（必然被拦截）
+    orchestrator.start(150.0);
+
+    const int TICK_MS = 10;
+    int ticks = 0;
+    while (orchestrator.currentStep() != AutoAbsMoveOrchestrator::Step::Done && 
+           orchestrator.currentStep() != AutoAbsMoveOrchestrator::Step::Error && 
+           ticks < 100) {
+        orchestrator.update(axis);
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback());
+        ticks++;
+    }
+
+    // 断言：
+    // 1. 状态机必须是 Error
+    EXPECT_EQ(orchestrator.currentStep(), AutoAbsMoveOrchestrator::Step::Error) << "Orchestrator should fail at IssuingMove step!";
+    // 2. 轴的物理状态决不能是 Moving
+    EXPECT_NE(axis.state(), AxisState::MovingAbsolute) << "Axis should never start moving!";
+    // 3. 安全策略：失败后应该下发了掉电指令 (根据你的 Orchestrator 逻辑)
+    EXPECT_EQ(axis.state(), AxisState::Disabled);
+}
+
+// 异常场景 B：半路夭折（运行中途物理层突发错误）
+TEST(SystemIntegrationTest, ShouldFailWhenMoveInterruptedMidway) {
+    Axis axis;
+    FakePLC plc;
+    FakeAxisDriver driver(plc);
+    AxisSyncService syncService;
+
+    EnableUseCase enableUc(driver);
+    MoveAbsoluteUseCase moveUc(driver);
+    AutoAbsMoveOrchestrator orchestrator(enableUc, moveUc);
+
+    // 初始物理环境：限位非常宽裕
+    plc.forceState(AxisState::Disabled);
+    plc.setLimits(200.0, -200.0); 
+    plc.setSimulatedMoveVelocity(50.0);
+    syncService.sync(axis, plc.getFeedback());
+
+    // 发起合法指令
+    orchestrator.start(150.0);
+
+    const int TICK_MS = 10;
+    int ticks = 0;
+    bool startedMoving = false;
+    bool errorHandled = false;
+
+    while (ticks < 500) {
+        orchestrator.update(axis);
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback());
+
+        // 观测点 1：确保它真的跑起来了
+        if (axis.state() == AxisState::MovingAbsolute && !startedMoving) {
+            startedMoving = true;
+            
+            // 🌟 暴击测试：在移动了几个周期后，强行给物理世界注入一个硬件报警！
+            plc.forceState(AxisState::Error); 
+        }
+
+        // 观测点 2：Orchestrator 是否正确捕获了异常
+        if (orchestrator.currentStep() == AutoAbsMoveOrchestrator::Step::Error) {
+            errorHandled = true;
+            break;
+        }
+
+        ticks++;
+    }
+
+    // 断言：
+    EXPECT_TRUE(startedMoving) << "Move never started!";
+    EXPECT_TRUE(errorHandled) << "Orchestrator did not handle the in-flight hardware error!";
+    EXPECT_NE(orchestrator.currentStep(), AutoAbsMoveOrchestrator::Step::Done) << "Orchestrator falsely claimed success!";
+}
