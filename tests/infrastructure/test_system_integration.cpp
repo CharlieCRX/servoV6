@@ -4,8 +4,8 @@
 #include "infrastructure/FakeAxisDriver.h"
 #include "application/axis/MoveAbsoluteUseCase.h"
 #include "application/axis/AxisSyncService.h"
-#include "application/axis/StopAxisUseCase.h"
 #include "application/policy/AutoAbsMoveOrchestrator.h"
+#include "application/policy/AutoRelMoveOrchestrator.h"
 #include "application/policy/JogOrchestrator.h"
 
 TEST(SystemIntegrationTest, FullMoveAbsoluteLifeCycle) {
@@ -300,4 +300,66 @@ TEST(SystemIntegrationTest, ShouldFailWhenMoveInterruptedMidway) {
     EXPECT_TRUE(startedMoving) << "Move never started!";
     EXPECT_TRUE(errorHandled) << "Orchestrator did not handle the in-flight hardware error!";
     EXPECT_NE(orchestrator.currentStep(), AutoAbsMoveOrchestrator::Step::Done) << "Orchestrator falsely claimed success!";
+}
+
+
+// TDD 红灯案例 4：连续相对定位的端到端验证
+TEST(SystemIntegrationTest, ShouldCompleteRelativeMoveEndToEnd) {
+    // 1. 系统装配
+    Axis axis;
+    FakePLC plc;
+    FakeAxisDriver driver(plc);
+    AxisSyncService syncService;
+
+    EnableUseCase enableUc(driver);
+    MoveRelativeUseCase moveRelUc(driver);
+    AutoRelMoveOrchestrator orchestrator(enableUc, moveRelUc);
+
+    // 初始化物理世界
+    plc.forceState(AxisState::Disabled);
+    plc.setSimulatedMoveVelocity(50.0); // 速度 50 unit/s
+    syncService.sync(axis, plc.getFeedback());
+
+    const int TICK_MS = 10;
+    const int MAX_TICKS = 500;
+
+    // ==========================================
+    // 阶段 A：第一次相对定位 (+50.0)
+    // ==========================================
+    orchestrator.start(50.0); // 预期终点: 0 + 50 = 50
+    
+    int ticks = 0;
+    while (orchestrator.currentStep() != AutoRelMoveOrchestrator::Step::Done && 
+           orchestrator.currentStep() != AutoRelMoveOrchestrator::Step::Error && 
+           ticks < MAX_TICKS) {
+        orchestrator.update(axis);
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback());
+        ticks++;
+    }
+
+    // 断言 A：第一次移动必须成功，且位置等于 50.0
+    EXPECT_EQ(orchestrator.currentStep(), AutoRelMoveOrchestrator::Step::Done) << "First relative move failed!";
+    EXPECT_NEAR(axis.currentAbsolutePosition(), 50.0, 0.01) << "First relative move calculated position incorrectly!";
+    EXPECT_EQ(axis.state(), AxisState::Disabled) << "Axis did not auto-disable after first move!";
+
+    // ==========================================
+    // 阶段 B：第二次相对定位 (-20.0)
+    // ==========================================
+    orchestrator.start(-20.0); // 预期终点: 50 - 20 = 30
+    
+    ticks = 0;
+    while (orchestrator.currentStep() != AutoRelMoveOrchestrator::Step::Done && 
+           orchestrator.currentStep() != AutoRelMoveOrchestrator::Step::Error && 
+           ticks < MAX_TICKS) {
+        orchestrator.update(axis);
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback());
+        ticks++;
+    }
+
+    // 断言 B：第二次移动必须成功，且位置等于 30.0
+    EXPECT_EQ(orchestrator.currentStep(), AutoRelMoveOrchestrator::Step::Done) << "Second relative move failed!";
+    EXPECT_NEAR(axis.currentAbsolutePosition(), 30.0, 0.01) << "Math Error: Second relative move did not stack correctly!";
+    EXPECT_EQ(axis.state(), AxisState::Disabled);
 }

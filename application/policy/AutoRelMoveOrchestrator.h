@@ -22,7 +22,10 @@ public:
     void start(double distance) {
         m_distance = distance;
         m_step = Step::EnsuringEnabled;
-        m_moveIssued = false;   // ⭐ 重置幂等标志
+
+        m_moveIssued = false;       // ⭐ 重置幂等标志
+        m_motionObserved = false;   // ⭐ 重置运动观测
+        m_startPos = 0.0;           // ⭐ 重置起点
     }
 
     void update(Axis& axis)
