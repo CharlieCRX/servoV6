@@ -101,8 +101,18 @@ public:
         
           // ❗唯一完成判定
           if (axis.isMoveCompleted()) {
-              enableUc.execute(axis, false);
-              m_step = Step::Done;
+                // 物理级终极验证：意图虽然消失了，但我真的到了吗？
+                double currentPos = axis.currentAbsolutePosition();
+                if (std::abs(currentPos - (m_startPos + m_distance)) < m_epsilon) {
+                    // 只有物理到位，才是真正的 Done
+                    enableUc.execute(axis, false);
+                    m_step = Step::Done;
+                } else {
+                    // 物理没到位，说明可能被外力打断了，视为失败
+                    enableUc.execute(axis, false);
+                    m_rejectionReason = RejectionReason::InvalidState; //todo: 可以考虑更细化的拒绝原因，如 InterruptedByExternalForce
+                    m_step = Step::Error;
+                }
           }
         
           break;

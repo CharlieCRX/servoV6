@@ -553,3 +553,81 @@ TEST(SystemIntegrationTest, ShouldHaltCompletelyAndReportErrorWhenEmergencyStopI
     EXPECT_EQ(orchestrator.currentStep(), AutoAbsMoveOrchestrator::Step::Error) 
         << "Orchestrator failed to realize it was interrupted!";
 }
+
+
+// TDD 红灯案例：相对坐标系的建立与复合运动验证
+TEST(SystemIntegrationTest, ShouldSyncRelativeCoordinateSystemAndPerformMoves) {
+    // 1. 系统装配
+    Axis axis;
+    FakePLC plc;
+    FakeAxisDriver driver(plc);
+    AxisSyncService syncService;
+
+    EnableUseCase enableUc(driver);
+    MoveAbsoluteUseCase moveAbsUc(driver);
+    MoveRelativeUseCase moveRelUc(driver);
+    AutoAbsMoveOrchestrator absOrchestrator(enableUc, moveAbsUc);
+    AutoRelMoveOrchestrator relOrchestrator(enableUc, moveRelUc);
+
+    const int TICK_MS = 10;
+
+    // 2. 阶段 A：先将物理轴移动到 50.0 处
+    plc.forceState(AxisState::Idle);
+    plc.setSimulatedMoveVelocity(100.0);
+    absOrchestrator.start(50.0);
+    
+    int ticks = 0;
+    while (absOrchestrator.currentStep() != AutoAbsMoveOrchestrator::Step::Done && ticks < 200) {
+        absOrchestrator.update(axis);
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback());
+        ticks++;
+    }
+    
+    ASSERT_NEAR(axis.currentAbsolutePosition(), 50.0, 0.01) << "Failed to reach initial position 50.0";
+
+    // 3. 阶段 B：在 50.0 处设置相对零点 (Set Relative Zero)
+    // 根据 Axis.cpp，这会产生一个 SetRelativeZeroCommand 并记录当前绝对位置为基准
+    enableUc.execute(axis, true); 
+    
+    // 等待上电完成（FakePLC 有 150ms 延迟）
+    for(int i=0; i<20; ++i) { 
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback());
+    }
+    ASSERT_EQ(axis.state(), AxisState::Idle) << "Axis must be Idle to set relative zero!";
+    
+    axis.setRelativeZero(); 
+    driver.send(axis.getPendingCommand());
+
+    // 模拟闭环同步：PLC 需要反馈当前的零点偏移量
+    ticks = 0;
+    while (axis.hasPendingCommand() && ticks < 50) {
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback()); // 触发 Axis.cpp 中的闭环匹配逻辑
+        ticks++;
+    }
+
+    // 断言 B：相对坐标系成功建立
+    EXPECT_FALSE(axis.hasPendingCommand()) << "SetRelativeZeroCommand was not consumed by feedback loop!";
+    EXPECT_NEAR(axis.currentRelativePosition(), 0.0, 0.001) << "Relative position must be 0.0 at the new zero base!";
+    EXPECT_NEAR(axis.relativeZeroAbsolutePosition(), 50.0, 0.001) << "Domain must record 50.0 as the relative zero base!";
+
+    // 4. 阶段 C：在相对坐标系下，执行相对运动 +30.0
+    relOrchestrator.start(30.0);
+    
+    ticks = 0;
+    while (relOrchestrator.currentStep() != AutoRelMoveOrchestrator::Step::Done && ticks < 200) {
+        relOrchestrator.update(axis);
+        plc.tick(TICK_MS);
+        syncService.sync(axis, plc.getFeedback());
+        ticks++;
+    }
+
+    // 5. 终极断言：验证物理坐标与相对坐标的数学关系
+    // 物理坐标应为 50 + 30 = 80
+    EXPECT_NEAR(axis.currentAbsolutePosition(), 80.0, 0.01) << "Physical absolute position is incorrect!";
+    // 相对坐标应为 30
+    EXPECT_NEAR(axis.currentRelativePosition(), 30.0, 0.01) << "Logical relative position is incorrect!";
+    EXPECT_EQ(relOrchestrator.currentStep(), AutoRelMoveOrchestrator::Step::Done);
+}
