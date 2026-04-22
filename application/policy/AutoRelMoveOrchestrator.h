@@ -1,8 +1,8 @@
 #ifndef AUTO_REL_MOVE_ORCHESTRATOR_H
 #define AUTO_REL_MOVE_ORCHESTRATOR_H
 
-#include "../axis/EnableUseCase.h"
-#include "../axis/MoveRelativeUseCase.h"
+#include "axis/EnableUseCase.h"
+#include "axis/MoveRelativeUseCase.h"
 
 class AutoRelMoveOrchestrator {
 public:

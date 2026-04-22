@@ -14,6 +14,8 @@ enable_testing()
 # 子模块
 add_subdirectory(external/googletest)
 add_subdirectory(domain)
+add_subdirectory(application)
+add_subdirectory(presentation)
 add_subdirectory(tests)
 
 

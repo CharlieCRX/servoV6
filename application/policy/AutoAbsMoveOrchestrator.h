@@ -1,5 +1,5 @@
-#include "../axis/EnableUseCase.h"
-#include "../axis/MoveAbsoluteUseCase.h"
+#include "axis/EnableUseCase.h"
+#include "axis/MoveAbsoluteUseCase.h"
 
 class AutoAbsMoveOrchestrator {
 public:

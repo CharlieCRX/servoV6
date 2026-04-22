@@ -1,5 +1,5 @@
 #pragma once
-#include "application/axis/IAxisDriver.h"
+#include "axis/IAxisDriver.h"
 
 /**
  * @brief 停止轴动作执行案例
