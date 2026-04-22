@@ -24,6 +24,10 @@ void AxisViewModelCore::jogPositivePressed() {
     m_jogOrch.startJog(Direction::Forward);
 }
 
+void AxisViewModelCore::jogPositiveReleased() {
+    m_jogOrch.stopJog(Direction::Forward);
+}
+
 void AxisViewModelCore::tick() {
     // 系统唯一推进入口：驱动所有的策略器
     m_jogOrch.update(m_axis);
