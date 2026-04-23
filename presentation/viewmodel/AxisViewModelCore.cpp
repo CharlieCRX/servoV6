@@ -20,8 +20,27 @@ double AxisViewModelCore::absPos() const {
     return m_axis.currentAbsolutePosition();
 }
 
+double AxisViewModelCore::relPos() const
+{
+    return m_axis.currentRelativePosition();
+}
+
+bool AxisViewModelCore::isEnabled() const
+{
+    return m_axis.state() != AxisState::Disabled;
+}
+
 void AxisViewModelCore::jogPositivePressed() {
     m_jogOrch.startJog(Direction::Forward);
+}
+
+void AxisViewModelCore::jogNegativePressed()
+{
+    m_jogOrch.startJog(Direction::Backward);
+}
+
+void AxisViewModelCore::jogNegativeReleased() {
+    m_jogOrch.stopJog(Direction::Backward);
 }
 
 void AxisViewModelCore::moveAbsolute(double targetPos)

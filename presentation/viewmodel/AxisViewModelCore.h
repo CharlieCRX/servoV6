@@ -18,6 +18,7 @@ public:
     // --- 1. 状态投影 (State Projection) ---
     AxisState state() const;
     double absPos() const;
+    double relPos() const;
     bool isEnabled() const;
     bool hasError() const;
     std::string errorMessage() const;

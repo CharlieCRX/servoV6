@@ -2,7 +2,10 @@
 
 add_library(presentation
     viewmodel/AxisViewModelCore.cpp
+    viewmodel/QtAxisViewModel.cpp
 )
+
+set_target_properties(presentation PROPERTIES AUTOMOC ON)
 
 target_include_directories(presentation
     PUBLIC
@@ -11,6 +14,7 @@ target_include_directories(presentation
 
 target_link_libraries(presentation
     PUBLIC
+        Qt6::Core
         domain
         application
 )

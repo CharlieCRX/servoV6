@@ -1,3 +1,4 @@
+#pragma once
 #include "axis/EnableUseCase.h"
 #include "axis/MoveAbsoluteUseCase.h"
 #include <cmath>

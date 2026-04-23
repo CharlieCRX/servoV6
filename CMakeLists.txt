@@ -24,12 +24,22 @@ qt_add_executable(appservoV6
     main.cpp
 )
 
+set_source_files_properties(presentation/qml/core/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+
 qt_add_qml_module(appservoV6
     URI servoV6
-    QML_FILES Main.qml
+    QML_FILES
+        Main.qml
+        presentation/qml/core/Theme.qml
+        presentation/qml/components/IndustrialButton.qml
+        presentation/qml/blocks/AxisSelectorBlock.qml
+        presentation/qml/blocks/TelemetryBlock.qml
+        presentation/qml/blocks/ActionControlBlock.qml
+        presentation/qml/views/MainDashboard.qml
 )
 
 target_link_libraries(appservoV6
     PRIVATE Qt6::Quick
     domain
+    presentation
 )
