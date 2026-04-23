@@ -34,7 +34,7 @@ protected:
         // 物理引擎初始化：断电状态，设定好速度与限位
         plc.forceState(AxisState::Disabled);
         plc.setSimulatedJogVelocity(20.0);
-        plc.setSimulatedMoveVelocity(50.0);
+        plc.setSimulatedMoveVelocity(25.0);
         plc.setLimits(1000.0, -1000.0);
         
         // 初始同步一次，确保 Domain 与物理世界对齐
@@ -107,51 +107,51 @@ TEST_F(AxisViewModelCoreTest, ShouldExecuteJogPositiveRealistically) {
     EXPECT_DOUBLE_EQ(vm->absPos(), finalPos) << "Axis drifted after releasing jog!";
 }
 
-// // =========================================================
-// // 🎯 测试 3：绝对定位全生命周期 (MoveAbsolute Lifecycle)
-// // 验证：目标到达 -> 物理收敛 -> 自动断电
-// // =========================================================
-// TEST_F(AxisViewModelCoreTest, ShouldCompleteAbsoluteMoveRealistically) {
-//     double target = 100.0;
+// =========================================================
+// 🎯 测试 3：绝对定位全生命周期 (MoveAbsolute Lifecycle)
+// 验证：目标到达 -> 物理收敛 -> 自动断电
+// =========================================================
+TEST_F(AxisViewModelCoreTest, ShouldCompleteAbsoluteMoveRealistically) {
+    double target = 100.0;
 
-//     // Act 1: UI 下发定位指令
-//     vm->moveAbsolute(target);
+    // Act 1: UI 下发定位指令
+    vm->moveAbsolute(target);
 
-//     // Assert 1: 等待进入定位运动状态
-//     bool isMoving = waitUntil([this]() { return vm->state() == AxisState::MovingAbsolute; });
-//     ASSERT_TRUE(isMoving) << "Failed to enter MovingAbsolute state.";
+    // Assert 1: 等待进入定位运动状态
+    bool isMoving = waitUntil([this]() { return vm->state() == AxisState::MovingAbsolute; });
+    ASSERT_TRUE(isMoving) << "Failed to enter MovingAbsolute state.";
 
-//     // Assert 2: 等待系统自动完成定位，并完成 Orchestrator 的 Auto-Disable 流程
-//     bool isDone = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 5000); // 给 5 秒钟跑 100 unit
-//     ASSERT_TRUE(isDone) << "Move absolute timed out or failed to disable!";
+    // Assert 2: 等待系统自动完成定位，并完成 Orchestrator 的 Auto-Disable 流程
+    bool isDone = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 5000); // 给 5 秒钟跑 100 unit
+    ASSERT_TRUE(isDone) << "Move absolute timed out or failed to disable!";
 
-//     // Assert 3: 验证 UI 读到的位置确实精准到达了目标
-//     EXPECT_NEAR(vm->absPos(), target, 0.01) << "Axis failed to reach physical target on UI!";
-// }
+    // Assert 3: 验证 UI 读到的位置确实精准到达了目标
+    EXPECT_NEAR(vm->absPos(), target, 0.01) << "Axis failed to reach physical target on UI!";
+}
 
-// // =========================================================
-// // 🎯 测试 4：急停打断 (Emergency Stop)
-// // =========================================================
-// TEST_F(AxisViewModelCoreTest, ShouldHaltImmediatelyWhenStopPressed) {
-//     // Act 1: 发起一个非常远的定位任务 (2000 距离，需要跑很久)
-//     vm->moveAbsolute(2000.0);
+// =========================================================
+// 🎯 测试 4：急停打断 (Emergency Stop)
+// =========================================================
+TEST_F(AxisViewModelCoreTest, ShouldHaltImmediatelyWhenStopPressed) {
+    // Act 1: 发起一个非常远的定位任务 (2000 距离，需要跑很久)
+    vm->moveAbsolute(800.0);
     
-//     // 让它跑 500ms
-//     waitUntil([this]() { return vm->state() == AxisState::MovingAbsolute; });
-//     advanceTime(500);
+    // 让它跑 500ms
+    waitUntil([this]() { return vm->state() == AxisState::MovingAbsolute; });
+    advanceTime(500);
     
-//     // 确认它真的在半路上
-//     double midPos = vm->absPos();
-//     EXPECT_GT(midPos, 0.0);
-//     EXPECT_LT(midPos, 2000.0);
+    // 确认它真的在半路上
+    double midPos = vm->absPos();
+    EXPECT_GT(midPos, 0.0);
+    EXPECT_LT(midPos, 2000.0);
 
-//     // Act 2: 💥 UI 突然按下急停
-//     vm->stop();
+    // Act 2: 💥 UI 突然按下急停
+    vm->stop();
 
-//     // Assert 1: 等待系统强行中止并切断动力
-//     bool isStopped = waitUntil([this]() { return vm->state() == AxisState::Disabled; });
-//     ASSERT_TRUE(isStopped) << "Failed to halt after stop command!";
+    // Assert 1: 等待系统强行中止并切断动力
+    bool isStopped = waitUntil([this]() { return vm->state() == AxisState::Disabled; });
+    ASSERT_TRUE(isStopped) << "Failed to halt after stop command!";
 
-//     // Assert 2: 验证物理位置被截断在了半路，没有继续跑到 2000
-//     EXPECT_LT(vm->absPos(), 1500.0) << "Axis ignored stop command and kept moving!";
-// }
+    // Assert 2: 验证物理位置被截断在了半路，没有继续跑到 2000
+    EXPECT_LT(vm->absPos(), 1500.0) << "Axis ignored stop command and kept moving!";
+}

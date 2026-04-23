@@ -1,5 +1,6 @@
 #include "axis/EnableUseCase.h"
 #include "axis/MoveAbsoluteUseCase.h"
+#include <cmath>
 
 class AutoAbsMoveOrchestrator {
 public:

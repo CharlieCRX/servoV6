@@ -24,6 +24,16 @@ void AxisViewModelCore::jogPositivePressed() {
     m_jogOrch.startJog(Direction::Forward);
 }
 
+void AxisViewModelCore::moveAbsolute(double targetPos)
+{
+    m_absOrch.start(targetPos);
+}
+
+void AxisViewModelCore::stop()
+{
+    m_stopUc.execute(m_axis);
+}
+
 void AxisViewModelCore::jogPositiveReleased() {
     m_jogOrch.stopJog(Direction::Forward);
 }
