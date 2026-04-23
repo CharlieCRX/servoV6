@@ -135,7 +135,7 @@ Rectangle {
                     RadioButton {
                         text: "相对 (Rel)"
                         checked: !root.isAbsolute
-                        enabled: false // 🚦 架构师锁定：底层还没实现，先置灰！
+                        enabled: true
                         onClicked: root.isAbsolute = false
                         contentItem: Text {
                             text: parent.text
@@ -182,6 +182,8 @@ Rectangle {
                             // 由于目前禁用了相对移动，这里只调用 moveAbsolute
                             if (root.isAbsolute) {
                                 viewModel.moveAbsolute(target)
+                            } else {
+                                viewModel.moveRelative(target)
                             }
                         }
                     }

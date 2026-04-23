@@ -5,6 +5,7 @@
 #include "entity/Axis.h"
 #include "policy/JogOrchestrator.h"
 #include "policy/AutoAbsMoveOrchestrator.h"
+#include "policy/AutoRelMoveOrchestrator.h"
 #include "axis/StopAxisUseCase.h"
 
 class AxisViewModelCore {
@@ -13,6 +14,7 @@ public:
     AxisViewModelCore(Axis& axis, 
                       JogOrchestrator& jogOrch, 
                       AutoAbsMoveOrchestrator& absOrch,
+                      AutoRelMoveOrchestrator& relOrch,
                       StopAxisUseCase& stopUc);
 
     // --- 1. 状态投影 (State Projection) ---
@@ -23,6 +25,9 @@ public:
     bool hasError() const;
     std::string errorMessage() const;
 
+    double jogVelocity() const;
+    double moveVelocity() const;
+
     // --- 2. 控制指令 (Control Inputs) ---
     void jogPositivePressed();
     void jogPositiveReleased();
@@ -30,7 +35,11 @@ public:
     void jogNegativeReleased();
     
     void moveAbsolute(double targetPos);
+    void moveRelative(double distance);
     void stop();
+
+    void setJogVelocity(double v);
+    void setMoveVelocity(double v);
 
     // --- 3. 驱动机制 (Tick) ---
     // 驱动 Orchestrator 状态机流转
@@ -40,6 +49,7 @@ private:
     Axis& m_axis;
     JogOrchestrator& m_jogOrch;
     AutoAbsMoveOrchestrator& m_absOrch;
+    AutoRelMoveOrchestrator& m_relOrch;
     StopAxisUseCase& m_stopUc;
 };
 

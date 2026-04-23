@@ -18,8 +18,15 @@ Window {
         anchors.margins: 40 * Theme.scale
         spacing: 40 * Theme.scale
 
-        // 占位：未来的左侧控制区
-        Item { Layout.preferredWidth: 200 * Theme.scale } 
+        // 🌟 1. 左侧：轴选择与状态概览
+        AxisSelectorBlock {
+            Layout.preferredWidth: 260 * Theme.scale // 稍微加宽一点
+            Layout.fillHeight: true
+            onAxisChanged: (name) => {
+                console.log("切换到轴:", name)
+                // 这里以后可以根据 name 切换不同的 ViewModel 实例
+            }
+        }
 
         // 🌟 挂载中央遥测看板
         TelemetryBlock {
@@ -31,7 +38,7 @@ Window {
 
         // 🌟 右侧多功能控制面板
         ActionControlBlock {
-            Layout.preferredWidth: 200 * Theme.scale
+            Layout.preferredWidth: 300 * Theme.scale
             Layout.fillHeight: true
             viewModel: axisX1VM
         }

@@ -17,10 +17,12 @@ protected:
     EnableUseCase enableUc{driver};
     JogAxisUseCase jogUc{driver};
     MoveAbsoluteUseCase moveAbsUc{driver};
+    MoveRelativeUseCase moveRelUc{driver};
     StopAxisUseCase stopUc{driver};
 
     JogOrchestrator jogOrch{enableUc, jogUc};
     AutoAbsMoveOrchestrator absOrch{enableUc, moveAbsUc};
+    AutoRelMoveOrchestrator relOrch{enableUc, moveRelUc};
 
     // 3. 表现层（待测目标）
     std::unique_ptr<AxisViewModelCore> vm;
@@ -29,7 +31,7 @@ protected:
 
     void SetUp() override {
         // 组装 ViewModel
-        vm = std::make_unique<AxisViewModelCore>(axis, jogOrch, absOrch, stopUc);
+        vm = std::make_unique<AxisViewModelCore>(axis, jogOrch, absOrch, relOrch, stopUc);
         
         // 物理引擎初始化：断电状态，设定好速度与限位
         plc.forceState(AxisState::Disabled);

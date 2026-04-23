@@ -4,7 +4,7 @@ project(servoV6)
 set(CMAKE_CXX_STANDARD 20)
 
 # Qt
-find_package(Qt6 REQUIRED COMPONENTS Quick)
+find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2)
 
 qt_standard_project_setup()
 
@@ -32,6 +32,7 @@ qt_add_qml_module(appservoV6
         Main.qml
         presentation/qml/core/Theme.qml
         presentation/qml/components/IndustrialButton.qml
+        presentation/qml/components/AxisItemDelegate.qml
         presentation/qml/blocks/AxisSelectorBlock.qml
         presentation/qml/blocks/TelemetryBlock.qml
         presentation/qml/blocks/ActionControlBlock.qml
@@ -39,7 +40,10 @@ qt_add_qml_module(appservoV6
 )
 
 target_link_libraries(appservoV6
-    PRIVATE Qt6::Quick
-    domain
-    presentation
+    PRIVATE 
+        Qt6::Quick
+        Qt6::QuickControls2
+    PUBLIC
+        domain
+        presentation
 )

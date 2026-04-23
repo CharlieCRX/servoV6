@@ -16,6 +16,9 @@ void QtAxisViewModel::jogPositiveReleased() { m_core->jogPositiveReleased(); }
 void QtAxisViewModel::jogNegativePressed() { m_core->jogNegativePressed(); }
 void QtAxisViewModel::jogNegativeReleased() { m_core->jogNegativeReleased(); }
 void QtAxisViewModel::moveAbsolute(double pos) { m_core->moveAbsolute(pos); }
+void QtAxisViewModel::moveRelative(double distance) { m_core->moveRelative(distance); }
+void QtAxisViewModel::setJogVelocity(double v) { m_core->setJogVelocity(v); }
+void QtAxisViewModel::setMoveVelocity(double v) { m_core->setMoveVelocity(v); }
 void QtAxisViewModel::stop() { m_core->stop(); }
 
 void QtAxisViewModel::tick() {

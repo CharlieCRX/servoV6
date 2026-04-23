@@ -3,6 +3,7 @@
 #include <QQmlContext>
 #include <QTimer>
 #include <QUrl>
+#include <QQuickStyle>
 
 // 引入你所有的架构头文件
 #include "domain/entity/Axis.h"
@@ -20,6 +21,7 @@
 
 int main(int argc, char *argv[])
 {
+    QQuickStyle::setStyle("Basic");
     QGuiApplication app(argc, argv);
 
     // ==========================================
@@ -33,13 +35,15 @@ int main(int argc, char *argv[])
     EnableUseCase enableUc(driver);
     JogAxisUseCase jogUc(driver);
     MoveAbsoluteUseCase moveAbsUc(driver);
+    MoveRelativeUseCase moveRelUc(driver);
     StopAxisUseCase stopUc(driver);
 
     JogOrchestrator jogOrch(enableUc, jogUc);
     AutoAbsMoveOrchestrator absOrch(enableUc, moveAbsUc);
+    AutoRelMoveOrchestrator relOrch{enableUc, moveRelUc};
 
     // 实例化 Core ViewModel
-    AxisViewModelCore vmCore(axis, jogOrch, absOrch, stopUc);
+    AxisViewModelCore vmCore(axis, jogOrch, absOrch, relOrch, stopUc);
     
     // 实例化 Qt Wrapper ViewModel
     QtAxisViewModel qtVM(&vmCore);

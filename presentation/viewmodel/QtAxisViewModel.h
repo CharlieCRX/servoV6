@@ -25,6 +25,11 @@ public:
     Q_INVOKABLE void jogNegativeReleased();
     
     Q_INVOKABLE void moveAbsolute(double targetPos);
+    Q_INVOKABLE void moveRelative(double distance);
+
+    Q_INVOKABLE void setJogVelocity(double v);
+    Q_INVOKABLE void setMoveVelocity(double v);
+    
     Q_INVOKABLE void stop();
 
     // 系统推进
