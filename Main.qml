@@ -1,6 +1,9 @@
 import QtQuick
 import QtQuick.Window
+import QtQuick.Layouts
 import servoV6
+import "presentation/qml/components"
+import "presentation/qml/blocks" // 引入 blocks 目录
 
 Window {
     width: 1280
@@ -9,43 +12,28 @@ Window {
     title: qsTr("servoV6 - UI Integration Test")
     color: Theme.bgDark
 
-    Column {
-        anchors.centerIn: parent
-        spacing: 30
+    // 使用 Layout 进行响应式布局，方便后续横向排版
+    RowLayout {
+        anchors.fill: parent
+        anchors.margins: 40 * Theme.scale
+        spacing: 40 * Theme.scale
 
-        Text {
-            text: "当前 Axis 绝对位置: " + axisX1VM.absPos.toFixed(2)
-            color: Theme.textMain
-            font.pixelSize: Theme.fontLarge
+        // 占位：未来的左侧控制区
+        Item { Layout.preferredWidth: 200 * Theme.scale } 
+
+        // 🌟 挂载中央遥测看板
+        TelemetryBlock {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            // 核心操作：把 C++ 的 axisX1VM 注入到看板里
+            viewModel: axisX1VM 
         }
-        
-        Text {
-            text: "当前状态: " + axisX1VM.state
-            color: axisX1VM.state === 6 ? Theme.colorError : Theme.colorIdle
-            font.pixelSize: Theme.fontLarge
-        }
 
-        Row {
-            spacing: 20
-            
-            IndustrialButton {
-                text: "JOG -"
-                onPressed: axisX1VM.jogNegativePressed()
-                onReleased: axisX1VM.jogNegativeReleased()
-            }
-
-            IndustrialButton {
-                text: "JOG +"
-                onPressed: axisX1VM.jogPositivePressed()
-                onReleased: axisX1VM.jogPositiveReleased()
-            }
-            
-            IndustrialButton {
-                text: "急停!"
-                isCircle: false 
-                baseColor: Theme.colorError
-                onClicked: axisX1VM.stop()
-            }
+        // 🌟 右侧多功能控制面板
+        ActionControlBlock {
+            Layout.preferredWidth: 200 * Theme.scale
+            Layout.fillHeight: true
+            viewModel: axisX1VM
         }
     }
 }
