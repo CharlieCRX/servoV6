@@ -28,6 +28,9 @@ public:
     double jogVelocity() const;
     double moveVelocity() const;
 
+    double posLimit() const;
+    double negLimit() const;
+
     // --- 2. 控制指令 (Control Inputs) ---
     void jogPositivePressed();
     void jogPositiveReleased();

@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import servoV6
-import "qrc:/servoV6/presentation/qml/components" // 确保能找到你的原子组件
+import "qrc:/servoV6/presentation/qml/components" 
 
 Rectangle {
     id: root
@@ -12,6 +12,9 @@ Rectangle {
     property int currentMode: 0 
     // 定位模式下的子状态：true = 绝对, false = 相对
     property bool isAbsolute: true 
+
+    // 🌟 核心防呆：动态判定当前是否允许下发定位指令 (1: Disabled, 2: Idle)
+    property bool isReadyForPos: viewModel ? (viewModel.state === 1 || viewModel.state === 2) : false
 
     color: "transparent"
 
@@ -75,7 +78,7 @@ Rectangle {
         }
 
         // ==========================================
-        // 2. 中间：动态控制面板 (使用 StackLayout 或简单的 visible 控制)
+        // 2. 中间：动态控制面板
         // ==========================================
         Item {
             Layout.fillWidth: true
@@ -88,6 +91,21 @@ Rectangle {
                 visible: root.currentMode === 0
 
                 Item { Layout.fillHeight: true } // 顶部弹簧
+                
+                // 🌟 新增：点动速度设定
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    Text { text: "点动速度:"; color: Theme.textDim; font.pixelSize: Theme.fontNormal }
+                    TextField {
+                        id: jogSpeedInput
+                        Layout.preferredWidth: 80 * Theme.scale
+                        text: viewModel ? viewModel.jogVelocity.toString() : "10"
+                        color: Theme.textMain
+                        background: Rectangle { color: Theme.bgDark; border.color: Theme.borderMain }
+                        validator: DoubleValidator { bottom: 0.1; top: 1000.0 }
+                        onEditingFinished: if(viewModel) viewModel.setJogVelocity(parseFloat(text))
+                    }
+                }
 
                 IndustrialButton {
                     text: "JOG +"
@@ -113,17 +131,33 @@ Rectangle {
                 visible: root.currentMode === 1
 
                 Item { Layout.fillHeight: true }
+                
+                // 🌟 新增：定位速度设定
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    Text { text: "定位速度:"; color: Theme.textDim; font.pixelSize: Theme.fontNormal }
+                    TextField {
+                        id: moveSpeedInput
+                        Layout.preferredWidth: 80 * Theme.scale
+                        text: viewModel ? viewModel.moveVelocity.toString() : "50"
+                        color: Theme.textMain
+                        background: Rectangle { color: Theme.bgDark; border.color: Theme.borderMain }
+                        validator: DoubleValidator { bottom: 0.1; top: 1000.0 }
+                        onEditingFinished: if(viewModel) viewModel.setMoveVelocity(parseFloat(text))
+                    }
+                }
 
                 // 绝对/相对 单选区
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
-                    spacing: 15 * Theme.scale
+                    spacing: 8 * Theme.scale 
 
                     RadioButton {
                         text: "绝对 (Abs)"
                         checked: root.isAbsolute
+                        enabled: root.isReadyForPos  // ✅ 只有 1 个 enabled 属性
+                        opacity: enabled ? 1.0 : 0.5 
                         onClicked: root.isAbsolute = true
-                        // 覆盖默认样式，适配深色主题
                         contentItem: Text {
                             text: parent.text
                             color: Theme.textMain
@@ -135,11 +169,12 @@ Rectangle {
                     RadioButton {
                         text: "相对 (Rel)"
                         checked: !root.isAbsolute
-                        enabled: true
+                        enabled: root.isReadyForPos  // ✅ 只有 1 个 enabled 属性
+                        opacity: enabled ? 1.0 : 0.5 
                         onClicked: root.isAbsolute = false
                         contentItem: Text {
                             text: parent.text
-                            color: parent.enabled ? Theme.textMain : Theme.textDim
+                            color: Theme.textMain
                             font.pixelSize: Theme.fontNormal
                             leftPadding: parent.indicator.width + parent.spacing
                         }
@@ -152,46 +187,49 @@ Rectangle {
                     Layout.alignment: Qt.AlignHCenter
                     Layout.preferredWidth: 140 * Theme.scale
                     text: "100.0"
+                    
+                    enabled: root.isReadyForPos  // ✅ 只有 1 个 enabled 属性
+                    opacity: enabled ? 1.0 : 0.5 
+                    
                     font.pixelSize: Theme.fontLarge
                     font.family: "Monospace"
                     color: Theme.textMain
                     horizontalAlignment: TextInput.AlignHCenter
                     
-                    // 工业风输入框样式
                     background: Rectangle {
                         color: Theme.bgDark
                         border.color: targetInput.activeFocus ? Theme.colorMoving : Theme.borderMain
                         border.width: 2
                         radius: 6 * Theme.scale
                     }
-                    
-                    // 仅允许输入数字和小数点
                     validator: DoubleValidator { bottom: -9999.9; top: 9999.9; decimals: 2 }
                 }
 
                 // 执行按钮 (GO)
                 IndustrialButton {
-                    text: "执行 GO"
+                    text: root.isReadyForPos ? "执行 GO" : "运行中..."
                     isCircle: false
                     buttonSize: 140 * Theme.scale
-                    baseColor: Theme.colorIdle // 绿色底色代表自动执行
+                    
+                    enabled: root.isReadyForPos  // ✅ 只有 1 个 enabled 属性
+                    baseColor: root.isReadyForPos ? Theme.colorIdle : Theme.colorDisabled 
+                    
                     Layout.alignment: Qt.AlignHCenter
                     onClicked: {
                         let target = parseFloat(targetInput.text)
                         if (!isNaN(target) && viewModel) {
-                            // 由于目前禁用了相对移动，这里只调用 moveAbsolute
                             if (root.isAbsolute) {
                                 viewModel.moveAbsolute(target)
                             } else {
-                                viewModel.moveRelative(target)
+                                viewModel.moveRelative(target) 
                             }
                         }
                     }
                 }
 
-                Item { Layout.fillHeight: true }
+                Item { Layout.fillHeight: true } // 底部弹簧
             }
-        }
+        } // 结束 Item (中间控制面板)
 
         // ==========================================
         // 3. 底部：全局急停 (STOP)

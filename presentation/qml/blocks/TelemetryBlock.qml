@@ -100,6 +100,80 @@ Rectangle {
             }
         }
 
+        // 🌟 新增：限位动态位置条 (Position Bar)
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 20 * Theme.scale
+            spacing: 5 * Theme.scale
+
+            // 计算安全的 UI 进度比例
+            function getSafeProgress() {
+                if (!viewModel) return 0.5;
+                let pos = viewModel.absPos;
+                let pLim = viewModel.posLimit;
+                let nLim = viewModel.negLimit;
+                
+                // 如果后端传来的是无穷大默认值，给一个虚拟的 UI 范围用于展示
+                if (pLim > 999999) pLim = 1000.0;
+                if (nLim < -999999) nLim = -1000.0;
+                
+                let range = pLim - nLim;
+                if (range <= 0) return 0.5;
+                
+                let progress = (pos - nLim) / range;
+                return Math.max(0.0, Math.min(1.0, progress)); // 限制在 0~1 之间
+            }
+
+            // 进度条轨道
+            Rectangle {
+                Layout.fillWidth: true
+                height: 8 * Theme.scale
+                radius: height / 2
+                color: Theme.bgDark
+                border.color: Theme.borderMain
+                border.width: 1
+
+                // 填充条
+                Rectangle {
+                    width: parent.width * getSafeProgress()
+                    height: parent.height
+                    radius: parent.radius
+                    color: Theme.colorMoving // 蓝色填充
+                    
+                    // 加个小动画，让跳动更丝滑
+                    Behavior on width {
+                        NumberAnimation { duration: 100; easing.type: Easing.OutQuad }
+                    }
+                }
+                
+                // 当前位置指示游标
+                Rectangle {
+                    x: parent.width * getSafeProgress() - width/2
+                    y: -4 * Theme.scale
+                    width: 4 * Theme.scale
+                    height: 16 * Theme.scale
+                    color: Theme.textMain
+                    radius: 2
+                }
+            }
+
+            // 限位刻度文字
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    text: viewModel && viewModel.negLimit > -999999 ? "负限位: " + viewModel.negLimit : "负限位: 未设"
+                    color: Theme.textDim
+                    font.pixelSize: Theme.fontSmall
+                }
+                Item { Layout.fillWidth: true }
+                Text {
+                    text: viewModel && viewModel.posLimit < 999999 ? "正限位: " + viewModel.posLimit : "正限位: 未设"
+                    color: Theme.textDim
+                    font.pixelSize: Theme.fontSmall
+                }
+            }
+        }
+
         Item { Layout.fillHeight: true } // 底部垂直弹簧
     }
 }

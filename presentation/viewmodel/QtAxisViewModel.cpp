@@ -21,6 +21,11 @@ void QtAxisViewModel::setJogVelocity(double v) { m_core->setJogVelocity(v); }
 void QtAxisViewModel::setMoveVelocity(double v) { m_core->setMoveVelocity(v); }
 void QtAxisViewModel::stop() { m_core->stop(); }
 
+double QtAxisViewModel::posLimit() const { return m_core->posLimit(); }
+double QtAxisViewModel::negLimit() const { return m_core->negLimit(); }
+double QtAxisViewModel::jogVelocity() const { return m_core->jogVelocity(); }
+double QtAxisViewModel::moveVelocity() const { return m_core->moveVelocity(); }
+
 void QtAxisViewModel::tick() {
     m_core->tick();
 

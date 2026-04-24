@@ -11,12 +11,21 @@ class QtAxisViewModel : public QObject {
     Q_PROPERTY(int state READ state NOTIFY stateChanged)
     Q_PROPERTY(double absPos READ absPos NOTIFY absPosChanged)
 
+    Q_PROPERTY(double posLimit READ posLimit NOTIFY limitsChanged)
+    Q_PROPERTY(double negLimit READ negLimit NOTIFY limitsChanged)
+    Q_PROPERTY(double jogVelocity READ jogVelocity WRITE setJogVelocity NOTIFY velocityChanged)
+    Q_PROPERTY(double moveVelocity READ moveVelocity WRITE setMoveVelocity NOTIFY velocityChanged)
+
 public:
     explicit QtAxisViewModel(AxisViewModelCore* core, QObject *parent = nullptr);
 
     // Getters
     int state() const;
     double absPos() const;
+    double posLimit() const;
+    double negLimit() const;
+    double jogVelocity() const;
+    double moveVelocity() const;
 
     // 控制输入 (严格对齐已实现的 Core 方法)
     Q_INVOKABLE void jogPositivePressed();
@@ -29,7 +38,7 @@ public:
 
     Q_INVOKABLE void setJogVelocity(double v);
     Q_INVOKABLE void setMoveVelocity(double v);
-    
+
     Q_INVOKABLE void stop();
 
     // 系统推进
@@ -38,6 +47,8 @@ public:
 signals:
     void stateChanged();
     void absPosChanged();
+    void limitsChanged();
+    void velocityChanged();
 
 private:
     AxisViewModelCore* m_core;

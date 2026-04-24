@@ -35,6 +35,9 @@ bool AxisViewModelCore::isEnabled() const
 double AxisViewModelCore::jogVelocity() const { return m_axis.getjogVelocity(); }
 double AxisViewModelCore::moveVelocity() const { return m_axis.getMoveVelocity(); }
 
+double AxisViewModelCore::posLimit() const { return m_axis.positiveSoftLimit(); }
+double AxisViewModelCore::negLimit() const { return m_axis.negativeSoftLimit(); }
+
 void AxisViewModelCore::jogPositivePressed() {
     m_jogOrch.startJog(Direction::Forward);
 }
