@@ -100,32 +100,16 @@ Rectangle {
             }
         }
 
-        // 🌟 新增：限位动态位置条 (Position Bar)
+
+        // 🌟 限位动态位置条 (Position Bar)
         ColumnLayout {
             Layout.fillWidth: true
             Layout.topMargin: 20 * Theme.scale
             spacing: 5 * Theme.scale
 
-            // 计算安全的 UI 进度比例
-            function getSafeProgress() {
-                if (!viewModel) return 0.5;
-                let pos = viewModel.absPos;
-                let pLim = viewModel.posLimit;
-                let nLim = viewModel.negLimit;
-                
-                // 如果后端传来的是无穷大默认值，给一个虚拟的 UI 范围用于展示
-                if (pLim > 999999) pLim = 1000.0;
-                if (nLim < -999999) nLim = -1000.0;
-                
-                let range = pLim - nLim;
-                if (range <= 0) return 0.5;
-                
-                let progress = (pos - nLim) / range;
-                return Math.max(0.0, Math.min(1.0, progress)); // 限制在 0~1 之间
-            }
-
-            // 进度条轨道
+            // 进度条轨道 (作为属性计算的宿主)
             Rectangle {
+                id: trackBar
                 Layout.fillWidth: true
                 height: 8 * Theme.scale
                 radius: height / 2
@@ -133,12 +117,24 @@ Rectangle {
                 border.color: Theme.borderMain
                 border.width: 1
 
+                // 🌟 将安全计算直接声明为 readonly property，QML 引擎会自动追踪它们的依赖并实时刷新
+                readonly property double safePos: viewModel ? viewModel.absPos : 0.0
+                readonly property double safePLim: (viewModel && viewModel.posLimit < 999999) ? viewModel.posLimit : 1000.0
+                readonly property double safeNLim: (viewModel && viewModel.negLimit > -999999) ? viewModel.negLimit : -1000.0
+                
+                // 核心进度比例计算 (限制在 0.0 ~ 1.0 之间)
+                readonly property double progressRatio: {
+                    let range = safePLim - safeNLim;
+                    if (range <= 0) return 0.5;
+                    return Math.max(0.0, Math.min(1.0, (safePos - safeNLim) / range));
+                }
+
                 // 填充条
                 Rectangle {
-                    width: parent.width * getSafeProgress()
+                    width: parent.width * parent.progressRatio // 👈 直接使用宿主计算好的比例
                     height: parent.height
                     radius: parent.radius
-                    color: Theme.colorMoving // 蓝色填充
+                    color: Theme.colorMoving 
                     
                     // 加个小动画，让跳动更丝滑
                     Behavior on width {
@@ -148,7 +144,7 @@ Rectangle {
                 
                 // 当前位置指示游标
                 Rectangle {
-                    x: parent.width * getSafeProgress() - width/2
+                    x: parent.width * parent.progressRatio - width / 2 // 👈 直接使用宿主计算好的比例
                     y: -4 * Theme.scale
                     width: 4 * Theme.scale
                     height: 16 * Theme.scale

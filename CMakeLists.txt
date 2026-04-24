@@ -33,6 +33,7 @@ qt_add_qml_module(appservoV6
         presentation/qml/core/Theme.qml
         presentation/qml/components/IndustrialButton.qml
         presentation/qml/components/AxisItemDelegate.qml
+        presentation/qml/components/VelocitySettingsPopup.qml
         presentation/qml/blocks/AxisSelectorBlock.qml
         presentation/qml/blocks/TelemetryBlock.qml
         presentation/qml/blocks/ActionControlBlock.qml

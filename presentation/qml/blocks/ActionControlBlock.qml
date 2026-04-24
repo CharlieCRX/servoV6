@@ -93,17 +93,24 @@ Rectangle {
                 Item { Layout.fillHeight: true } // 顶部弹簧
                 
                 // 🌟 新增：点动速度设定
+                // 🌟 只读展示 + 设置按钮
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
-                    Text { text: "点动速度:"; color: Theme.textDim; font.pixelSize: Theme.fontNormal }
-                    TextField {
-                        id: jogSpeedInput
-                        Layout.preferredWidth: 80 * Theme.scale
-                        text: viewModel ? viewModel.jogVelocity.toString() : "10"
+                    spacing: 10 * Theme.scale
+                    
+                    Text { 
+                        text: "点动速度: " + (viewModel ? viewModel.jogVelocity.toFixed(1) : "0.0") + " mm/s"
                         color: Theme.textMain
-                        background: Rectangle { color: Theme.bgDark; border.color: Theme.borderMain }
-                        validator: DoubleValidator { bottom: 0.1; top: 1000.0 }
-                        onEditingFinished: if(viewModel) viewModel.setJogVelocity(parseFloat(text))
+                        font.pixelSize: Theme.fontNormal
+                        font.family: "Monospace"
+                    }
+                    
+                    IndustrialButton {
+                        text: "⚙️" // 设置图标
+                        buttonSize: 30 * Theme.scale
+                        isCircle: true
+                        baseColor: Theme.panelBg
+                        onClicked: velocityPopup.open() // 👈 点击呼出全局弹窗
                     }
                 }
 
@@ -133,17 +140,24 @@ Rectangle {
                 Item { Layout.fillHeight: true }
                 
                 // 🌟 新增：定位速度设定
+                // 🌟 只读展示 + 设置按钮
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
-                    Text { text: "定位速度:"; color: Theme.textDim; font.pixelSize: Theme.fontNormal }
-                    TextField {
-                        id: moveSpeedInput
-                        Layout.preferredWidth: 80 * Theme.scale
-                        text: viewModel ? viewModel.moveVelocity.toString() : "50"
+                    spacing: 10 * Theme.scale
+                    
+                    Text { 
+                        text: "定位速度: " + (viewModel ? viewModel.moveVelocity.toFixed(1) : "0.0") + " mm/s"
                         color: Theme.textMain
-                        background: Rectangle { color: Theme.bgDark; border.color: Theme.borderMain }
-                        validator: DoubleValidator { bottom: 0.1; top: 1000.0 }
-                        onEditingFinished: if(viewModel) viewModel.setMoveVelocity(parseFloat(text))
+                        font.pixelSize: Theme.fontNormal
+                        font.family: "Monospace"
+                    }
+                    
+                    IndustrialButton {
+                        text: "⚙️"
+                        buttonSize: 30 * Theme.scale
+                        isCircle: true
+                        baseColor: Theme.panelBg
+                        onClicked: velocityPopup.open() // 👈 点击呼出同一个弹窗
                     }
                 }
 
@@ -243,5 +257,10 @@ Rectangle {
             Layout.alignment: Qt.AlignHCenter
             onClicked: if(viewModel) viewModel.stop()
         }
+    }
+
+    VelocitySettingsPopup {
+        id: velocityPopup
+        viewModel: root.viewModel
     }
 }
