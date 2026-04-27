@@ -18,9 +18,24 @@
 #include "application/policy/AutoAbsMoveOrchestrator.h"
 #include "presentation/viewmodel/AxisViewModelCore.h"
 #include "presentation/viewmodel/QtAxisViewModel.h"
+#include "infrastructure/logger/Logger.h"
 
 int main(int argc, char *argv[])
 {
+    // ==========================================
+    // 0. 初始化全局可观测性基础设施 (Logger)
+    // ==========================================
+    LoggerConfig logCfg;
+    logCfg.enableConsole = true;              // 开发阶段打开控制台
+    logCfg.enableFile = false;                 // 开启落盘
+    logCfg.logDirectory = "D:/servoV6_logs";  // 你可以改成任意你想要的绝对或相对路径
+    
+    Logger::init(logCfg);
+
+    LOG_INFO(LogLayer::APP, "System", "========================================");
+    LOG_INFO(LogLayer::APP, "System", "servoV6 Application Starting...");
+    LOG_INFO(LogLayer::APP, "System", "========================================");
+
     QQuickStyle::setStyle("Basic");
     QGuiApplication app(argc, argv);
 
@@ -81,5 +96,9 @@ int main(int argc, char *argv[])
     });
     systemClock.start(10); // 10ms 物理心跳
 
-    return app.exec();
+    int result = app.exec();  
+
+    Logger::shutdown(); // 确保日志系统安全关闭，写完最后的日志
+
+    return result;
 }
