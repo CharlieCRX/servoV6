@@ -46,19 +46,35 @@ double AxisViewModelCore::posLimit() const { return m_axis.positiveSoftLimit(); 
 double AxisViewModelCore::negLimit() const { return m_axis.negativeSoftLimit(); }
 
 void AxisViewModelCore::jogPositivePressed() {
+    std::string traceId = generateTraceId();
+    TraceScope scope("G1", "Y", traceId);
+    LOG_INFO(LogLayer::UI, "AxisVM", "User PRESSED Jog Positive (+)");
+    
     m_jogOrch.startJog(Direction::Forward);
 }
 
 void AxisViewModelCore::jogPositiveReleased() {
+    std::string traceId = generateTraceId();
+    TraceScope scope("G1", "Y", traceId);
+    LOG_INFO(LogLayer::UI, "AxisVM", "User RELEASED Jog Positive (+)");
+
     m_jogOrch.stopJog(Direction::Forward);
 }
 
 void AxisViewModelCore::jogNegativePressed()
 {
+    std::string traceId = generateTraceId();
+    TraceScope scope("G1", "Y", traceId);
+    LOG_INFO(LogLayer::UI, "AxisVM", "User PRESSED Jog Negative (-)");
+
     m_jogOrch.startJog(Direction::Backward);
 }
 
 void AxisViewModelCore::jogNegativeReleased() {
+    std::string traceId = generateTraceId();
+    TraceScope scope("G1", "Y", traceId);
+    LOG_INFO(LogLayer::UI, "AxisVM", "User RELEASED Jog Negative (-)");
+
     m_jogOrch.stopJog(Direction::Backward);
 }
 

@@ -2,6 +2,7 @@
 
 #include "axis/EnableUseCase.h"
 #include "axis/JogAxisUseCase.h"
+#include "infrastructure/logger/Logger.h"
 
 class JogOrchestrator {
 public:
@@ -29,11 +30,16 @@ public:
         m_jogIssued = false;
         m_stopIssued = false;
         m_disableIssued = false;
+
+        m_traceId = TraceScope::current().traceId;
+        std::string dirStr = (dir == Direction::Forward) ? "Forward(+)" : "Backward(-)";
+        LOG_INFO(LogLayer::APP, "JogOrch", "START Jog direction=" + dirStr);
     }
 
     void stopJog(Direction dir) {
         // 方向防误杀 - 校验停止方向与当前运行意图是否一致
         if (dir != m_dir) {
+            LOG_WARN(LogLayer::APP, "JogOrch", "Received stopJog for direction " + std::to_string(static_cast<int>(dir)) + " but current jog direction is " + std::to_string(static_cast<int>(m_dir)) + ". Ignoring stop command.");
             return;
         }
 
@@ -41,12 +47,15 @@ public:
         if (m_step == Step::EnsuringEnabled || 
             m_step == Step::IssuingJog || 
             m_step == Step::Jogging) {
-            m_step = Step::IssuingStop;
+                LOG_INFO(LogLayer::APP, "JogOrch", "Stop Jog Requested by UI");
+                m_step = Step::IssuingStop;
         }
     }
 
     // 最小化实现的 update
     void update(Axis& axis) {
+        TraceScope scope("G1", "Y", m_traceId);
+
         // ⭐ 全局最高优先级：硬件/状态错误拦截 (满足 Test 1)
         if (axis.state() == AxisState::Error) {
             m_step = Step::Error;
@@ -63,6 +72,7 @@ public:
                 } 
 
                 if (axis.state() == AxisState::Idle) {
+                    LOG_DEBUG(LogLayer::APP, "JogOrch", "Step: EnsuringEnabled -> IssuingJog");
                     m_step = Step::IssuingJog;
                     break;
                 }
@@ -79,10 +89,12 @@ public:
                 m_rejectionReason = m_jogUc.execute(axis, m_dir);
                 
                 if (m_rejectionReason == RejectionReason::None) {
+                    LOG_DEBUG(LogLayer::APP, "JogOrch", "Step: IssuingJog -> Jogging");
                     // 成功下发，流转到 Jogging
                     m_jogIssued = true;
                     m_step = Step::Jogging;
                 } else {
+                    LOG_ERROR(LogLayer::APP, "JogOrch", "Jog start rejected by Domain");
                     // 失败熔断（如被限位拦截） -> 安全掉电 + 报错
                     m_enableUc.execute(axis, false);
                     m_step = Step::Error;
@@ -92,6 +104,7 @@ public:
             case Step::Jogging:
                 // 监控异常跌落场景：如果轴意外从 Jogging 跌落到 Idle，必须主动切入 IssuingStop
                 if (axis.state() == AxisState::Idle && !axis.hasPendingCommand()) {
+                    LOG_ERROR(LogLayer::APP, "JogOrch", "Axis unexpectedly stopped during Jog! Forcing stop sequence.Step: Jogging -> IssuingStop");
                     m_step = Step::IssuingStop; // 主动接管，切入停止收尾流程
                 }
                 break;
@@ -103,6 +116,7 @@ public:
                     m_stopIssued = true;
                 }
                 // 无论是否刚刚发完指令，只要进入此阶段，立刻推进到等待停止
+                LOG_DEBUG(LogLayer::APP, "JogOrch", "Step: IssuingStop -> WaitingForIdle");
                 m_step = Step::WaitingForIdle;
                 break;
 
@@ -111,6 +125,7 @@ public:
                 // 只要状态不是 Idle，这里什么都不做（阻塞等待，不发指令）
                 // 一旦发现底层完全停稳（变为 Idle），立刻推进到断电阶段
                 if (axis.state() == AxisState::Idle) {
+                    LOG_DEBUG(LogLayer::APP, "JogOrch", "Step: WaitingForIdle -> EnsuringDisabled");
                     m_step = Step::EnsuringDisabled;
                 }
                 break;
@@ -124,6 +139,7 @@ public:
                 
                 // 阻塞等待，直到彻底掉电，撞线 Done
                 if (axis.state() == AxisState::Disabled) {
+                    LOG_SUMMARY(LogLayer::APP, "JogOrch", "Jog Operation -> SUCCESS (Safely Stopped)");
                     m_step = Step::Done;
                 }
                 break;
@@ -158,4 +174,6 @@ private:
     bool m_jogIssued = false;
     bool m_stopIssued = false;
     bool m_disableIssued = false;
+
+    std::string m_traceId = "N/A";
 };

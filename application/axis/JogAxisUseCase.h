@@ -1,5 +1,6 @@
 #pragma once
 #include "axis/IAxisDriver.h"
+#include "infrastructure/logger/Logger.h"
 
 class JogAxisUseCase {
 public:
@@ -12,6 +13,7 @@ public:
     RejectionReason execute(Axis& axis, Direction dir) {
         // 1. 调用领域规则，尝试产生点动意图
         if (!axis.jog(dir)) {
+            LOG_WARN(LogLayer::APP, "JogUC", "Jog Start rejected. Reason: " + std::to_string(static_cast<int>(axis.lastRejection())));
             return axis.lastRejection();
         }
 
