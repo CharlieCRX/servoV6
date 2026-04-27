@@ -4,6 +4,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QQuickStyle>
+#include <QStandardPaths>
 
 // 引入你所有的架构头文件
 #include "domain/entity/Axis.h"
@@ -22,22 +23,40 @@
 
 int main(int argc, char *argv[])
 {
+    QGuiApplication app(argc, argv);
     // ==========================================
     // 0. 初始化全局可观测性基础设施 (Logger)
     // ==========================================
     LoggerConfig logCfg;
-    logCfg.enableConsole = true;              // 开发阶段打开控制台
-    logCfg.enableFile = false;                 // 开启落盘
-    logCfg.logDirectory = "D:/servoV6_logs";  // 你可以改成任意你想要的绝对或相对路径
+    logCfg.enableConsole = true; 
+    logCfg.enableFile = true;    
+
+    QString logBasePath;
+    // 🌟 跨平台目录路由策略：只负责确定基础路径
+#ifdef Q_OS_ANDROID
+    logBasePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (logBasePath.isEmpty()) {
+        logBasePath = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    }
+#else
+    // PC 端直接获取 exe 目录
+    logBasePath = QCoreApplication::applicationDirPath();
+#endif
+
+    // 🌟 统一拼接并赋值，确保全平台逻辑一致
+    // 这样 PC 端会得到 "F:/.../build/logs"，Android 会得到 "/data/user/0/.../logs"
+    logCfg.logDirectory = QString("%1/logs").arg(logBasePath).toStdString();
     
+    // 初始化日志系统
     Logger::init(logCfg);
 
     LOG_INFO(LogLayer::APP, "System", "========================================");
     LOG_INFO(LogLayer::APP, "System", "servoV6 Application Starting...");
+    LOG_INFO(LogLayer::APP, "System", "Log Directory: " + logCfg.logDirectory); // 把路径打印出来，方便调试找文件
     LOG_INFO(LogLayer::APP, "System", "========================================");
 
     QQuickStyle::setStyle("Basic");
-    QGuiApplication app(argc, argv);
+
 
     // ==========================================
     // 1. 实例化底层物理与业务逻辑 (Composition Root)
