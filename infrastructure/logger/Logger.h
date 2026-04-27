@@ -65,3 +65,5 @@ private:
         } \
     } while(0)
 
+
+#define LOG_TRACE(layer, module, msg) Logger::log(LogLevel::TRACE, layer, module, msg)

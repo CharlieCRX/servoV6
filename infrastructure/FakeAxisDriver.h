@@ -3,6 +3,7 @@
 
 #include "../application/axis/IAxisDriver.h"
 #include "FakePLC.h"
+#include "infrastructure/logger/Logger.h" // 🌟 引入日志系统
 
 class FakeAxisDriver : public IAxisDriver {
 public:
@@ -10,6 +11,7 @@ public:
 
     // 实现接口：将 Axis 产生的意图，无情地砸向 FakePLC
     void send(const AxisCommand& cmd) override {
+        LOG_TRACE(LogLayer::HAL, "Driver", "Sending command to PLC");
         m_plc.onCommand(cmd);
     }
 

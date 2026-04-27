@@ -2,6 +2,7 @@
 #define FAKE_PLC_H
 
 #include "../domain/entity/Axis.h"
+#include "infrastructure/logger/Logger.h"
 #include <cmath>
 #include <algorithm>
 
@@ -19,22 +20,18 @@ public:
 
     // 由外部时钟驱动的物理引擎心跳
     void tick(int ms) {
-        // 0. 处理上一周期的刹车请求
+        // 🌟 核心规范：高频物理心跳采样，每 50 帧（模拟 500ms）打印一次
+        LOG_TRACE_EVERY_N(50, LogLayer::HAL, "PLC", "Tick pos=" + std::to_string(m_feedback.absPos));
+
         if (m_stop_requested) {
             m_feedback.state = AxisState::Idle;
             m_stop_requested = false;
         }
 
-        // 1. 处理异步状态迁移 (如上电延迟)
         updateStateTransitions(ms);
-
-        // 2. 处理物理坐标的连续更新
         updateKinematics(ms);
-
-        // 3. 处理硬件限位强拦截
         checkHardwareLimits();
 
-        // 4. 更新动态相对坐标
         m_feedback.relPos = m_feedback.absPos - m_feedback.relZeroAbsPos;
     }
 
@@ -179,19 +176,25 @@ private:
     }
 
     void checkHardwareLimits() {
-        // 正软限位拦截
         if (m_feedback.absPos >= m_feedback.posLimitValue) {
+            if (!m_feedback.posLimit) {
+                // 🌟 核心规范：边缘触发时记录硬件报警 (WARN / ERROR)
+                LOG_ERROR(LogLayer::HAL, "PLC", "LIMIT TRIGGERED at Positive Soft Limit: " + std::to_string(m_feedback.posLimitValue));
+            }
             m_feedback.posLimit = true;
-            m_feedback.absPos = m_feedback.posLimitValue; // 截断坐标
+            m_feedback.absPos = m_feedback.posLimitValue; 
             forceStopIfMoving();
         } else {
             m_feedback.posLimit = false;
         }
 
-        // 负软限位拦截
         if (m_feedback.absPos <= m_feedback.negLimitValue) {
+            if (!m_feedback.negLimit) {
+                // 🌟 核心规范：边缘触发时记录硬件报警
+                LOG_ERROR(LogLayer::HAL, "PLC", "LIMIT TRIGGERED at Negative Soft Limit: " + std::to_string(m_feedback.negLimitValue));
+            }
             m_feedback.negLimit = true;
-            m_feedback.absPos = m_feedback.negLimitValue; // 截断坐标
+            m_feedback.absPos = m_feedback.negLimitValue; 
             forceStopIfMoving();
         } else {
             m_feedback.negLimit = false;

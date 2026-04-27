@@ -86,7 +86,8 @@ public:
           if (!m_motionObserved) {
               // ⭐ 判定条件：MovingRelative 或 位置变化
               if (axis.state() == AxisState::MovingRelative ||
-                  std::abs(pos - m_startPos) > m_epsilon) {
+                  std::abs(pos - m_startPos) > m_epsilon ||
+                  axis.isMoveCompleted()) {
                   m_motionObserved = true;
                   m_step = Step::WaitingMotionFinish;
               }

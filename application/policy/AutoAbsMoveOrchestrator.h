@@ -59,20 +59,25 @@ public:
             m_rejectionReason = moveUc.execute(axis, m_target);
             if (m_rejectionReason == RejectionReason::None) {
                 startPos = axis.currentAbsolutePosition();
+                // 🌟 增加状态流转日志
+                LOG_DEBUG(LogLayer::APP, "AbsOrch", "Step: IssuingMove -> WaitingMotionStart");
                 m_step = Step::WaitingMotionStart;
             } else {
+                // 🌟 增加动作失败时的错误拦截日志
+                LOG_ERROR(LogLayer::APP, "AbsOrch", "Move command rejected by UseCase/Domain");
                 enableUc.execute(axis, false);
                 m_step = Step::Error;
             }
             break;
 
         case Step::WaitingMotionStart:
-
-            // ⭐ 修正点：用“位置变化 OR Moving”
             if (axis.state() == AxisState::MovingAbsolute ||
-                std::abs(pos - startPos) > epsilon) {
+                std::abs(pos - startPos) > epsilon ||
+                axis.isMoveCompleted()) {
 
                 m_motionObserved = true;
+                // 🌟 增加状态流转日志
+                LOG_DEBUG(LogLayer::APP, "AbsOrch", "Step: WaitingMotionStart -> WaitingMotionFinish");
                 m_step = Step::WaitingMotionFinish;
             }
             break;
