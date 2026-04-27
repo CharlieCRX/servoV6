@@ -1,5 +1,5 @@
 #pragma once
-#include "application/axis/IAxisDriver.h"
+#include "axis/IAxisDriver.h"
 class EnableUseCase {
 public:
     explicit EnableUseCase(IAxisDriver& driver) : driver_(driver) {}

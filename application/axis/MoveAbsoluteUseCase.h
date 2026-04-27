@@ -1,5 +1,5 @@
 #pragma once
-#include "application/axis/IAxisDriver.h"
+#include "axis/IAxisDriver.h"
 
 /**
  * @brief 绝对定位执行案例（纯净动作层）

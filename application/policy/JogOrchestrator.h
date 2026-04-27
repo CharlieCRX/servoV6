@@ -1,7 +1,7 @@
 #pragma once
 
-#include "application/axis/EnableUseCase.h"
-#include "application/axis/JogAxisUseCase.h"
+#include "axis/EnableUseCase.h"
+#include "axis/JogAxisUseCase.h"
 
 class JogOrchestrator {
 public:
