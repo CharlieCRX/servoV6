@@ -4,6 +4,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QQuickStyle>
+#include <QStandardPaths>
 
 // 引入你所有的架构头文件
 #include "domain/entity/Axis.h"
@@ -18,11 +19,44 @@
 #include "application/policy/AutoAbsMoveOrchestrator.h"
 #include "presentation/viewmodel/AxisViewModelCore.h"
 #include "presentation/viewmodel/QtAxisViewModel.h"
+#include "infrastructure/logger/Logger.h"
 
 int main(int argc, char *argv[])
 {
-    QQuickStyle::setStyle("Basic");
     QGuiApplication app(argc, argv);
+    // ==========================================
+    // 0. 初始化全局可观测性基础设施 (Logger)
+    // ==========================================
+    LoggerConfig logCfg;
+    logCfg.enableConsole = true; 
+    logCfg.enableFile = true;    
+
+    QString logBasePath;
+    // 🌟 跨平台目录路由策略：只负责确定基础路径
+#ifdef Q_OS_ANDROID
+    logBasePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (logBasePath.isEmpty()) {
+        logBasePath = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    }
+#else
+    // PC 端直接获取 exe 目录
+    logBasePath = QCoreApplication::applicationDirPath();
+#endif
+
+    // 🌟 统一拼接并赋值，确保全平台逻辑一致
+    // 这样 PC 端会得到 "F:/.../build/logs"，Android 会得到 "/data/user/0/.../logs"
+    logCfg.logDirectory = QString("%1/logs").arg(logBasePath).toStdString();
+    
+    // 初始化日志系统
+    Logger::init(logCfg);
+
+    LOG_INFO(LogLayer::APP, "System", "========================================");
+    LOG_INFO(LogLayer::APP, "System", "servoV6 Application Starting...");
+    LOG_INFO(LogLayer::APP, "System", "Log Directory: " + logCfg.logDirectory); // 把路径打印出来，方便调试找文件
+    LOG_INFO(LogLayer::APP, "System", "========================================");
+
+    QQuickStyle::setStyle("Basic");
+
 
     // ==========================================
     // 1. 实例化底层物理与业务逻辑 (Composition Root)
@@ -81,5 +115,9 @@ int main(int argc, char *argv[])
     });
     systemClock.start(10); // 10ms 物理心跳
 
-    return app.exec();
+    int result = app.exec();  
+
+    Logger::shutdown(); // 确保日志系统安全关闭，写完最后的日志
+
+    return result;
 }

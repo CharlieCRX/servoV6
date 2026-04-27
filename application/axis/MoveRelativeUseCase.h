@@ -1,5 +1,6 @@
 #pragma once
 #include "axis/IAxisDriver.h"
+#include "infrastructure/logger/Logger.h" // 🌟 引入日志系统
 
 /**
  * @brief 相对位置移动执行案例（纯净动作层）
@@ -18,6 +19,8 @@ public:
         // 1. 调用领域规则，尝试产生相对定位意图
         // Axis 内部会负责：当前状态检查、终点坐标计算及软限位预检
         if (!axis.moveRelative(distance)) {
+            // 🌟 记录业务层面的拒绝
+            LOG_WARN(LogLayer::APP, "MoveRelUC", "MoveRelative rejected. Reason code: " + std::to_string(static_cast<int>(axis.lastRejection())));
             return axis.lastRejection();
         }
 

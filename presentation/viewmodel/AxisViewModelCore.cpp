@@ -1,4 +1,11 @@
 #include "AxisViewModelCore.h"
+#include "infrastructure/logger/Logger.h"
+#include <random> // 用于生成伪UUID作为TraceId
+
+// 假设这是一个简单的 UUID 生成器
+std::string generateTraceId() {
+    return "T-" + std::to_string(rand() % 10000); 
+}
 
 AxisViewModelCore::AxisViewModelCore(Axis& axis, 
                                      JogOrchestrator& jogOrch, 
@@ -39,29 +46,60 @@ double AxisViewModelCore::posLimit() const { return m_axis.positiveSoftLimit(); 
 double AxisViewModelCore::negLimit() const { return m_axis.negativeSoftLimit(); }
 
 void AxisViewModelCore::jogPositivePressed() {
+    std::string traceId = generateTraceId();
+    TraceScope scope("G1", "Y", traceId);
+    LOG_INFO(LogLayer::UI, "AxisVM", "User PRESSED Jog Positive (+)");
+    
     m_jogOrch.startJog(Direction::Forward);
 }
 
 void AxisViewModelCore::jogPositiveReleased() {
+    std::string traceId = generateTraceId();
+    TraceScope scope("G1", "Y", traceId);
+    LOG_INFO(LogLayer::UI, "AxisVM", "User RELEASED Jog Positive (+)");
+
     m_jogOrch.stopJog(Direction::Forward);
 }
 
 void AxisViewModelCore::jogNegativePressed()
 {
+    std::string traceId = generateTraceId();
+    TraceScope scope("G1", "Y", traceId);
+    LOG_INFO(LogLayer::UI, "AxisVM", "User PRESSED Jog Negative (-)");
+
     m_jogOrch.startJog(Direction::Backward);
 }
 
 void AxisViewModelCore::jogNegativeReleased() {
+    std::string traceId = generateTraceId();
+    TraceScope scope("G1", "Y", traceId);
+    LOG_INFO(LogLayer::UI, "AxisVM", "User RELEASED Jog Negative (-)");
+
     m_jogOrch.stopJog(Direction::Backward);
 }
 
 void AxisViewModelCore::moveAbsolute(double targetPos)
 {
+    // 🌟 1. 创立操作生命周期上下文！
+    // 只要离开这个函数作用域，TraceScope 自动销毁，极度安全
+    std::string traceId = generateTraceId();
+    TraceScope scope("G1", "Y", traceId); 
+
+    LOG_INFO(LogLayer::UI, "AxisVM", "User requested MoveAbsolute to " + std::to_string(targetPos));
+
+    // 2. 正常调用业务层 (不需要改 start 的参数)
     m_absOrch.start(targetPos);
 }
 
 void AxisViewModelCore::moveRelative(double distance)
 {
+    // 🌟 1. 创立操作生命周期上下文！
+    std::string traceId = generateTraceId();
+    TraceScope scope("G1", "Y", traceId); 
+
+    LOG_INFO(LogLayer::UI, "AxisVM", "User requested MoveRelative distance=" + std::to_string(distance));
+
+    // 2. 发起相对运动
     m_relOrch.start(distance);
 }
 

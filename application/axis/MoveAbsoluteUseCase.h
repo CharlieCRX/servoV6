@@ -1,5 +1,6 @@
 #pragma once
 #include "axis/IAxisDriver.h"
+#include "infrastructure/logger/Logger.h"
 
 /**
  * @brief 绝对定位执行案例（纯净动作层）
@@ -19,6 +20,7 @@ public:
         // 1. 调用领域层规则，判定该移动请求是否合法
         if (!axis.moveAbsolute(target)) {
             // 2. 拒绝：直接返回领域层的拦截原因，不执行任何自愈逻辑
+            LOG_WARN(LogLayer::APP, "MoveAbsUC", "Move rejected. Reason code: " + std::to_string(static_cast<int>(axis.lastRejection())));
             return axis.lastRejection();
         }
 
