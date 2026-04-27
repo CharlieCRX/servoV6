@@ -1,6 +1,7 @@
 #pragma once
 #include "axis/EnableUseCase.h"
 #include "axis/MoveAbsoluteUseCase.h"
+#include "infrastructure/logger/Logger.h"
 #include <cmath>
 
 class AutoAbsMoveOrchestrator {
@@ -22,6 +23,9 @@ public:
         m_target = target;
         m_step = Step::EnsuringEnabled;
         m_motionObserved = false;
+
+        m_traceId = TraceScope::current().traceId;
+        LOG_INFO(LogLayer::APP, "AbsOrch", "START MoveAbsolute target=" + std::to_string(target));
     }
 
     void update(Axis& axis)
@@ -33,6 +37,7 @@ public:
         }
         double pos = axis.currentAbsolutePosition();
 
+        TraceScope scope("G1", "Y", m_traceId);
         switch (m_step)
         {
         case Step::EnsuringEnabled:
@@ -44,6 +49,7 @@ public:
         
             if (axis.state() == AxisState::Idle) {
                 m_step = Step::IssuingMove;
+                LOG_DEBUG(LogLayer::APP, "AbsOrch", "Step: EnsuringEnabled -> IssuingMove");
                 break;
             }
         
@@ -83,11 +89,13 @@ public:
                 if (std::abs(currentPos - m_target) < epsilon) {
                     // 只有物理到位，才是真正的 Done
                     enableUc.execute(axis, false);
+                    LOG_SUMMARY(LogLayer::APP, "AbsOrch", "MoveAbsolute(" + std::to_string(m_target) + ") -> SUCCESS");
                     m_step = Step::Done;
                 } else {
                     // 意图消失了但物理没到位 -> 说明是被半路截杀了（如急停）
                     enableUc.execute(axis, false);
                     m_rejectionReason = RejectionReason::InvalidState; // 记录为非法中止
+                    LOG_SUMMARY(LogLayer::APP, "AbsOrch", "MoveAbsolute(" + std::to_string(m_target) + ") -> ABORTED (Target not reached)");
                     m_step = Step::Error; 
                 }
             }
@@ -115,4 +123,6 @@ private:
 
 
     RejectionReason m_rejectionReason = RejectionReason::None;
+
+    std::string m_traceId = "N/A";
 };

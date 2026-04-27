@@ -1,4 +1,11 @@
 #include "AxisViewModelCore.h"
+#include "infrastructure/logger/Logger.h"
+#include <random> // 用于生成伪UUID作为TraceId
+
+// 假设这是一个简单的 UUID 生成器
+std::string generateTraceId() {
+    return "T-" + std::to_string(rand() % 10000); 
+}
 
 AxisViewModelCore::AxisViewModelCore(Axis& axis, 
                                      JogOrchestrator& jogOrch, 
@@ -57,6 +64,14 @@ void AxisViewModelCore::jogNegativeReleased() {
 
 void AxisViewModelCore::moveAbsolute(double targetPos)
 {
+    // 🌟 1. 创立操作生命周期上下文！
+    // 只要离开这个函数作用域，TraceScope 自动销毁，极度安全
+    std::string traceId = generateTraceId();
+    TraceScope scope("G1", "Y", traceId); 
+
+    LOG_INFO(LogLayer::UI, "AxisVM", "User requested MoveAbsolute to " + std::to_string(targetPos));
+
+    // 2. 正常调用业务层 (不需要改 start 的参数)
     m_absOrch.start(targetPos);
 }
 
