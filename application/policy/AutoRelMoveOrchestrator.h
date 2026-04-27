@@ -3,6 +3,7 @@
 
 #include "axis/EnableUseCase.h"
 #include "axis/MoveRelativeUseCase.h"
+#include <cmath>
 
 class AutoRelMoveOrchestrator {
 public:
@@ -26,12 +27,17 @@ public:
         m_moveIssued = false;       // ⭐ 重置幂等标志
         m_motionObserved = false;   // ⭐ 重置运动观测
         m_startPos = 0.0;           // ⭐ 重置起点
+
+        m_traceId = TraceScope::current().traceId;
+        LOG_INFO(LogLayer::APP, "RelOrch", "START MoveRelative distance=" + std::to_string(distance));
     }
 
     void update(Axis& axis)
     {
+        TraceScope scope("G1", "Y", m_traceId);
         // ⭐ 全局错误拦截（最高优先级）
         if (axis.state() == AxisState::Error) {
+            LOG_ERROR(LogLayer::APP, "RelOrch", "Axis entered Error state globally!");
             m_step = Step::Error;
             return;
         }
@@ -50,6 +56,7 @@ public:
 
             // 2. Idle → 进入下一阶段（但不发 Move）
             if (axis.state() == AxisState::Idle) {
+                LOG_DEBUG(LogLayer::APP, "RelOrch", "Step: EnsuringEnabled -> IssuingMove");
                 m_step = Step::IssuingMove;
                 break;
             }
@@ -69,12 +76,14 @@ public:
             if (m_rejectionReason == RejectionReason::None) {
                 // ⭐ 记录起点（用于后续阶段）
                 m_startPos = axis.currentAbsolutePosition();
+                LOG_DEBUG(LogLayer::APP, "RelOrch", "Step: IssuingMove -> WaitingMotionStart");
 
                 m_moveIssued = true;
                 m_step = Step::WaitingMotionStart;
             }
             else {
                 // ⭐ Move 被拒绝 → 立即掉电 + Error
+                LOG_ERROR(LogLayer::APP, "RelOrch", "Move command rejected by UseCase/Domain");
                 enableUc.execute(axis, false);
                 m_step = Step::Error;
             }
@@ -89,6 +98,7 @@ public:
                   std::abs(pos - m_startPos) > m_epsilon ||
                   axis.isMoveCompleted()) {
                   m_motionObserved = true;
+                  LOG_DEBUG(LogLayer::APP, "RelOrch", "Step: WaitingMotionStart -> WaitingMotionFinish");
                   m_step = Step::WaitingMotionFinish;
               }
           }
@@ -107,11 +117,13 @@ public:
                 if (std::abs(currentPos - (m_startPos + m_distance)) < m_epsilon) {
                     // 只有物理到位，才是真正的 Done
                     enableUc.execute(axis, false);
+                    LOG_SUMMARY(LogLayer::APP, "RelOrch", "MoveRelative(" + std::to_string(m_distance) + ") -> SUCCESS");
                     m_step = Step::Done;
                 } else {
                     // 物理没到位，说明可能被外力打断了，视为失败
                     enableUc.execute(axis, false);
                     m_rejectionReason = RejectionReason::InvalidState; //todo: 可以考虑更细化的拒绝原因，如 InterruptedByExternalForce
+                    LOG_SUMMARY(LogLayer::APP, "RelOrch", "MoveRelative(" + std::to_string(m_distance) + ") -> ABORTED (Target not reached)");
                     m_step = Step::Error;
                 }
           }
@@ -142,6 +154,8 @@ private:
     const double m_epsilon = 0.01;
 
     RejectionReason m_rejectionReason = RejectionReason::None;
+
+    std::string m_traceId = "N/A";
 };
 
 #endif // AUTO_REL_MOVE_ORCHESTRATOR_H

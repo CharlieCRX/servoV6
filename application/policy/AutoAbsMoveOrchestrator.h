@@ -30,14 +30,15 @@ public:
 
     void update(Axis& axis)
     {
+        TraceScope scope("G1", "Y", m_traceId);
         // ⭐ 全局错误拦截（最高优先级）
         if (axis.state() == AxisState::Error) {
+            LOG_ERROR(LogLayer::APP, "AbsOrch", "Axis entered Error state globally!");
             m_step = Step::Error;
             return;
         }
         double pos = axis.currentAbsolutePosition();
 
-        TraceScope scope("G1", "Y", m_traceId);
         switch (m_step)
         {
         case Step::EnsuringEnabled:

@@ -77,6 +77,13 @@ void AxisViewModelCore::moveAbsolute(double targetPos)
 
 void AxisViewModelCore::moveRelative(double distance)
 {
+    // 🌟 1. 创立操作生命周期上下文！
+    std::string traceId = generateTraceId();
+    TraceScope scope("G1", "Y", traceId); 
+
+    LOG_INFO(LogLayer::UI, "AxisVM", "User requested MoveRelative distance=" + std::to_string(distance));
+
+    // 2. 发起相对运动
     m_relOrch.start(distance);
 }
 
