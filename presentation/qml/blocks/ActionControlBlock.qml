@@ -2,8 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import servoV6
-import "qrc:/servoV6/presentation/qml/components" 
-
 Rectangle {
     id: root
     property var viewModel: null

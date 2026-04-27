@@ -28,6 +28,7 @@ set_source_files_properties(presentation/qml/core/Theme.qml PROPERTIES QT_QML_SI
 
 qt_add_qml_module(appservoV6
     URI servoV6
+    RESOURCE_PREFIX "/qt/qml"
     QML_FILES
         Main.qml
         presentation/qml/core/Theme.qml

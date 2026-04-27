@@ -2,8 +2,6 @@ import QtQuick
 import QtQuick.Window
 import QtQuick.Layouts
 import servoV6
-import "presentation/qml/components"
-import "presentation/qml/blocks" // 引入 blocks 目录
 
 Window {
     width: 1280
