@@ -4,39 +4,46 @@ import QtQuick.Layouts
 import servoV6
 
 Window {
+    id: mainWindow
     width: 1280
     height: 720
     visible: true
     title: qsTr("servoV6 - UI Integration Test")
     color: Theme.bgDark
 
-    // 使用 Layout 进行响应式布局，方便后续横向排版
+    // 🌟 核心：判定当前是否为小屏幕（移动端环境）
+    readonly property bool isMobile: mainWindow.width < 900
+
+    // 🌟 核心：根据屏幕尺寸动态计算边距和间距
+    readonly property int dynamicMargin: isMobile ? 10 * Theme.scale : 40 * Theme.scale
+    readonly property int dynamicSpacing: isMobile ? 10 * Theme.scale : 40 * Theme.scale
+
     RowLayout {
         anchors.fill: parent
-        anchors.margins: 40 * Theme.scale
-        spacing: 40 * Theme.scale
+        anchors.margins: dynamicMargin
+        spacing: dynamicSpacing
 
-        // 🌟 1. 左侧：轴选择与状态概览
+        // 1. 左侧：轴选择与状态概览
         AxisSelectorBlock {
-            Layout.preferredWidth: 260 * Theme.scale // 稍微加宽一点
+            // 小屏幕时适当压窄
+            Layout.preferredWidth: isMobile ? 180 * Theme.scale : 260 * Theme.scale 
             Layout.fillHeight: true
             onAxisChanged: (name) => {
                 console.log("切换到轴:", name)
-                // 这里以后可以根据 name 切换不同的 ViewModel 实例
             }
         }
 
-        // 🌟 挂载中央遥测看板
+        // 2. 中央遥测看板
         TelemetryBlock {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            // 核心操作：把 C++ 的 axisX1VM 注入到看板里
             viewModel: axisX1VM 
         }
 
-        // 🌟 右侧多功能控制面板
+        // 3. 右侧多功能控制面板
         ActionControlBlock {
-            Layout.preferredWidth: 300 * Theme.scale
+            // 小屏幕时适当压窄
+            Layout.preferredWidth: isMobile ? 220 * Theme.scale : 300 * Theme.scale
             Layout.fillHeight: true
             viewModel: axisX1VM
         }

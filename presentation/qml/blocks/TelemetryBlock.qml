@@ -90,13 +90,18 @@ Rectangle {
             }
 
             Text {
-                // 如果 viewModel 存在，显示三位小数；否则显示 0.000
                 text: viewModel ? viewModel.absPos.toFixed(3) : "0.000"
                 color: Theme.textMain
-                font.pixelSize: Theme.fontGiant * 1.5 // 极其巨大的字体
-                font.family: "Monospace" // 使用等宽字体，数字跳动时界面不会左右抖动
+                font.pixelSize: Theme.fontGiant * 1.5 
+                font.family: "Monospace" 
                 font.bold: true
-                Layout.alignment: Qt.AlignHCenter
+                
+                // 🌟 核心修复：允许文字在容器不够时自动缩小
+                fontSizeMode: Text.Fit
+                minimumPixelSize: Theme.fontNormal
+                Layout.fillWidth: true
+                Layout.maximumWidth: parent.width // 限制最大宽度防止撑爆
+                horizontalAlignment: Text.AlignHCenter
             }
         }
 
