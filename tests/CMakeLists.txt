@@ -1,6 +1,7 @@
 include(GoogleTest)
 
 add_executable(unit_tests
+    application/test_move_relative_usecase.cpp
     application/test_move_absolute_usecase.cpp
     application/test_axis_repository.cpp
     # presentation/viewmodel/test_axis_viewmodel_core.cpp
@@ -11,7 +12,6 @@ add_executable(unit_tests
 
     domain/test_axis.cpp
     # application/test_jog_usecase.cpp
-    # application/test_move_relative_usecase.cpp
     # application/test_enable_usecase.cpp
     # application/test_stop_usecase.cpp
 
