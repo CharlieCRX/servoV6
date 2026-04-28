@@ -2,6 +2,9 @@ include(GoogleTest)
 
 add_executable(unit_tests
 
+#   application/policy/test_auto_rel_move_orchestrator.cpp
+    application/policy/test_auto_abs_move_orchestrator.cpp
+
     application/test_enable_usecase.cpp
     application/test_stop_usecase.cpp
     application/test_jog_usecase.cpp
@@ -11,8 +14,6 @@ add_executable(unit_tests
     # presentation/viewmodel/test_axis_viewmodel_core.cpp
 
     # application/policy/test_jog_orchestrator.cpp
-    # application/policy/test_auto_rel_move_orchestrator.cpp
-    # application/policy/test_auto_abs_move_orchestrator.cpp
 
     domain/test_axis.cpp
 
@@ -28,6 +29,7 @@ target_include_directories(unit_tests
 target_link_libraries(unit_tests
     PRIVATE
         domain
+        application
         # presentation
         GTest::gtest
         GTest::gtest_main
