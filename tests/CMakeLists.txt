@@ -1,6 +1,8 @@
 include(GoogleTest)
 
 add_executable(unit_tests
+
+    application/test_enable_usecase.cpp
     application/test_stop_usecase.cpp
     application/test_jog_usecase.cpp
     application/test_move_relative_usecase.cpp
@@ -13,7 +15,6 @@ add_executable(unit_tests
     # application/policy/test_auto_abs_move_orchestrator.cpp
 
     domain/test_axis.cpp
-    # application/test_enable_usecase.cpp
 
     # infrastructure/test_fake_plc.cpp
     # infrastructure/test_system_integration.cpp
