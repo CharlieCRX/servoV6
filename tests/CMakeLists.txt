@@ -2,7 +2,7 @@ include(GoogleTest)
 
 add_executable(unit_tests
 
-#   application/policy/test_auto_rel_move_orchestrator.cpp
+    application/policy/test_auto_rel_move_orchestrator.cpp
     application/policy/test_auto_abs_move_orchestrator.cpp
 
     application/test_enable_usecase.cpp
