@@ -1,6 +1,7 @@
 include(GoogleTest)
 
 add_executable(unit_tests
+    application/test_axis_repository.cpp
     presentation/viewmodel/test_axis_viewmodel_core.cpp
 
     application/policy/test_jog_orchestrator.cpp

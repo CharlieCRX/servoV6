@@ -3,12 +3,16 @@ project(servoV6)
 
 set(CMAKE_CXX_STANDARD 20)
 
-# Qt
-find_package(Qt6 REQUIRED COMPONENTS Quick QuickControls2)
+# ==========================================
+# 1. 先引入 Qt 环境 (务必加上 Qml)
+# ==========================================
+find_package(Qt6 REQUIRED COMPONENTS Qml Quick QuickControls2)
 
+# ==========================================
+# 2. 初始化 Qt 标准工程策略
+# ==========================================
 qt_standard_project_setup()
-
-
+qt_policy(SET QTP0004 OLD)
 enable_testing()
 
 # 子模块
@@ -42,7 +46,8 @@ qt_add_qml_module(appservoV6
 )
 
 target_link_libraries(appservoV6
-    PRIVATE 
+    PRIVATE
+        Qt6::Qml
         Qt6::Quick
         Qt6::QuickControls2
     PUBLIC
