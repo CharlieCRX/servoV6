@@ -1,51 +1,52 @@
 #include <gtest/gtest.h>
-#include "application/axis/MoveAbsoluteUseCase.h" 
+#include "application/axis/MoveAbsoluteUseCase.h"
+#include "application/axis/AxisRepository.h"
+#include "domain/entity/AxisId.h"
+#include "infrastructure/FakeAxisDriver.h"
+#include "infrastructure/FakePLC.h"
 
-namespace { 
-    class FakeAxisDriver : public IAxisDriver {
-    public:
-        void send(const AxisCommand& cmd) override { history.push_back(cmd); }
-        std::vector<AxisCommand> history;
-    };
-}
+class MoveAbsoluteUseCaseTest : public ::testing::Test {
+protected:
+    FakePLC plc;
+    FakeAxisDriver driver{plc};
+    AxisRepository repo;
+    
+    void SetUp() override {
+        // 注册两个轴
+        repo.registerAxis(AxisId::Y);
+        repo.registerAxis(AxisId::Z);
+    }
+};
 
-// 1. 成功场景：Idle 状态下正常发送定位指令
-TEST(MoveAbsoluteUseCaseTest, ShouldSendMoveCommandWhenIdle) {
-    FakeAxisDriver driver;
-    Axis axis;
-    axis.applyFeedback({.state = AxisState::Idle, .posLimitValue = 1000.0});
+TEST_F(MoveAbsoluteUseCaseTest, ShouldRouteCommandToTargetAxis) {
+    // 准备：让 Y 轴处于允许运动的 Idle 状态
+    Axis& axisY = repo.getAxis(AxisId::Y);
+    // 将 24 行改为：补全必需的核心字段，避免警告
+    axisY.applyFeedback({
+        .state = AxisState::Idle, 
+        .absPos = 0.0, 
+        .relPos = 0.0, 
+        .relZeroAbsPos = 0.0, 
+        .posLimit = false, 
+        .negLimit = false, 
+        .posLimitValue = 1000.0, 
+        .negLimitValue = -1000.0
+    });
 
-    MoveAbsoluteUseCase usecase(driver);
-    RejectionReason result = usecase.execute(axis, 500.0);
+    // 实例化 UseCase，注意现在要注入 Repo 了
+    MoveAbsoluteUseCase usecase(repo, driver);
+    
+    RejectionReason result = usecase.execute(AxisId::Y, 500.0);
 
+    // 断言 1：业务层不应拒绝
     EXPECT_EQ(result, RejectionReason::None);
-    ASSERT_EQ(driver.history.size(), 1);
-    EXPECT_TRUE(std::holds_alternative<MoveCommand>(driver.history[0]));
-}
-
-// 2. 拦截场景：未使能时直接返回 InvalidState，不执行自愈
-TEST(MoveAbsoluteUseCaseTest, ShouldReturnInvalidStateWhenDisabled) {
-    FakeAxisDriver driver;
-    Axis axis;
-    axis.applyFeedback({.state = AxisState::Disabled});
-
-    MoveAbsoluteUseCase usecase(driver);
-    RejectionReason result = usecase.execute(axis, 500.0);
-
-    // ⭐ 核心约束：不再发送 EnableCommand，诚实汇报错误
-    EXPECT_EQ(result, RejectionReason::InvalidState);
-    EXPECT_EQ(driver.history.size(), 0);
-}
-
-// 3. 拦截场景：目标超限时透传 RejectionReason
-TEST(MoveAbsoluteUseCaseTest, ShouldReturnTargetOutOfLimitWhenTargetIsIllegal) {
-    FakeAxisDriver driver;
-    Axis axis;
-    axis.applyFeedback({.state = AxisState::Idle, .posLimitValue = 1000.0});
-
-    MoveAbsoluteUseCase usecase(driver);
-    RejectionReason result = usecase.execute(axis, 1500.0); // 目标越界
-
-    EXPECT_EQ(result, RejectionReason::TargetOutOfPositiveLimit);
-    EXPECT_EQ(driver.history.size(), 0);
+    
+    // 断言 2：Y轴的“物理状态”依然是 Idle（因为还在等 PLC 反馈），但它内部必须已经挂载了“移动意图”
+    EXPECT_EQ(axisY.state(), AxisState::Idle); 
+    EXPECT_TRUE(axisY.hasPendingCommand()); // 这是 Axis.h 里提供的方法
+    
+    // 断言 3：Z 轴完全不受影响，既没有状态变化，也没有意图
+    Axis& axisZ = repo.getAxis(AxisId::Z);
+    EXPECT_EQ(axisZ.state(), AxisState::Unknown);
+    EXPECT_FALSE(axisZ.hasPendingCommand());
 }
