@@ -1,12 +1,13 @@
 #pragma once
 
-#include "axis/EnableUseCase.h"
-#include "axis/JogAxisUseCase.h"
+#include "application/axis/EnableUseCase.h"
+#include "application/axis/JogAxisUseCase.h"
+#include "domain/entity/AxisId.h"
 #include "infrastructure/logger/Logger.h"
+#include "infrastructure/logger/TraceScope.h"
 
 class JogOrchestrator {
 public:
-    // 状态枚举可以预先定义好，方便测试用例和流转使用
     enum class Step {
         Idle,
         EnsuringEnabled,
@@ -22,7 +23,9 @@ public:
     JogOrchestrator(EnableUseCase& enableUc, JogAxisUseCase& jogUc)
         : m_enableUc(enableUc), m_jogUc(jogUc) {}
 
-    void startJog(Direction dir) {
+    // ⭐ 接收目标轴标识 AxisId
+    void startJog(AxisId id, Direction dir) {
+        m_targetId = id; // 记录目标轴
         m_dir = dir;
         m_step = Step::EnsuringEnabled;
         m_rejectionReason = RejectionReason::None;
@@ -36,14 +39,16 @@ public:
         LOG_INFO(LogLayer::APP, "JogOrch", "START Jog direction=" + dirStr);
     }
 
-    void stopJog(Direction dir) {
-        // 方向防误杀 - 校验停止方向与当前运行意图是否一致
-        if (dir != m_dir) {
-            LOG_WARN(LogLayer::APP, "JogOrch", "Received stopJog for direction " + std::to_string(static_cast<int>(dir)) + " but current jog direction is " + std::to_string(static_cast<int>(m_dir)) + ". Ignoring stop command.");
+    // ⭐ 终极防误杀：必须同时校验 AxisId 和 方向
+    void stopJog(AxisId id, Direction dir) {
+        if (id != m_targetId || dir != m_dir) {
+            LOG_WARN(LogLayer::APP, "JogOrch", 
+                "Received stopJog for wrong axis or direction. "
+                "Expected Axis: " + std::to_string(static_cast<int>(m_targetId)) + 
+                ", Got: " + std::to_string(static_cast<int>(id)) + ". Ignoring.");
             return;
         }
 
-        // 只有在启动或运行流程中，才允许被外部打断并流转到停止流程
         if (m_step == Step::EnsuringEnabled || 
             m_step == Step::IssuingJog || 
             m_step == Step::Jogging) {
@@ -52,78 +57,64 @@ public:
         }
     }
 
-    // 最小化实现的 update
     void update(Axis& axis) {
         TraceScope scope("G1", "Y", m_traceId);
 
-        // ⭐ 全局最高优先级：硬件/状态错误拦截 (满足 Test 1)
+        // 全局最高优先级：硬件/状态错误拦截
         if (axis.state() == AxisState::Error) {
             m_step = Step::Error;
             return;
         }
 
-        // 目前只处理 EnsuringEnabled 的业务语义
         switch (m_step) {
             case Step::EnsuringEnabled:
-
                 if (axis.state() == AxisState::Disabled) {
-                    m_enableUc.execute(axis, true);
+                    m_enableUc.execute(m_targetId, true); // ⭐ 按 ID 路由
                     break; 
                 } 
-
                 if (axis.state() == AxisState::Idle) {
                     LOG_DEBUG(LogLayer::APP, "JogOrch", "Step: EnsuringEnabled -> IssuingJog");
                     m_step = Step::IssuingJog;
                     break;
                 }
-
                 break;
 
             case Step::IssuingJog:
-                // 幂等性保护，如果已经发过指令，直接跳过
                 if (m_jogIssued) {
                     break;
                 }
 
-                // 尝试执行领域层动作 (Test 5, Test 6 方向透传)
-                m_rejectionReason = m_jogUc.execute(axis, m_dir);
+                // ⭐ 按 ID 路由
+                m_rejectionReason = m_jogUc.execute(m_targetId, m_dir);
                 
                 if (m_rejectionReason == RejectionReason::None) {
                     LOG_DEBUG(LogLayer::APP, "JogOrch", "Step: IssuingJog -> Jogging");
-                    // 成功下发，流转到 Jogging
                     m_jogIssued = true;
                     m_step = Step::Jogging;
                 } else {
                     LOG_ERROR(LogLayer::APP, "JogOrch", "Jog start rejected by Domain");
-                    // 失败熔断（如被限位拦截） -> 安全掉电 + 报错
-                    m_enableUc.execute(axis, false);
+                    m_enableUc.execute(m_targetId, false); // ⭐ 按 ID 路由，失败熔断掉电
                     m_step = Step::Error;
                 }
                 break;
 
             case Step::Jogging:
-                // 监控异常跌落场景：如果轴意外从 Jogging 跌落到 Idle，必须主动切入 IssuingStop
                 if (axis.state() == AxisState::Idle && !axis.hasPendingCommand()) {
-                    LOG_ERROR(LogLayer::APP, "JogOrch", "Axis unexpectedly stopped during Jog! Forcing stop sequence.Step: Jogging -> IssuingStop");
-                    m_step = Step::IssuingStop; // 主动接管，切入停止收尾流程
+                    LOG_ERROR(LogLayer::APP, "JogOrch", "Axis unexpectedly stopped during Jog! Forcing stop sequence.");
+                    m_step = Step::IssuingStop; 
                 }
                 break;
 
             case Step::IssuingStop:
-                // 指令幂等性，保证只发一次 stop
                 if (!m_stopIssued) {
-                    m_jogUc.stop(axis, m_dir);
+                    m_jogUc.stop(m_targetId, m_dir); // ⭐ 按 ID 路由
                     m_stopIssued = true;
                 }
-                // 无论是否刚刚发完指令，只要进入此阶段，立刻推进到等待停止
                 LOG_DEBUG(LogLayer::APP, "JogOrch", "Step: IssuingStop -> WaitingForIdle");
                 m_step = Step::WaitingForIdle;
                 break;
 
             case Step::WaitingForIdle:
-                // 阻塞等待与平滑跃迁
-                // 只要状态不是 Idle，这里什么都不做（阻塞等待，不发指令）
-                // 一旦发现底层完全停稳（变为 Idle），立刻推进到断电阶段
                 if (axis.state() == AxisState::Idle) {
                     LOG_DEBUG(LogLayer::APP, "JogOrch", "Step: WaitingForIdle -> EnsuringDisabled");
                     m_step = Step::EnsuringDisabled;
@@ -131,13 +122,11 @@ public:
                 break;
 
             case Step::EnsuringDisabled:
-                // 下发掉电指令，且利用 m_disableIssued 保证幂等性
                 if (!m_disableIssued) {
-                    m_enableUc.execute(axis, false);
+                    m_enableUc.execute(m_targetId, false); // ⭐ 按 ID 路由
                     m_disableIssued = true;
                 }
                 
-                // 阻塞等待，直到彻底掉电，撞线 Done
                 if (axis.state() == AxisState::Disabled) {
                     LOG_SUMMARY(LogLayer::APP, "JogOrch", "Jog Operation -> SUCCESS (Safely Stopped)");
                     m_step = Step::Done;
@@ -145,20 +134,12 @@ public:
                 break;
             
             case Step::Done:
-                // 终态沉默。什么都不做，等待下一次 startJog 重置状态机。
-                break;
-            
             case Step::Error:
-                // 发生错误后的终态，同样保持沉默
-                break;
-                
             default:
-                // 其他状态在当前的 TDD 阶段尚未进入，直接跳过
                 break;
         }
     }
 
-    // 满足测试用例中断言的查询接口
     Step currentStep() const { return m_step; }
     RejectionReason errorReason() const { return m_rejectionReason; }
 
@@ -167,10 +148,10 @@ private:
     JogAxisUseCase& m_jogUc;
 
     Step m_step = Step::Idle;
+    AxisId m_targetId = AxisId::Y;   // ⭐ 目标轴标识
     Direction m_dir = Direction::Forward;
     RejectionReason m_rejectionReason = RejectionReason::None;
 
-    // 用于防重入的标志位
     bool m_jogIssued = false;
     bool m_stopIssued = false;
     bool m_disableIssued = false;
