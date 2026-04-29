@@ -1,6 +1,9 @@
 include(GoogleTest)
 
 add_executable(unit_tests
+    
+    infrastructure/test_fake_plc.cpp
+    infrastructure/test_system_integration.cpp
 
     application/policy/test_jog_orchestrator.cpp
     application/policy/test_auto_rel_move_orchestrator.cpp
@@ -15,9 +18,6 @@ add_executable(unit_tests
     # presentation/viewmodel/test_axis_viewmodel_core.cpp
 
     domain/test_axis.cpp
-
-    # infrastructure/test_fake_plc.cpp
-    # infrastructure/test_system_integration.cpp
 )
 
 target_include_directories(unit_tests
@@ -32,6 +32,13 @@ target_link_libraries(unit_tests
         # presentation
         GTest::gtest
         GTest::gtest_main
+)
+
+set_target_properties(unit_tests
+    PROPERTIES
+        AUTOMOC OFF
+        AUTORCC OFF
+        AUTOUIC OFF
 )
 
 gtest_discover_tests(unit_tests)

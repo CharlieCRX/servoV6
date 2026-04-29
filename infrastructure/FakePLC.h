@@ -2,210 +2,257 @@
 #define FAKE_PLC_H
 
 #include "../domain/entity/Axis.h"
+#include "../domain/entity/AxisId.h"
 #include "infrastructure/logger/Logger.h"
 #include <cmath>
 #include <algorithm>
+#include <unordered_map>
 
 class FakePLC {
 public:
-    FakePLC() = default;
+    FakePLC() {
+        // 初始化所有 AxisId 对应的寄存器组
+        m_axes[AxisId::Y] = AxisStateInternal{};
+        m_axes[AxisId::Z] = AxisStateInternal{};
+        m_axes[AxisId::R] = AxisStateInternal{};
+        m_axes[AxisId::X1] = AxisStateInternal{};
+        m_axes[AxisId::X2] = AxisStateInternal{};
+    }
 
-    // --- 1. 核心对外接口 ---
-    void onCommand(const AxisCommand& cmd) {
+    // --- 1. 核心对外接口（多轴签名）---
 
-        std::visit([this](auto&& arg) {
-            this->processCommand(arg);
+    void onCommand(AxisId id, const AxisCommand& cmd) {
+        std::visit([this, id](auto&& arg) {
+            this->processCommand(id, arg);
         }, cmd);
     }
 
-    // 由外部时钟驱动的物理引擎心跳
+    // 由外部时钟驱动的物理引擎心跳（遍历所有轴独立更新）
     void tick(int ms) {
-        // 🌟 核心规范：高频物理心跳采样，每 50 帧（模拟 500ms）打印一次
-        LOG_TRACE_EVERY_N(50, LogLayer::HAL, "PLC", "Tick pos=" + std::to_string(m_feedback.absPos));
+        for (auto& [id, axis] : m_axes) {
+            // 🌟 核心规范：高频物理心跳采样，每 50 帧（模拟 500ms）打印一次
+            LOG_TRACE_EVERY_N(50, LogLayer::HAL, "PLC", 
+                "Tick axis=" + axisIdToString(id) + " pos=" + std::to_string(axis.feedback.absPos));
 
-        if (m_stop_requested) {
-            m_feedback.state = AxisState::Idle;
-            m_stop_requested = false;
+            if (axis.stop_requested) {
+                axis.feedback.state = AxisState::Idle;
+                axis.stop_requested = false;
+            }
+
+            updateStateTransitions(axis, ms);
+            updateKinematics(axis, ms);
+            checkHardwareLimits(axis);
+
+            axis.feedback.relPos = axis.feedback.absPos - axis.feedback.relZeroAbsPos;
         }
-
-        updateStateTransitions(ms);
-        updateKinematics(ms);
-        checkHardwareLimits();
-
-        m_feedback.relPos = m_feedback.absPos - m_feedback.relZeroAbsPos;
     }
 
-    AxisFeedback getFeedback() const { return m_feedback; }
+    AxisFeedback getFeedback(AxisId id) const {
+        return m_axes.at(id).feedback;
+    }
 
-    // --- 2. 仿真环境配置接口 ---
-    void forceState(AxisState s) { m_feedback.state = s; }
-    
-    // 区分 Move 和 Jog 的独立仿真速度
-    void setSimulatedMoveVelocity(double v) { m_move_velocity = std::abs(v); }
-    void setSimulatedJogVelocity(double v) { m_jog_velocity = std::abs(v); }
-    
-    void setLimits(double pos, double neg) {
-        m_feedback.posLimitValue = pos;
-        m_feedback.negLimitValue = neg;
+    // --- 2. 仿真环境配置接口（多轴签名）---
+
+    void forceState(AxisId id, AxisState s) {
+        m_axes.at(id).feedback.state = s;
+    }
+
+    void setSimulatedMoveVelocity(AxisId id, double v) {
+        m_axes.at(id).move_velocity = std::abs(v);
+    }
+
+    void setSimulatedJogVelocity(AxisId id, double v) {
+        m_axes.at(id).jog_velocity = std::abs(v);
+    }
+
+    void setLimits(AxisId id, double pos, double neg) {
+        auto& axis = m_axes.at(id);
+        axis.feedback.posLimitValue = pos;
+        axis.feedback.negLimitValue = neg;
     }
 
 private:
-    AxisFeedback m_feedback{ AxisState::Disabled, 0.0, 0.0, 0.0, false, false, 1000.0, -1000.0 };
-    
-    // 独立速度配置
-    double m_move_velocity = 50.0; // 默认定位速度 50 unit/s
-    double m_jog_velocity = 10.0;  // 默认点动速度 10 unit/s
-    
-    // 内部定时器
-    int m_enable_timer_ms = 0;
-    static constexpr int ENABLE_DELAY_MS = 150; 
+    // 每个轴独立的内部状态
+    struct AxisStateInternal {
+        AxisFeedback feedback{ AxisState::Disabled, 0.0, 0.0, 0.0, false, false, 1000.0, -1000.0 };
 
-    // 运动学内部状态
-    double m_target_pos = 0.0;
-    Direction m_jog_dir = Direction::Forward;
-    bool m_stop_requested = false;
+        // 独立速度配置
+        double move_velocity = 50.0; // 默认定位速度 50 unit/s
+        double jog_velocity = 10.0;  // 默认点动速度 10 unit/s
 
-    // --- 3. 命令分发处理 ---
-    void processCommand(std::monostate) {} // 空指令不处理
+        // 内部定时器
+        int enable_timer_ms = 0;
 
-    void processCommand(const StopCommand&) {
-        handleStop(); // 核心：将 Stop 指令路由到停止逻辑
+        // 运动学内部状态
+        double target_pos = 0.0;
+        Direction jog_dir = Direction::Forward;
+        bool stop_requested = false;
+    };
+
+    std::unordered_map<AxisId, AxisStateInternal> m_axes;
+
+    // 辅助：AxisId 转字符串（用于日志）
+    static std::string axisIdToString(AxisId id) {
+        switch (id) {
+            case AxisId::Y:  return "Y";
+            case AxisId::Z:  return "Z";
+            case AxisId::R:  return "R";
+            case AxisId::X1: return "X1";
+            case AxisId::X2: return "X2";
+            default:         return "?";
+        }
     }
 
-    void processCommand(const EnableCommand& cmd) {
-        if (cmd.active && m_feedback.state == AxisState::Disabled) {
-            // 进入“启动中”过渡态
-            m_enable_timer_ms = 0;
-            m_feedback.state = AxisState::Unknown; 
+    static constexpr int ENABLE_DELAY_MS = 150;
+
+    // --- 3. 命令分发处理（多轴版本）---
+
+    void processCommand(AxisId id, std::monostate) {} // 空指令不处理
+
+    void processCommand(AxisId id, const StopCommand&) {
+        auto& axis = m_axes.at(id);
+        handleStop(axis);
+    }
+
+    void processCommand(AxisId id, const EnableCommand& cmd) {
+        auto& axis = m_axes.at(id);
+        if (cmd.active && axis.feedback.state == AxisState::Disabled) {
+            // 进入"启动中"过渡态
+            axis.enable_timer_ms = 0;
+            axis.feedback.state = AxisState::Unknown;
         } else if (!cmd.active) {
             // 掉电立即生效
-            m_feedback.state = AxisState::Disabled;
+            axis.feedback.state = AxisState::Disabled;
         }
     }
 
-    void processCommand(const JogCommand& cmd) {
+    void processCommand(AxisId id, const JogCommand& cmd) {
+        auto& axis = m_axes.at(id);
         if (cmd.active) {
-            if (m_feedback.state == AxisState::Idle) {
-                m_feedback.state = AxisState::Jogging;
-                m_jog_dir = cmd.dir;
+            if (axis.feedback.state == AxisState::Idle) {
+                axis.feedback.state = AxisState::Jogging;
+                axis.jog_dir = cmd.dir;
             }
         } else {
-            if (m_feedback.state == AxisState::Jogging) {
-                m_stop_requested = true; // 触发制动
+            if (axis.feedback.state == AxisState::Jogging) {
+                axis.stop_requested = true; // 触发制动
             }
         }
     }
 
-    void processCommand(const MoveCommand& cmd) {
-        if (m_feedback.state == AxisState::Idle) {
-            m_feedback.state = (cmd.type == MoveType::Absolute) ? 
-                               AxisState::MovingAbsolute : AxisState::MovingRelative;
-            
+    void processCommand(AxisId id, const MoveCommand& cmd) {
+        auto& axis = m_axes.at(id);
+        if (axis.feedback.state == AxisState::Idle) {
+            axis.feedback.state = (cmd.type == MoveType::Absolute) ?
+                                   AxisState::MovingAbsolute : AxisState::MovingRelative;
+
             if (cmd.type == MoveType::Absolute) {
-                m_target_pos = cmd.target;
+                axis.target_pos = cmd.target;
             } else {
-                m_target_pos = m_feedback.absPos + cmd.target;
+                axis.target_pos = axis.feedback.absPos + cmd.target;
             }
         }
     }
 
-    void processCommand(const ZeroAbsoluteCommand&) {
-        if (m_feedback.state == AxisState::Idle) m_feedback.absPos = 0.0;
+    void processCommand(AxisId id, const ZeroAbsoluteCommand&) {
+        auto& axis = m_axes.at(id);
+        if (axis.feedback.state == AxisState::Idle) axis.feedback.absPos = 0.0;
     }
 
-    void processCommand(const SetRelativeZeroCommand&) {
-        if (m_feedback.state == AxisState::Idle) m_feedback.relZeroAbsPos = m_feedback.absPos;
+    void processCommand(AxisId id, const SetRelativeZeroCommand&) {
+        auto& axis = m_axes.at(id);
+        if (axis.feedback.state == AxisState::Idle) axis.feedback.relZeroAbsPos = axis.feedback.absPos;
     }
 
-    void processCommand(const ClearRelativeZeroCommand&) {
-        if (m_feedback.state == AxisState::Idle) m_feedback.relZeroAbsPos = 0.0;
+    void processCommand(AxisId id, const ClearRelativeZeroCommand&) {
+        auto& axis = m_axes.at(id);
+        if (axis.feedback.state == AxisState::Idle) axis.feedback.relZeroAbsPos = 0.0;
     }
 
-    void processCommand(const SetJogVelocityCommand& cmd) {
-        m_jog_velocity = std::abs(cmd.velocity); // 速度必须为正
+    void processCommand(AxisId id, const SetJogVelocityCommand& cmd) {
+        m_axes.at(id).jog_velocity = std::abs(cmd.velocity);
     }
 
-    void processCommand(const SetMoveVelocityCommand& cmd) {
-        m_move_velocity = std::abs(cmd.velocity); // 速度必须为正
+    void processCommand(AxisId id, const SetMoveVelocityCommand& cmd) {
+        m_axes.at(id).move_velocity = std::abs(cmd.velocity);
     }
 
-    void handleStop() {
+    void handleStop(AxisStateInternal& axis) {
         // Stop 只对运动态生效
-        if (m_feedback.state == AxisState::Jogging || 
-            m_feedback.state == AxisState::MovingAbsolute || 
-            m_feedback.state == AxisState::MovingRelative) {
-            m_stop_requested = true; 
+        if (axis.feedback.state == AxisState::Jogging ||
+            axis.feedback.state == AxisState::MovingAbsolute ||
+            axis.feedback.state == AxisState::MovingRelative) {
+            axis.stop_requested = true;
         }
     }
 
-    // --- 4. 物理引擎演算 ---
-    void updateStateTransitions(int ms) {
-        if (m_feedback.state == AxisState::Unknown) {
-            m_enable_timer_ms += ms;
-            if (m_enable_timer_ms >= ENABLE_DELAY_MS) {
-                m_feedback.state = AxisState::Idle; 
+    // --- 4. 物理引擎演算（操作指定轴）---
+
+    void updateStateTransitions(AxisStateInternal& axis, int ms) {
+        if (axis.feedback.state == AxisState::Unknown) {
+            axis.enable_timer_ms += ms;
+            if (axis.enable_timer_ms >= ENABLE_DELAY_MS) {
+                axis.feedback.state = AxisState::Idle;
             }
         }
     }
 
-    void updateKinematics(int ms) {
-        if (m_feedback.state == AxisState::MovingAbsolute || 
-            m_feedback.state == AxisState::MovingRelative) {
-            
-            // Move: 使用 m_move_velocity 进行 P 控制收敛
-            double step = (m_move_velocity * ms) / 1000.0;
-            double diff = m_target_pos - m_feedback.absPos;
+    void updateKinematics(AxisStateInternal& axis, int ms) {
+        if (axis.feedback.state == AxisState::MovingAbsolute ||
+            axis.feedback.state == AxisState::MovingRelative) {
+
+            // Move: 使用 move_velocity 进行 P 控制收敛
+            double step = (axis.move_velocity * ms) / 1000.0;
+            double diff = axis.target_pos - axis.feedback.absPos;
 
             if (std::abs(diff) <= step) {
-                m_feedback.absPos = m_target_pos;
-                m_feedback.state = AxisState::Idle; // 闭环收敛
+                axis.feedback.absPos = axis.target_pos;
+                axis.feedback.state = AxisState::Idle; // 闭环收敛
             } else {
-                m_feedback.absPos += (diff > 0) ? step : -step;
+                axis.feedback.absPos += (diff > 0) ? step : -step;
             }
-        } 
-        else if (m_feedback.state == AxisState::Jogging) {
-            
-            // Jog: 使用 m_jog_velocity 进行连续累加
-            double step = (m_jog_velocity * ms) / 1000.0;
-            if (m_jog_dir == Direction::Forward) {
-                m_feedback.absPos += step;
+        }
+        else if (axis.feedback.state == AxisState::Jogging) {
+
+            // Jog: 使用 jog_velocity 进行连续累加
+            double step = (axis.jog_velocity * ms) / 1000.0;
+            if (axis.jog_dir == Direction::Forward) {
+                axis.feedback.absPos += step;
             } else {
-                m_feedback.absPos -= step;
+                axis.feedback.absPos -= step;
             }
         }
     }
 
-    void checkHardwareLimits() {
-        if (m_feedback.absPos >= m_feedback.posLimitValue) {
-            if (!m_feedback.posLimit) {
-                // 🌟 核心规范：边缘触发时记录硬件报警 (WARN / ERROR)
-                LOG_ERROR(LogLayer::HAL, "PLC", "LIMIT TRIGGERED at Positive Soft Limit: " + std::to_string(m_feedback.posLimitValue));
+    void checkHardwareLimits(AxisStateInternal& axis) {
+        if (axis.feedback.absPos >= axis.feedback.posLimitValue) {
+            if (!axis.feedback.posLimit) {
+                LOG_ERROR(LogLayer::HAL, "PLC", "LIMIT TRIGGERED at Positive Soft Limit: " + std::to_string(axis.feedback.posLimitValue));
             }
-            m_feedback.posLimit = true;
-            m_feedback.absPos = m_feedback.posLimitValue; 
-            forceStopIfMoving();
+            axis.feedback.posLimit = true;
+            axis.feedback.absPos = axis.feedback.posLimitValue;
+            forceStopIfMoving(axis);
         } else {
-            m_feedback.posLimit = false;
+            axis.feedback.posLimit = false;
         }
 
-        if (m_feedback.absPos <= m_feedback.negLimitValue) {
-            if (!m_feedback.negLimit) {
-                // 🌟 核心规范：边缘触发时记录硬件报警
-                LOG_ERROR(LogLayer::HAL, "PLC", "LIMIT TRIGGERED at Negative Soft Limit: " + std::to_string(m_feedback.negLimitValue));
+        if (axis.feedback.absPos <= axis.feedback.negLimitValue) {
+            if (!axis.feedback.negLimit) {
+                LOG_ERROR(LogLayer::HAL, "PLC", "LIMIT TRIGGERED at Negative Soft Limit: " + std::to_string(axis.feedback.negLimitValue));
             }
-            m_feedback.negLimit = true;
-            m_feedback.absPos = m_feedback.negLimitValue; 
-            forceStopIfMoving();
+            axis.feedback.negLimit = true;
+            axis.feedback.absPos = axis.feedback.negLimitValue;
+            forceStopIfMoving(axis);
         } else {
-            m_feedback.negLimit = false;
+            axis.feedback.negLimit = false;
         }
     }
 
-    void forceStopIfMoving() {
-        if (m_feedback.state == AxisState::MovingAbsolute || 
-            m_feedback.state == AxisState::MovingRelative || 
-            m_feedback.state == AxisState::Jogging) {
-            m_feedback.state = AxisState::Idle;
+    void forceStopIfMoving(AxisStateInternal& axis) {
+        if (axis.feedback.state == AxisState::MovingAbsolute ||
+            axis.feedback.state == AxisState::MovingRelative ||
+            axis.feedback.state == AxisState::Jogging) {
+            axis.feedback.state = AxisState::Idle;
         }
     }
 };
