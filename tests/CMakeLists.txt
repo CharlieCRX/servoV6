@@ -2,6 +2,7 @@ include(GoogleTest)
 
 add_executable(unit_tests
     
+    domain/test_system_context.cpp
     infrastructure/test_fake_plc.cpp
     infrastructure/test_system_integration.cpp
 

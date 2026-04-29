@@ -15,6 +15,7 @@ public:
         m_axes[AxisId::Y] = AxisStateInternal{};
         m_axes[AxisId::Z] = AxisStateInternal{};
         m_axes[AxisId::R] = AxisStateInternal{};
+        m_axes[AxisId::X] = AxisStateInternal{};
         m_axes[AxisId::X1] = AxisStateInternal{};
         m_axes[AxisId::X2] = AxisStateInternal{};
     }
