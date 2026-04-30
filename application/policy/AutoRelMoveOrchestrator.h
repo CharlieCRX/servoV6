@@ -1,8 +1,11 @@
 #ifndef AUTO_REL_MOVE_ORCHESTRATOR_H
 #define AUTO_REL_MOVE_ORCHESTRATOR_H
 
-#include "axis/EnableUseCase.h"
-#include "axis/MoveRelativeUseCase.h"
+#include "application/axis/EnableUseCase.h"
+#include "application/axis/MoveRelativeUseCase.h"
+#include "domain/entity/AxisId.h"
+#include "infrastructure/logger/Logger.h"
+#include "infrastructure/logger/TraceScope.h"
 #include <cmath>
 
 class AutoRelMoveOrchestrator {
@@ -20,13 +23,15 @@ public:
     AutoRelMoveOrchestrator(EnableUseCase& en, MoveRelativeUseCase& mv)
         : enableUc(en), moveUc(mv) {}
 
-    void start(double distance) {
+    // ⭐ 升级 1：接收目标轴标识 AxisId
+    void start(AxisId id, double distance) {
+        m_targetId = id;            // 记录目标轴
         m_distance = distance;
         m_step = Step::EnsuringEnabled;
 
-        m_moveIssued = false;       // ⭐ 重置幂等标志
-        m_motionObserved = false;   // ⭐ 重置运动观测
-        m_startPos = 0.0;           // ⭐ 重置起点
+        m_moveIssued = false;       // 重置幂等标志
+        m_motionObserved = false;   // 重置运动观测
+        m_startPos = 0.0;           // 重置起点
 
         m_traceId = TraceScope::current().traceId;
         LOG_INFO(LogLayer::APP, "RelOrch", "START MoveRelative distance=" + std::to_string(distance));
@@ -50,7 +55,7 @@ public:
 
             // 1. Disabled → 主动 Enable
             if (axis.state() == AxisState::Disabled) {
-                enableUc.execute(axis, true);
+                enableUc.execute(m_targetId, true); // ⭐ 升级 2：按 ID 路由
                 break;
             }
 
@@ -71,8 +76,8 @@ public:
                 break;
             }
 
-            // ⭐ 发起相对运动
-            m_rejectionReason = moveUc.execute(axis, m_distance);
+            // ⭐ 发起相对运动 (按 ID 路由)
+            m_rejectionReason = moveUc.execute(m_targetId, m_distance);
             if (m_rejectionReason == RejectionReason::None) {
                 // ⭐ 记录起点（用于后续阶段）
                 m_startPos = axis.currentAbsolutePosition();
@@ -84,7 +89,7 @@ public:
             else {
                 // ⭐ Move 被拒绝 → 立即掉电 + Error
                 LOG_ERROR(LogLayer::APP, "RelOrch", "Move command rejected by UseCase/Domain");
-                enableUc.execute(axis, false);
+                enableUc.execute(m_targetId, false); // ⭐ 升级 2：按 ID 路由
                 m_step = Step::Error;
             }
 
@@ -103,6 +108,7 @@ public:
               }
           }
           break;
+          
         case Step::WaitingMotionFinish:
 
           // ❗防假完成
@@ -116,13 +122,13 @@ public:
                 double currentPos = axis.currentAbsolutePosition();
                 if (std::abs(currentPos - (m_startPos + m_distance)) < m_epsilon) {
                     // 只有物理到位，才是真正的 Done
-                    enableUc.execute(axis, false);
+                    enableUc.execute(m_targetId, false); // ⭐ 升级 2：按 ID 路由
                     LOG_SUMMARY(LogLayer::APP, "RelOrch", "MoveRelative(" + std::to_string(m_distance) + ") -> SUCCESS");
                     m_step = Step::Done;
                 } else {
                     // 物理没到位，说明可能被外力打断了，视为失败
-                    enableUc.execute(axis, false);
-                    m_rejectionReason = RejectionReason::InvalidState; //todo: 可以考虑更细化的拒绝原因，如 InterruptedByExternalForce
+                    enableUc.execute(m_targetId, false); // ⭐ 升级 2：按 ID 路由
+                    m_rejectionReason = RejectionReason::InvalidState; 
                     LOG_SUMMARY(LogLayer::APP, "RelOrch", "MoveRelative(" + std::to_string(m_distance) + ") -> ABORTED (Target not reached)");
                     m_step = Step::Error;
                 }
@@ -143,6 +149,7 @@ private:
     MoveRelativeUseCase& moveUc;
 
     Step m_step = Step::Initial;
+    AxisId m_targetId = AxisId::Y;   // ⭐ 记录目标轴
     double m_distance = 0.0;
 
     // IssuingMove

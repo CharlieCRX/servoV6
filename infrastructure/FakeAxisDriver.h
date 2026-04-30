@@ -10,12 +10,12 @@ class FakeAxisDriver : public IAxisDriver {
 public:
     explicit FakeAxisDriver(FakePLC& plc) : m_plc(plc) {}
 
-    // 实现接口：将 Axis 产生的意图，无情地砸向 FakePLC
-    void send(const AxisCommand& cmd) override {
+    // 实现接口：将 Axis 产生的意图，路由到 FakePLC 中对应的轴寄存器组
+    void send(AxisId id, const AxisCommand& cmd) override {
         // 🌟 瘦身成功：一行代码完成日志拼接
         LOG_TRACE(LogLayer::HAL, "Driver", "Sending to PLC: " + utils::format(cmd));
         
-        m_plc.onCommand(cmd);
+        m_plc.onCommand(id, cmd);
     }
 
 private:

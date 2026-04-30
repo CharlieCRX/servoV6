@@ -19,7 +19,8 @@ public:
     AutoAbsMoveOrchestrator(EnableUseCase& en, MoveAbsoluteUseCase& mv)
         : enableUc(en), moveUc(mv) {}
 
-    void start(double target) {
+    void start(AxisId id, double target) {
+        m_targetId = id;
         m_target = target;
         m_step = Step::EnsuringEnabled;
         m_motionObserved = false;
@@ -44,7 +45,7 @@ public:
         case Step::EnsuringEnabled:
         
             if (axis.state() == AxisState::Disabled) {
-                enableUc.execute(axis, true);   // ⭐ 主动发 Enable
+                enableUc.execute(m_targetId, true);   // ⭐ AxisId 寻址
                 break;
             }
         
@@ -57,16 +58,14 @@ public:
             break;
 
         case Step::IssuingMove:
-            m_rejectionReason = moveUc.execute(axis, m_target);
+            m_rejectionReason = moveUc.execute(m_targetId, m_target);  // ⭐ AxisId 寻址
             if (m_rejectionReason == RejectionReason::None) {
                 startPos = axis.currentAbsolutePosition();
-                // 🌟 增加状态流转日志
                 LOG_DEBUG(LogLayer::APP, "AbsOrch", "Step: IssuingMove -> WaitingMotionStart");
                 m_step = Step::WaitingMotionStart;
             } else {
-                // 🌟 增加动作失败时的错误拦截日志
                 LOG_ERROR(LogLayer::APP, "AbsOrch", "Move command rejected by UseCase/Domain");
-                enableUc.execute(axis, false);
+                enableUc.execute(m_targetId, false);  // ⭐ AxisId 寻址
                 m_step = Step::Error;
             }
             break;
@@ -77,7 +76,6 @@ public:
                 axis.isMoveCompleted()) {
 
                 m_motionObserved = true;
-                // 🌟 增加状态流转日志
                 LOG_DEBUG(LogLayer::APP, "AbsOrch", "Step: WaitingMotionStart -> WaitingMotionFinish");
                 m_step = Step::WaitingMotionFinish;
             }
@@ -94,12 +92,12 @@ public:
                 double currentPos = axis.currentAbsolutePosition();
                 if (std::abs(currentPos - m_target) < epsilon) {
                     // 只有物理到位，才是真正的 Done
-                    enableUc.execute(axis, false);
+                    enableUc.execute(m_targetId, false);
                     LOG_SUMMARY(LogLayer::APP, "AbsOrch", "MoveAbsolute(" + std::to_string(m_target) + ") -> SUCCESS");
                     m_step = Step::Done;
                 } else {
                     // 意图消失了但物理没到位 -> 说明是被半路截杀了（如急停）
-                    enableUc.execute(axis, false);
+                    enableUc.execute(m_targetId, false);
                     m_rejectionReason = RejectionReason::InvalidState; // 记录为非法中止
                     LOG_SUMMARY(LogLayer::APP, "AbsOrch", "MoveAbsolute(" + std::to_string(m_target) + ") -> ABORTED (Target not reached)");
                     m_step = Step::Error; 
@@ -113,20 +111,20 @@ public:
     }
 
     Step currentStep() const { return m_step; }
-    RejectionReason errorReason() const { return m_rejectionReason; } // 新增接口
+    RejectionReason errorReason() const { return m_rejectionReason; }
 
 private:
     EnableUseCase& enableUc;
     MoveAbsoluteUseCase& moveUc;
 
     Step m_step = Step::Initial;
+    AxisId m_targetId = AxisId::Y;   // ⭐ 新增：目标轴标识
     double m_target = 0.0;
 
     double startPos = 0.0;
     bool m_motionObserved = false;
 
     const double epsilon = 0.01;
-
 
     RejectionReason m_rejectionReason = RejectionReason::None;
 

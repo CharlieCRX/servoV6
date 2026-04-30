@@ -1,21 +1,28 @@
 include(GoogleTest)
 
 add_executable(unit_tests
-    presentation/viewmodel/test_axis_viewmodel_core.cpp
+
+    domain/gantry/test_gantry_mode.cpp
+    domain/gantry/test_gantry_direction.cpp
+    domain/gantry/test_gantry_position.cpp
+    
+    domain/test_system_context.cpp
+    infrastructure/test_fake_plc.cpp
+    infrastructure/test_system_integration.cpp
 
     application/policy/test_jog_orchestrator.cpp
     application/policy/test_auto_rel_move_orchestrator.cpp
     application/policy/test_auto_abs_move_orchestrator.cpp
 
-    domain/test_axis.cpp
-    application/test_jog_usecase.cpp
-    application/test_move_absolute_usecase.cpp
-    application/test_move_relative_usecase.cpp
     application/test_enable_usecase.cpp
     application/test_stop_usecase.cpp
+    application/test_jog_usecase.cpp
+    application/test_move_relative_usecase.cpp
+    application/test_move_absolute_usecase.cpp
+    application/test_axis_repository.cpp
+    # presentation/viewmodel/test_axis_viewmodel_core.cpp
 
-    infrastructure/test_fake_plc.cpp
-    infrastructure/test_system_integration.cpp
+    domain/test_axis.cpp
 )
 
 target_include_directories(unit_tests
@@ -26,9 +33,17 @@ target_include_directories(unit_tests
 target_link_libraries(unit_tests
     PRIVATE
         domain
-        presentation
+        application
+        # presentation
         GTest::gtest
         GTest::gtest_main
+)
+
+set_target_properties(unit_tests
+    PROPERTIES
+        AUTOMOC OFF
+        AUTORCC OFF
+        AUTOUIC OFF
 )
 
 gtest_discover_tests(unit_tests)

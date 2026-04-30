@@ -1,41 +1,49 @@
 #pragma once
-#include "axis/IAxisDriver.h"
+#include "IAxisDriver.h"
+#include "AxisRepository.h"
 #include "infrastructure/logger/Logger.h"
 
 class JogAxisUseCase {
 public:
-    explicit JogAxisUseCase(IAxisDriver& driver) : driver_(driver) {}
+    JogAxisUseCase(AxisRepository& repo, IAxisDriver& driver)
+        : m_repo(repo), m_driver(driver) {}
 
     /**
      * @brief 执行点动并返回结果原因
-     * @return RejectionReason::None 表示成功（已发送 Jog 或 Enable 指令）
+     * @param id 目标轴的标识符
+     * @param dir 点动方向
+     * @return RejectionReason::None 表示成功（已发送 Jog 指令）
      */
-    RejectionReason execute(Axis& axis, Direction dir) {
+    RejectionReason execute(AxisId id, Direction dir) {
+        Axis& axis = m_repo.getAxis(id);
+
         // 1. 调用领域规则，尝试产生点动意图
         if (!axis.jog(dir)) {
             LOG_WARN(LogLayer::APP, "JogUC", "Jog Start rejected. Reason: " + std::to_string(static_cast<int>(axis.lastRejection())));
             return axis.lastRejection();
         }
 
-        // 3. 规则允许，将 Axis 产生的命令发送给驱动
-        driver_.send(axis.getPendingCommand());
+        // 2. 规则允许，将 Axis 产生的命令发送给驱动，带上 AxisId
+        m_driver.send(id, axis.getPendingCommand());
         return RejectionReason::None;
     }
 
 
     /**
      * @brief 停止点动
-     * 这是一个安全操作，不返回 RejectionReason，因为在业务逻辑上它永远不应被拒绝
+     * 这是一个安全操作，不返回 RejectionReason
      */
-    void stop(Axis& axis, Direction dir) {
+    void stop(AxisId id, Direction dir) {
+        Axis& axis = m_repo.getAxis(id);
+
         // 1. 调用领域层产生的停止点动意图
-        // 即使 Axis 处于 Error 态，Domain 层的 stopJog() 也应返回 true 并生成 active=false 的意图
         if (axis.stopJog(dir)) {
-            // 2. 将产生的指令（JogCommand {active: false}）下发
-            driver_.send(axis.getPendingCommand());
+            // 2. 将产生的指令（JogCommand {active: false}）下发，带上 AxisId
+            m_driver.send(id, axis.getPendingCommand());
         }
     }
 
 private:
-    IAxisDriver& driver_;
+    AxisRepository& m_repo;
+    IAxisDriver& m_driver;
 };
