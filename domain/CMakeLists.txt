@@ -6,6 +6,9 @@ add_library(domain
     value/GantryMode.h
     value/MotionDirection.h
     value/GantryPosition.h
+    value/PositionConsistency.h
+    value/CouplingCondition.h
+    value/SafetyCheckResult.h
 )
 
 target_include_directories(domain PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
