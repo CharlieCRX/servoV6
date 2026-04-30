@@ -1,6 +1,10 @@
 include(GoogleTest)
 
 add_executable(unit_tests
+
+    domain/gantry/test_gantry_mode.cpp
+    domain/gantry/test_gantry_direction.cpp
+    domain/gantry/test_gantry_position.cpp
     
     domain/test_system_context.cpp
     infrastructure/test_fake_plc.cpp
