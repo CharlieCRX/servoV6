@@ -812,4 +812,78 @@ tests/domain/
 
 ---
 
-> 📌 **下一阶段**: 确认本文档后，进入第1轮 TDD 实施：实现 `GantryMode`、`MotionDirection`、`GantryPosition` 三个值对象及其对应测试。
+> 📌 **下一阶段**: 实现领域服务层（`service/`）+ 端口接口（`port/`）+ 补全缺失测试（耦合测试、安全测试、集成测试）。
+
+---
+
+## 附录 C：实施进度跟踪
+
+> 状态更新日期: 2026-05-01
+
+### C.1 总体进度
+
+```
+值对象层 (Value):   ████████████████████ 6/6  100% ✅
+实体层 (Entity):    ████████████████████ 3/3  100% ✅
+事件层 (Event):     ████████████████████ 1/1  100% ✅
+领域服务层 (Service): ░░░░░░░░░░░░░░░░░░░░ 0/3    0% ❌
+端口接口层 (Port):   ░░░░░░░░░░░░░░░░░░░░ 0/3    0% ❌
+测试文件:           ██████████████░░░░░░ 5/9   56% 🔶
+```
+
+### C.2 已完成项清单
+
+| # | 文件 | 类型 | 约束覆盖 |
+|---|------|------|----------|
+| 1 | `value/GantryMode.h` | 值对象 | 约束1, 2 |
+| 2 | `value/MotionDirection.h` | 值对象 | 约束5, 6 |
+| 3 | `value/GantryPosition.h` | 值对象 | 约束8 |
+| 4 | `value/PositionConsistency.h` | 值对象 | 约束9, 10, 11 |
+| 5 | `value/CouplingCondition.h` | 值对象 | 约束13, 14 |
+| 6 | `value/SafetyCheckResult.h` | 值对象 | 约束15, 16, 17 |
+| 7 | `entity/PhysicalAxis.h` | 实体 | 基础 |
+| 8 | `entity/LogicalAxis.h` | 实体 | 约束10, 19, 20 |
+| 9 | `entity/GantrySystem.h` | 聚合根 | 约束13, 14, 18, 19, 20 |
+| 10 | `event/GantryEvents.h` | 领域事件 | 全部事件定义 |
+| 11 | `tests/domain/gantry/test_gantry_mode.cpp` | 测试 | TC-1.1~1.4 (约束1,2) |
+| 12 | `tests/domain/gantry/test_gantry_direction.cpp` | 测试 | TC-2.1~2.4 (约束5,6) |
+| 13 | `tests/domain/gantry/test_gantry_position.cpp` | 测试 | TC-3.1~3.5 (约束8-11) |
+| 14 | `tests/domain/gantry/test_gantry_sync.cpp` | 测试 | 约束8-17 (值对象全覆盖) |
+| 15 | `tests/domain/gantry/test_gantry_activation.cpp` | 测试 | TC-6.1~6.13 (约束18-20) |
+
+### C.3 待实施清单
+
+| 优先级 | 任务 | 预计工作量 | 依赖 |
+|--------|------|-----------|------|
+| 🔴 P0 | 创建 `domain/service/GantryStateAggregator.h` | 小 | 无 |
+| 🔴 P0 | 创建 `domain/service/GantrySafetyService.h` | 中 | SafetyCheckResult |
+| 🔴 P0 | 创建 `domain/service/GantryCouplingService.h` | 中 | CouplingCondition, GantrySystem |
+| 🟡 P1 | 创建 `domain/port/IGantryFeedbackPort.h` | 小 | 无 |
+| 🟡 P1 | 创建 `domain/port/IGantryCommandPort.h` | 小 | 无 |
+| 🟡 P1 | 创建 `domain/port/IGantryEventBus.h` | 小 | GantryEvents |
+| 🟡 P1 | 创建 `tests/domain/gantry/test_gantry_coupling.cpp` | 大 | 服务层 |
+| 🟡 P1 | 创建 `tests/domain/gantry/test_gantry_safety.cpp` | 大 | 服务层 |
+| 🟢 P2 | 创建 `tests/domain/gantry/test_gantry_system_integration.cpp` | 中 | GantrySystem |
+| 🟢 P2 | 创建 `tests/domain/gantry/test_gantry_service_integration.cpp` | 中 | 服务层+端口 |
+
+### C.4 关键设计决策记录（实施过程中调整）
+
+| 决策 | 原因 | 影响 |
+|------|------|------|
+| 联动/安全/聚合逻辑内聚于 `GantrySystem.h` | 避免过度拆分导致领域逻辑分散，聚合根本身应持有核心约束 | 服务层将作为薄封装层，而非独立逻辑容器 |
+| 值对象使用纯静态函数 + 结构体 | 龙门值对象是无状态的纯计算，避免对象构造开销 | 无需 mocks，直接测试 |
+| 测试文件合并 sync/safety/coupling 到已有文件中 | 实际测试中按值对象边界而非约束编号分组 | test_gantry_sync.cpp 已覆盖 test_gantry_safety.cpp 和 test_gantry_coupling.cpp 的值对象部分 |
+
+### C.5 下一步行动计划
+
+**本轮（Phase 1）：创建服务层 + 端口接口**
+1. 创建 `domain/service/GantryStateAggregator.h` — 将 `GantrySystem::aggregateState()` 的聚合规则抽取为独立服务
+2. 创建 `domain/service/GantrySafetyService.h` — 将 `checkMotionSafety()` 封装为独立安全服务
+3. 创建 `domain/service/GantryCouplingService.h` — 联动建立/维持/终止逻辑的独立服务
+4. 创建 `domain/port/` 三个接口文件
+5. 创建 `test_gantry_coupling.cpp` 和 `test_gantry_safety.cpp`
+6. 更新 `domain/CMakeLists.txt` 和 `tests/CMakeLists.txt`
+
+**下轮（Phase 2）：集成测试**
+1. 创建 `test_gantry_system_integration.cpp`
+2. 创建 `test_gantry_service_integration.cpp`
