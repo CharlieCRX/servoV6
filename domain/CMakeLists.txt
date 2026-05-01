@@ -3,6 +3,10 @@ add_library(domain
     entity/Axis.cpp
     entity/AxisId.h
     entity/SystemContext.h
+    entity/PhysicalAxis.h
+    entity/LogicalAxis.h
+    entity/GantrySystem.h
+    event/GantryEvents.h
     value/GantryMode.h
     value/MotionDirection.h
     value/GantryPosition.h

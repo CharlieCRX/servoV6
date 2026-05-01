@@ -6,6 +6,7 @@ add_executable(unit_tests
     domain/gantry/test_gantry_direction.cpp
     domain/gantry/test_gantry_position.cpp
     domain/gantry/test_gantry_sync.cpp
+    domain/gantry/test_gantry_activation.cpp
     
     domain/test_system_context.cpp
     infrastructure/test_fake_plc.cpp
