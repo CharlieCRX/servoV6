@@ -31,6 +31,15 @@ public:
      */
     static constexpr double kDefaultEpsilon = 0.01;  // 0.01 mm
 
+    /**
+     * 浮点比较容差（用于 isConsistent 边界判定）
+     *
+     * 由于 IEEE 754 双精度无法精确表示 0.01 等十进制小数，
+     * 在 epsilon 边界处比较时需要微小容差避免误判。
+     * 1e-12 mm 远小于机械系统可感知的精度（nm 级别）。
+     */
+    static constexpr double kFloatTolerance = 1e-12;
+
     /*
      * 计算 X1 和 X2 之间的同步偏差
      *
@@ -60,7 +69,7 @@ public:
      * @return true 表示位置一致（满足镜像约束），false 表示不同步
      */
     static constexpr bool isConsistent(double x1Pos, double x2Pos, double epsilon = kDefaultEpsilon) {
-        return computeDeviation(x1Pos, x2Pos) <= epsilon;
+        return computeDeviation(x1Pos, x2Pos) <= epsilon + kFloatTolerance;
     }
 
     /*

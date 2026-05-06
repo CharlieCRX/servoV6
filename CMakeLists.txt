@@ -17,6 +17,15 @@ enable_testing()
 
 # 子模块
 add_subdirectory(external/googletest)
+
+# googlemock/gtest 不需要 Qt MOC 处理
+set_target_properties(gtest gtest_main gmock gmock_main
+    PROPERTIES
+        AUTOMOC OFF
+        AUTORCC OFF
+        AUTOUIC OFF
+)
+
 add_subdirectory(domain)
 add_subdirectory(application)
 # add_subdirectory(presentation)

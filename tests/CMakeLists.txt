@@ -7,8 +7,9 @@ add_executable(unit_tests
     domain/gantry/test_gantry_position.cpp
     domain/gantry/test_gantry_sync.cpp
     domain/gantry/test_gantry_activation.cpp
-    domain/gantry/test_gantry_coupling_service.cpp
-    domain/gantry/test_gantry_safety_service.cpp
+    domain/gantry/test_gantry_coupling.cpp
+    domain/gantry/test_gantry_safety.cpp
+    domain/gantry/test_gantry_system_integration.cpp
     
     domain/test_system_context.cpp
     infrastructure/test_fake_plc.cpp

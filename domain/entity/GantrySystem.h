@@ -234,9 +234,11 @@ public:
 
     /**
      * @brief MoveAbsolute 命令
+     * 约束15: 限位触发后，所有运动（含 Move）非法，不考虑方向
      */
     CommandResult moveAbsolute(AxisId target, double pos) {
-        auto op = checkOperability(target);
+        // Move 命令的限位检查：任何限位都应拒绝（约束15）
+        auto op = checkOperabilityForMove(target);
         if (op != Operability::Allowed) {
             auto event = GantryEvents::Event::commandRejected(operabilityToString(op));
             m_events.push_back(event);
@@ -257,9 +259,11 @@ public:
 
     /**
      * @brief MoveRelative 命令
+     * 约束15: 限位触发后，所有运动（含 Move）非法，不考虑方向
      */
     CommandResult moveRelative(AxisId target, double delta) {
-        auto op = checkOperability(target);
+        // Move 命令的限位检查：任何限位都应拒绝（约束15）
+        auto op = checkOperabilityForMove(target);
         if (op != Operability::Allowed) {
             auto event = GantryEvents::Event::commandRejected(operabilityToString(op));
             m_events.push_back(event);
@@ -394,6 +398,7 @@ public:
 
     PhysicalAxis& x1() { return m_x1; }
     PhysicalAxis& x2() { return m_x2; }
+    LogicalAxis& logical() { return m_logical; }
     const LogicalAxis& logical() const { return m_logical; }
     const PhysicalAxis& x1() const { return m_x1; }
     const PhysicalAxis& x2() const { return m_x2; }
@@ -430,11 +435,50 @@ private:
         }
     }
 
+    /**
+     * @brief Move 命令专用的可操作性检查（约束15：限位触发展任何 Move 都拒绝）
+     */
+    Operability checkOperabilityForMove(AxisId target) const {
+        // Step 1: 模式检查
+        if (!isTargetOperable(target)) {
+            return Operability::Rejected_Mode;
+        }
+
+        // Step 2: 报警检查
+        if (m_x1.isAlarmed() || m_x2.isAlarmed()) {
+            return Operability::Rejected_Alarm;
+        }
+
+        // Step 3: 限位检查 - 任何限位都拒绝 Move（约束15）
+        if (target == AxisId::X1) {
+            if (m_x1.isAnyLimitActive()) {
+                return Operability::Rejected_Limit;
+            }
+        } else if (target == AxisId::X2) {
+            if (m_x2.isAnyLimitActive()) {
+                return Operability::Rejected_Limit;
+            }
+        } else if (target == AxisId::X) {
+            if (m_x1.isAnyLimitActive() || m_x2.isAnyLimitActive()) {
+                return Operability::Rejected_Limit;
+            }
+        }
+
+        // Step 4: 命令槽检查
+        if (target == AxisId::X || isCoupled(m_mode)) {
+            if (!m_logical.canAcceptCommand()) {
+                return Operability::Rejected_Busy;
+            }
+        }
+
+        return Operability::Allowed;
+    }
+
     static std::string operabilityToString(Operability op) {
         switch (op) {
             case Operability::Rejected_Mode:  return "Mode: target not operable in current mode";
-            case Operability::Rejected_Alarm: return "Safety: alarm is active";
-            case Operability::Rejected_Limit: return "Safety: limit triggered";
+            case Operability::Rejected_Alarm: return "Safety: Alarm is active";
+            case Operability::Rejected_Limit: return "Safety: Limit triggered";
             case Operability::Rejected_Busy:  return "Slot: command slot is busy";
             default:                          return "";
         }
