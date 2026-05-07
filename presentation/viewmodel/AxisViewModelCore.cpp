@@ -7,12 +7,13 @@ std::string generateTraceId() {
     return "T-" + std::to_string(rand() % 10000); 
 }
 
-AxisViewModelCore::AxisViewModelCore(Axis& axis, 
+AxisViewModelCore::AxisViewModelCore(AxisId id, Axis& axis, 
                                      JogOrchestrator& jogOrch, 
                                      AutoAbsMoveOrchestrator& absOrch, 
                                      AutoRelMoveOrchestrator& relOrch,
                                      StopAxisUseCase& stopUc)
-    : m_axis(axis), 
+    : m_axisId(id),
+      m_axis(axis), 
       m_jogOrch(jogOrch), 
       m_absOrch(absOrch), 
       m_relOrch(relOrch),
@@ -50,7 +51,7 @@ void AxisViewModelCore::jogPositivePressed() {
     TraceScope scope("G1", "Y", traceId);
     LOG_INFO(LogLayer::UI, "AxisVM", "User PRESSED Jog Positive (+)");
     
-    m_jogOrch.startJog(Direction::Forward);
+    m_jogOrch.startJog(m_axisId, Direction::Forward);
 }
 
 void AxisViewModelCore::jogPositiveReleased() {
@@ -58,7 +59,7 @@ void AxisViewModelCore::jogPositiveReleased() {
     TraceScope scope("G1", "Y", traceId);
     LOG_INFO(LogLayer::UI, "AxisVM", "User RELEASED Jog Positive (+)");
 
-    m_jogOrch.stopJog(Direction::Forward);
+    m_jogOrch.stopJog(m_axisId, Direction::Forward);
 }
 
 void AxisViewModelCore::jogNegativePressed()
@@ -67,7 +68,7 @@ void AxisViewModelCore::jogNegativePressed()
     TraceScope scope("G1", "Y", traceId);
     LOG_INFO(LogLayer::UI, "AxisVM", "User PRESSED Jog Negative (-)");
 
-    m_jogOrch.startJog(Direction::Backward);
+    m_jogOrch.startJog(m_axisId, Direction::Backward);
 }
 
 void AxisViewModelCore::jogNegativeReleased() {
@@ -75,7 +76,7 @@ void AxisViewModelCore::jogNegativeReleased() {
     TraceScope scope("G1", "Y", traceId);
     LOG_INFO(LogLayer::UI, "AxisVM", "User RELEASED Jog Negative (-)");
 
-    m_jogOrch.stopJog(Direction::Backward);
+    m_jogOrch.stopJog(m_axisId, Direction::Backward);
 }
 
 void AxisViewModelCore::moveAbsolute(double targetPos)
@@ -88,7 +89,7 @@ void AxisViewModelCore::moveAbsolute(double targetPos)
     LOG_INFO(LogLayer::UI, "AxisVM", "User requested MoveAbsolute to " + std::to_string(targetPos));
 
     // 2. 正常调用业务层 (不需要改 start 的参数)
-    m_absOrch.start(targetPos);
+    m_absOrch.start(m_axisId, targetPos);
 }
 
 void AxisViewModelCore::moveRelative(double distance)
@@ -100,12 +101,12 @@ void AxisViewModelCore::moveRelative(double distance)
     LOG_INFO(LogLayer::UI, "AxisVM", "User requested MoveRelative distance=" + std::to_string(distance));
 
     // 2. 发起相对运动
-    m_relOrch.start(distance);
+    m_relOrch.start(m_axisId, distance);
 }
 
 void AxisViewModelCore::stop()
 {
-    m_stopUc.execute(m_axis);
+    m_stopUc.execute(m_axisId);
 }
 
 void AxisViewModelCore::setJogVelocity(double v) { m_axis.setJogVelocity(v); }

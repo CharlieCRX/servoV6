@@ -3,6 +3,7 @@
 
 #include <string>
 #include "entity/Axis.h"
+#include "entity/AxisId.h"
 #include "policy/JogOrchestrator.h"
 #include "policy/AutoAbsMoveOrchestrator.h"
 #include "policy/AutoRelMoveOrchestrator.h"
@@ -10,8 +11,8 @@
 
 class AxisViewModelCore {
 public:
-    // 依赖注入：注入领域实体与策略编排器
-    AxisViewModelCore(Axis& axis, 
+    // 依赖注入：注入 AxisId + 领域实体与策略编排器
+    AxisViewModelCore(AxisId id, Axis& axis, 
                       JogOrchestrator& jogOrch, 
                       AutoAbsMoveOrchestrator& absOrch,
                       AutoRelMoveOrchestrator& relOrch,
@@ -49,6 +50,7 @@ public:
     void tick();
 
 private:
+    AxisId m_axisId;
     Axis& m_axis;
     JogOrchestrator& m_jogOrch;
     AutoAbsMoveOrchestrator& m_absOrch;

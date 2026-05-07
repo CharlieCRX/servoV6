@@ -1,51 +1,26 @@
 import QtQuick
 import QtQuick.Window
-import QtQuick.Layouts
 import servoV6
 
+/**
+ * Main.qml — 应用入口窗口
+ * 委托给 MainDashboard，后者根据注入的 axisVMs / gantryVMs 自动渲染 Tab 页
+ *
+ * 注入依赖：
+ *   - axisVMs  (QVariantMap): 独立轴 VM 映射表 (key: 轴名 → value: QtAxisViewModel*)
+ *   - gantryVMs (QVariantMap): 龙门组 VM 映射表 (key: 组名 → value: QtGantryViewModel*)
+ */
 Window {
     id: mainWindow
     width: 1280
     height: 720
     visible: true
-    title: qsTr("servoV6 - UI Integration Test")
-    color: Theme.bgDark
+    title: qsTr("servoV6 — Multi-Gantry Control")
+    color: "#0d1117"
 
-    // 🌟 核心：判定当前是否为小屏幕（移动端环境）
-    readonly property bool isMobile: mainWindow.width < 900
-
-    // 🌟 核心：根据屏幕尺寸动态计算边距和间距
-    readonly property int dynamicMargin: isMobile ? 10 * Theme.scale : 40 * Theme.scale
-    readonly property int dynamicSpacing: isMobile ? 10 * Theme.scale : 40 * Theme.scale
-
-    RowLayout {
+    MainDashboard {
         anchors.fill: parent
-        anchors.margins: dynamicMargin
-        spacing: dynamicSpacing
-
-        // 1. 左侧：轴选择与状态概览
-        AxisSelectorBlock {
-            // 小屏幕时适当压窄
-            Layout.preferredWidth: isMobile ? 180 * Theme.scale : 260 * Theme.scale 
-            Layout.fillHeight: true
-            onAxisChanged: (name) => {
-                console.log("切换到轴:", name)
-            }
-        }
-
-        // 2. 中央遥测看板
-        TelemetryBlock {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            viewModel: axisX1VM 
-        }
-
-        // 3. 右侧多功能控制面板
-        ActionControlBlock {
-            // 小屏幕时适当压窄
-            Layout.preferredWidth: isMobile ? 220 * Theme.scale : 300 * Theme.scale
-            Layout.fillHeight: true
-            viewModel: axisX1VM
-        }
+        axisVMs: axisVMs     // ← C++ contextProperty: QVariantMap
+        gantryVMs: gantryVMs // ← C++ contextProperty: QVariantMap
     }
 }
