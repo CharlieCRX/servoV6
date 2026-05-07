@@ -10,9 +10,22 @@ add_executable(unit_tests
     domain/gantry/test_gantry_coupling.cpp
     domain/gantry/test_gantry_safety.cpp
     domain/gantry/test_gantry_system_integration.cpp
+    domain/gantry/test_gantry_system_mode.cpp
+    domain/gantry/test_gantry_system_operability.cpp
+    domain/gantry/test_gantry_system_motion.cpp
+    domain/gantry/test_gantry_system_aggregation.cpp
+    domain/gantry/test_gantry_full_integration.cpp
+
+    domain/gantry/test_physical_axis_state.cpp
+    domain/gantry/test_operability.cpp
+    domain/gantry/test_command_result.cpp
+    domain/gantry/test_physical_axis_sync.cpp
     
     domain/test_system_context.cpp
     infrastructure/test_fake_plc.cpp
+    infrastructure/test_fake_gantry_feedback_port.cpp
+    infrastructure/test_fake_gantry_command_port.cpp
+    infrastructure/test_fake_gantry_event_bus.cpp
     infrastructure/test_system_integration.cpp
 
     application/policy/test_jog_orchestrator.cpp

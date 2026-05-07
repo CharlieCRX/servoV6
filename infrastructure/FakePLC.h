@@ -66,6 +66,10 @@ public:
         m_axes.at(id).jog_velocity = std::abs(v);
     }
 
+    void setPosition(AxisId id, double pos) {
+        m_axes.at(id).feedback.absPos = pos;
+    }
+
     void setLimits(AxisId id, double pos, double neg) {
         auto& axis = m_axes.at(id);
         axis.feedback.posLimitValue = pos;

@@ -7,6 +7,8 @@
 #include "../value/PositionConsistency.h"
 #include "../value/SafetyCheckResult.h"
 #include "../event/GantryEvents.h"
+#include "../port/IGantryStateQuery.h"
+#include "../port/IGantryEventPublisher.h"
 #include <vector>
 #include <string>
 
@@ -45,7 +47,7 @@ struct CommandResult {
     GantryEvents::Event event;
 };
 
-class GantrySystem {
+class GantrySystem : public IGantryStateQuery, public IGantryEventPublisher {
 public:
     /**
      * @brief 构造龙门系统
@@ -60,7 +62,72 @@ public:
     // 模式管理
     // ═══════════════════════════════════
 
-    GantryMode mode() const { return m_mode; }
+    GantryMode mode() const override { return m_mode; }
+
+    // ═══════════════════════════════════
+    // IGantryStateQuery 接口实现 (只读查询)
+    // ═══════════════════════════════════
+
+    bool isCoupled() const override { return ::isCoupled(m_mode); }
+
+    AxisState aggregatedState() const override {
+        return m_logical.aggregatedState();
+    }
+
+    double position() const override {
+        return m_logical.position().value();
+    }
+
+    double x1Position() const override {
+        return m_x1.position();
+    }
+
+    double x2Position() const override {
+        return m_x2.position();
+    }
+
+    bool x1Enabled() const override {
+        return m_x1.isEnabled();
+    }
+
+    bool x2Enabled() const override {
+        return m_x2.isEnabled();
+    }
+
+    bool isAnyAlarm() const override {
+        return m_x1.isAlarmed() || m_x2.isAlarmed();
+    }
+
+    bool isAnyLimit() const override {
+        return m_x1.isAnyLimitActive() || m_x2.isAnyLimitActive();
+    }
+
+    bool canAcceptCommand() const override {
+        return m_logical.canAcceptCommand();
+    }
+
+    bool isTargetOperable(AxisId target) const override {
+        if (::isCoupled(m_mode)) {
+            return target == AxisId::X;
+        } else {
+            return target == AxisId::X1 || target == AxisId::X2;
+        }
+    }
+
+    std::string stateDescription() const override {
+        if (m_x1.isAlarmed() || m_x2.isAlarmed()) return "Error: Alarm active";
+        if (m_x1.isAnyLimitActive() || m_x2.isAnyLimitActive()) return "Limit: Axis at limit";
+        if (::isCoupled(m_mode)) return "Coupled";
+        return "Decoupled";
+    }
+
+    // ═══════════════════════════════════
+    // IGantryEventPublisher 接口实现
+    // ═══════════════════════════════════
+
+    void publish(const GantryEvents::Event& event) override {
+        m_events.push_back(event);
+    }
 
     /**
      * @brief 联动建立申请 (约束 12-13)
@@ -107,23 +174,6 @@ public:
     // ═══════════════════════════════════
     // 操作目标互斥检查 (约束 18)
     // ═══════════════════════════════════
-
-    /**
-     * @brief 检查指定目标在当前模式下是否可操作
-     *
-     * Coupled 模式: 只允许 AxisId::X
-     * Decoupled 模式: 只允许 AxisId::X1 或 AxisId::X2
-     *
-     * @param target 操作目标轴标识
-     * @return true = 当前模式下该目标可操作
-     */
-    bool isTargetOperable(AxisId target) const {
-        if (isCoupled(m_mode)) {
-            return target == AxisId::X;
-        } else {
-            return target == AxisId::X1 || target == AxisId::X2;
-        }
-    }
 
     /**
      * @brief 综合可操作性检查
@@ -182,7 +232,7 @@ public:
         }
 
         // Step 4: 命令槽检查 (仅对逻辑轴 X)
-        if (target == AxisId::X || isCoupled(m_mode)) {
+        if (target == AxisId::X || ::isCoupled(m_mode)) {
             if (!m_logical.canAcceptCommand()) {
                 return Operability::Rejected_Busy;
             }
@@ -204,7 +254,7 @@ public:
     CommandResult jog(AxisId target, MotionDirection dir) {
         // Jog 可以覆盖正在执行的 Jog (约束 19: TC-6.6)
         // 先清除命令槽中的 Jog，再走正常的操作检查流程
-        if (isCoupled(m_mode) || target == AxisId::X) {
+        if (::isCoupled(m_mode) || target == AxisId::X) {
             if (m_logical.pendingCommand().type == LogicalAxis::CommandType::Jog) {
                 m_logical.clearCommand();
             }
@@ -218,7 +268,7 @@ public:
         }
 
         // 写入命令槽
-        if (isCoupled(m_mode)) {
+        if (::isCoupled(m_mode)) {
             std::string err = m_logical.tryAcceptJog(dir);
             if (!err.empty()) {
                 auto event = GantryEvents::Event::commandRejected(err);
@@ -245,7 +295,7 @@ public:
             return {false, operabilityToString(op), event};
         }
 
-        if (isCoupled(m_mode)) {
+        if (::isCoupled(m_mode)) {
             std::string err = m_logical.tryAcceptMoveAbsolute(pos);
             if (!err.empty()) {
                 auto event = GantryEvents::Event::commandRejected(err);
@@ -270,7 +320,7 @@ public:
             return {false, operabilityToString(op), event};
         }
 
-        if (isCoupled(m_mode)) {
+        if (::isCoupled(m_mode)) {
             std::string err = m_logical.tryAcceptMoveRelative(delta);
             if (!err.empty()) {
                 auto event = GantryEvents::Event::commandRejected(err);
@@ -350,7 +400,7 @@ public:
         }
 
         // 联动维持检查 (约束 14)
-        if (isCoupled(m_mode)) {
+        if (::isCoupled(m_mode)) {
             checkSyncMaintenance();
         }
 
@@ -374,7 +424,7 @@ public:
      * @return true = 同步正常, false = 偏差超限
      */
     bool checkSyncMaintenance() {
-        if (!isCoupled(m_mode)) return true;
+        if (!::isCoupled(m_mode)) return true;
 
         auto result = CouplingCondition::checkPositionOnly(
             m_x1.position(), m_x2.position()
@@ -465,7 +515,7 @@ private:
         }
 
         // Step 4: 命令槽检查
-        if (target == AxisId::X || isCoupled(m_mode)) {
+        if (target == AxisId::X || ::isCoupled(m_mode)) {
             if (!m_logical.canAcceptCommand()) {
                 return Operability::Rejected_Busy;
             }

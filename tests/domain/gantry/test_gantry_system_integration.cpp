@@ -272,6 +272,22 @@ TEST(GantrySystemIntegration, MultipleOperations_MultipleEvents) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// TS5.6.2: events() 只读不消耗
+// ═══════════════════════════════════════════════════════════
+
+TEST(GantrySystemIntegration, EventsReadOnlyDoesNotConsume) {
+    GantrySystem gantry = makeReadyGantry();
+    gantry.requestCoupling();
+
+    // events() 返回只读引用，不清空
+    EXPECT_FALSE(gantry.events().empty());
+    EXPECT_FALSE(gantry.events().empty());  // 第二次仍有
+    // drainEvents() 才清空
+    gantry.drainEvents();
+    EXPECT_TRUE(gantry.events().empty());
+}
+
+// ═══════════════════════════════════════════════════════════
 // 补充：聚合状态下操作互斥
 // ═══════════════════════════════════════════════════════════
 
