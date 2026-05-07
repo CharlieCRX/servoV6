@@ -42,6 +42,7 @@ qt_add_qml_module(appservoV6
     RESOURCE_PREFIX "/qt/qml"
     QML_FILES
         Main.qml
+        presentation/qml/core/Theme.qml
         presentation/qml/components/IndustrialButton.qml
         presentation/qml/components/AxisItemDelegate.qml
         presentation/qml/components/VelocitySettingsPopup.qml
