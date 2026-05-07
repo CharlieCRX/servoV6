@@ -73,11 +73,16 @@ Rectangle {
             // --- X1X2 联动 (Phase 7 预留) ---
             AxisItemDelegate {
                 name: "X1/X2 联动"
-                isActive: root.currentAxisName === "X1X2"
-                statusText: "双轴模式"
+                // 1. 将判断条件改为 "Gantry A"
+                isActive: root.currentAxisName === "Gantry A"
                 isDual: true
-                opacity: 0.6
-                onClicked: {}
+                opacity: 1.0
+
+                onClicked: {
+                    // 2. 将内部状态和发出的信号都改为 "Gantry A"
+                    root.currentAxisName = "Gantry A"
+                    root.axisChanged("Gantry A")
+                }
             }
         }
 

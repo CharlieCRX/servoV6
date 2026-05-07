@@ -24,11 +24,24 @@ Item {
 
     // ── 切换函数 ──
     function switchToAxis(name) {
-        let idx = axisKeys.indexOf(name);
-        if (idx !== -1) {
-            root.currentAxisName = name;
-            contentView.currentIndex = idx;
-            console.log("Switching UI to Axis:", name, "at Index:", idx);
+        root.currentAxisName = name;
+
+        // 1. 先检查是否是单轴 (Y, Z, R)
+        let axisIdx = axisKeys.indexOf(name);
+        if (axisIdx !== -1) {
+            contentView.currentIndex = axisIdx;
+            console.log("切换到单轴:", name, "索引:", axisIdx);
+            return;
+        }
+
+        // 2. 如果不是单轴，检查是否是龙门组
+        let gantryIdx = gantryKeys.indexOf(name);
+        if (gantryIdx !== -1) {
+            // 关键点：索引偏移量 = 单轴的总数 + 当前龙门组的序号
+            let finalIdx = axisKeys.length + gantryIdx;
+            contentView.currentIndex = finalIdx;
+            console.log("切换到龙门组:", name, "计算索引:", finalIdx);
+            return;
         }
     }
 
