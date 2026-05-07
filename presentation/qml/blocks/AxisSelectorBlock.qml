@@ -33,33 +33,39 @@ Rectangle {
             Layout.fillWidth: true
             spacing: 10 * Theme.scale
 
-            // --- Y 轴 (当前开发重点) ---
+            // --- Y 轴 ---
             AxisItemDelegate {
                 name: "Y 轴 (水平)"
                 isActive: root.currentAxisName === "Y"
                 statusText: isActive ? "控制中" : "待机"
                 onClicked: {
                     root.currentAxisName = "Y"
-                    root.axisChanged("Y")
+                    root.axisChanged("Y") // 发出信号
                 }
             }
 
-            // --- Z 轴 (预留) ---
+            // --- Z 轴 ---
             AxisItemDelegate {
                 name: "Z 轴 (垂直)"
                 isActive: root.currentAxisName === "Z"
-                statusText: "未就绪"
-                opacity: 0.5 // 置灰表示尚未开发
-                onClicked: {} 
+                statusText: isActive ? "控制中" : "待机"
+                opacity: 1.0 // 取消置灰
+                onClicked: {
+                    root.currentAxisName = "Z"
+                    root.axisChanged("Z") // 发出信号
+                }
             }
 
-            // --- R 轴 (预留) ---
+            // --- R 轴 ---
             AxisItemDelegate {
                 name: "R 轴 (旋转)"
                 isActive: root.currentAxisName === "R"
-                statusText: "未就绪"
-                opacity: 0.5
-                onClicked: {}
+                statusText: isActive ? "控制中" : "待机"
+                opacity: 1.0 // 取消置灰
+                onClicked: {
+                    root.currentAxisName = "R"
+                    root.axisChanged("R") // 发出信号
+                }
             }
 
             Item { height: 20 * Theme.scale } // 间距

@@ -4,198 +4,159 @@ import QtQuick.Layouts
 import servoV6
 
 /**
- * MainDashboard.qml
- * 主面板总装区 — 支持多独立轴 + 多组龙门控制的 Tab 视图
- *
- * 数据源：
- *   - axisVMs  (QVariantMap): key=轴名("Y","Z","R") → value=QtAxisViewModel*
- *   - gantryVMs (QVariantMap): key=组名("Gantry-A",...) → value=QtGantryViewModel*
+ * MainDashboard.qml - 重构版
+ * 1. 侧边栏全局化，支持点击实时切换
+ * 2. 默认启动展示并定位到 R 轴
  */
 Item {
     id: root
 
-    // ── 外部注入属性 ──
-    property var axisVMs: ({})       // 独立轴 VM 映射表
-    property var gantryVMs: ({})     // 龙门组 VM 映射表
+    // --- 核心属性 ---
+    property var axisVMs: ({})       // 由外部注入
+    property var gantryVMs: ({})     // 由外部注入
 
-    // ── 辅助：获取独立轴 key 列表 ──
-    readonly property var axisKeys: axisVMs ? Object.keys(axisVMs) : []
-    readonly property var gantryKeys: gantryVMs ? Object.keys(gantryVMs) : []
+    // 默认选中的轴名称改为 "R"
+    property string currentAxisName: "R"
 
+    // ── 辅助逻辑：获取排序后的键列表，确保索引稳定 ──
+    readonly property var axisKeys: axisVMs ? Object.keys(axisVMs).sort() : []
+    readonly property var gantryKeys: gantryVMs ? Object.keys(gantryVMs).sort() : []
+
+    // ── 切换函数 ──
+    function switchToAxis(name) {
+        let idx = axisKeys.indexOf(name);
+        if (idx !== -1) {
+            root.currentAxisName = name;
+            contentView.currentIndex = idx;
+            console.log("Switching UI to Axis:", name, "at Index:", idx);
+        }
+    }
+
+    // ── 启动初始化 ──
+    Component.onCompleted: {
+        // 使用 callLater 确保 Repeater 完成对象实例化后再执行跳转
+        Qt.callLater(() => {
+            switchToAxis("R");
+        });
+    }
+
+    // 主背景
     Rectangle {
         anchors.fill: parent
         color: "#0d1117"
 
-        ColumnLayout {
+        // 使用 RowLayout 将界面分为 [左侧导航] 和 [右侧内容]
+        RowLayout {
             anchors.fill: parent
-            anchors.margins: 12
-            spacing: 10
+            anchors.margins: 15
+            spacing: 15
 
-            // ── 顶栏 ──
-            RowLayout {
-                Layout.fillWidth: true
-                Text {
-                    text: "ServoV6 控制系统"
-                    color: "#e0e0e0"
-                    font.pixelSize: 18
-                    font.bold: true
-                }
-                Item { Layout.fillWidth: true }
-                // 日志状态灯
-                Rectangle {
-                    width: 8; height: 8; radius: 4
-                    color: "#4caf50"
-                }
-                Text {
-                    text: "日志运行中"
-                    color: "#888"
-                    font.pixelSize: 10
+            // ==========================================
+            // 1. 左侧全局导航栏 (设备轴列表)
+            // ==========================================
+            AxisSelectorBlock {
+                id: globalSidebar
+                Layout.fillHeight: true
+                Layout.preferredWidth: 200 * Theme.scale
+
+                // 同步当前选中的轴名称，用于高亮显示
+                currentAxisName: root.currentAxisName
+
+                // 监听侧边栏发出的切换信号
+                onAxisChanged: (name) => {
+                    root.switchToAxis(name);
                 }
             }
 
-            // ── TabBar — 动态生成：独立轴 Tab + 龙门 Tab ──
-            TabBar {
-                id: tabBar
-                Layout.fillWidth: true
-                background: Rectangle { color: "#161b22" }
-
-                // 独立轴 Tab：每个轴一个 Tab
-                Repeater {
-                    id: axisTabs
-                    model: root.axisKeys
-
-                    TabButton {
-                        text: modelData
-                        contentItem: Text {
-                            text: parent.text
-                            color: parent.checked ? "#58a6ff" : "#8b949e"
-                            font.pixelSize: 13
-                            horizontalAlignment: Text.AlignHCenter
-                        }
-                        background: Rectangle {
-                            color: parent.checked ? "#1a2332" : "#161b22"
-                            Rectangle {
-                                anchors.bottom: parent.bottom
-                                width: parent.width; height: 2
-                                color: parent.parent.checked ? "#58a6ff" : "transparent"
-                            }
-                        }
-                    }
-                }
-
-                // 龙门组 Tab：每个龙门组一个 Tab
-                Repeater {
-                    id: gantryTabs
-                    model: root.gantryKeys
-
-                    TabButton {
-                        text: "[龙门] " + modelData
-                        contentItem: Text {
-                            text: parent.text
-                            color: parent.checked ? "#4caf50" : "#8b949e"
-                            font.pixelSize: 13
-                            horizontalAlignment: Text.AlignHCenter
-                        }
-                        background: Rectangle {
-                            color: parent.checked ? "#1a2e1a" : "#161b22"
-                            Rectangle {
-                                anchors.bottom: parent.bottom
-                                width: parent.width; height: 2
-                                color: parent.parent.checked ? "#4caf50" : "transparent"
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ── 内容区 (StackLayout) ──
-            StackLayout {
-                id: contentStack
+            // ==========================================
+            // 2. 右侧主内容区
+            // ==========================================
+            ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                currentIndex: tabBar.currentIndex
+                spacing: 12
 
-                // ── 独立轴页面 (按 axisKeys 顺序动态生成) ──
-                Repeater {
-                    id: axisPages
-                    model: root.axisKeys
+                // ── 顶栏：面包屑与全局状态 ──
+                RowLayout {
+                    Layout.fillWidth: true
+                    height: 40 * Theme.scale
 
-                    Item {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
+                    Text {
+                        text: "设备控制面板 / " + root.currentAxisName + " 轴"
+                        color: Theme.textMain
+                        font.pixelSize: Theme.fontLarge
+                        font.bold: true
+                    }
 
-                        property string axisName: modelData
-                        property var vm: root.axisVMs[axisName]
+                    Item { Layout.fillWidth: true } // 占位弹簧
 
-                        RowLayout {
-                            anchors.fill: parent
-                            spacing: 10
-
-                            // 轴选择器侧栏
-                            AxisSelectorBlock {
-                                id: axisSelector
-                                Layout.fillHeight: true
-                                Layout.preferredWidth: 180
-                                // 高亮当前轴
-                                currentAxisName: axisName
-                            }
-
-                            // 操作控制面板
-                            ActionControlBlock {
-                                id: actionBlock
-                                Layout.fillHeight: true
-                                Layout.preferredWidth: 300
-                                viewModel: vm
-                            }
-
-                            // 遥测数据面板
-                            TelemetryBlock {
-                                id: telemetryBlock
-                                Layout.fillHeight: true
-                                Layout.fillWidth: true
-                                viewModel: vm
-                            }
+                    // 这里可以保留原有的状态指示灯或心跳包显示
+                    Rectangle {
+                        width: 12; height: 12; radius: 6
+                        color: "#4caf50"
+                        Text {
+                            anchors.left: parent.right
+                            anchors.leftMargin: 8
+                            text: "PLC Connected"
+                            color: Theme.textDim
+                            font.pixelSize: Theme.fontSmall
+                            anchors.verticalCenter: parent.verticalCenter
                         }
                     }
                 }
 
-                // ── 龙门组页面 (按 gantryKeys 顺序动态生成) ──
-                Repeater {
-                    id: gantryPages
-                    model: root.gantryKeys
+                // ── 核心视图切换容器 ──
+                StackLayout {
+                    id: contentView
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    currentIndex: 0 // 初始索引
 
-                    Item {
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
+                    // --- 动态生成独立轴控制页面 ---
+                    Repeater {
+                        model: root.axisKeys
+                        delegate: RowLayout {
+                            id: axisPage
+                            property string axisName: modelData
+                            property var vm: root.axisVMs[axisName]
 
-                        property string groupName: modelData
-                        property var vm: root.gantryVMs[groupName]
+                            spacing: 15
 
-                        RowLayout {
-                            anchors.fill: parent
-                            spacing: 10
-
-                            AxisSelectorBlock {
+                            // 每一个页面包含 遥测 + 控制
+                            TelemetryBlock {
                                 Layout.fillHeight: true
-                                Layout.preferredWidth: 180
+                                Layout.preferredWidth: 360 * Theme.scale
+                                viewModel: axisPage.vm
+                            }
+
+                            ActionControlBlock {
+                                Layout.fillHeight: true
+                                Layout.fillWidth: true
+                                viewModel: axisPage.vm
+                            }
+                        }
+                    }
+
+                    // --- 动态生成龙门组控制页面 (如有) ---
+                    Repeater {
+                        model: root.gantryKeys
+                        delegate: RowLayout {
+                            property string gantryName: modelData
+                            property var vm: root.gantryVMs[gantryName]
+                            spacing: 15
+
+                            GantryTelemetryBlock {
+                                Layout.fillHeight: true
+                                Layout.preferredWidth: 320 * Theme.scale
+                                gantryVM: vm
+                                groupName: gantryName
                             }
 
                             GantryControlBlock {
-                                id: gantryControl
                                 Layout.fillHeight: true
-                                Layout.preferredWidth: 420
+                                Layout.fillWidth: true
                                 gantryVM: vm
-                                groupName: groupName
-                            }
-
-                            GantryTelemetryBlock {
-                                id: gantryTelemetry
-                                Layout.fillHeight: true
-                                Layout.preferredWidth: 300
-                                gantryVM: vm
-                                groupName: groupName
+                                groupName: gantryName
                             }
                         }
                     }

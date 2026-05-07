@@ -252,10 +252,16 @@ int main(int argc, char *argv[])
     qmlRegisterSingletonInstance("servoV6", 1, 0, "Theme", &Theme::instance());
 
     // 注入独立轴 ViewModel 映射表
-    engine.rootContext()->setContextProperty("axisVMs", axisVMsVariant);
+    engine.rootContext()->setContextProperty(
+        "globalAxisVMs",
+        axisVMsVariant
+    );
 
     // 注入龙门 ViewModel 映射表
-    engine.rootContext()->setContextProperty("gantryVMs", gantryVMsVariant);
+    engine.rootContext()->setContextProperty(
+        "globalGantryVMs",
+        gantryVMsVariant
+    );
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
         &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);

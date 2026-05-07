@@ -20,7 +20,8 @@ Window {
 
     MainDashboard {
         anchors.fill: parent
-        axisVMs: axisVMs     // ← C++ contextProperty: QVariantMap
-        gantryVMs: gantryVMs // ← C++ contextProperty: QVariantMap
+
+        axisVMs: globalAxisVMs
+        gantryVMs: globalGantryVMs
     }
 }
