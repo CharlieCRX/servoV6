@@ -24,9 +24,6 @@
 // ── 龙门管线头文件 ──
 #include "domain/entity/GantrySystem.h"
 #include "domain/entity/PhysicalAxis.h"
-#include "domain/service/GantryCouplingService.h"
-#include "domain/service/GantrySafetyService.h"
-#include "domain/service/GantryStateAggregator.h"
 #include "infrastructure/FakeGantryCommandPort.h"
 #include "infrastructure/FakeGantryFeedbackPort.h"
 #include "infrastructure/FakeGantryEventBus.h"
@@ -172,11 +169,6 @@ int main(int argc, char *argv[])
     PhysicalAxis physX2(AxisId::X2);
     GantrySystem gantryA(physX1, physX2);
 
-    // 领域服务 (无状态，传入 GantrySystem& 使用)
-    GantryCouplingService couplingSvc;
-    GantrySafetyService safetySvc;
-    GantryStateAggregator aggregatorSvc;
-
     // 龙门 Infrastructure 端口 (Fake 实现)
     FakeGantryCommandPort gantryCmdPort(plc);
     FakeGantryFeedbackPort gantryFbPort(plc);   // 从 FakePLC 读取 X1/X2 状态
@@ -195,6 +187,9 @@ int main(int argc, char *argv[])
     plc.setSimulatedMoveVelocity(AxisId::X2, 40.0);
     plc.setLimits(AxisId::X1, 800.0, -800.0);
     plc.setLimits(AxisId::X2, 800.0, -800.0);
+    plc.setPosition(AxisId::X1, 0);
+    plc.setPosition(AxisId::X2, 0);
+
 
     LOG_INFO(LogLayer::APP, "System", "Gantry-A pipeline constructed (X1+X2→X)");
 
