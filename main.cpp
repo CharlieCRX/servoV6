@@ -153,7 +153,7 @@ int main(int argc, char *argv[])
 
     // ==========================================
     // 3. 龙门管线 — 多组 / 双轴龙门支持
-    //    每个龙门组由两个物理轴 (X1+X2) 和
+    //    每个龙门组由两个物理轴 (X1+X2) 和内部的
     //    一个逻辑轴 (X) 组成聚合根 GantrySystem。
     //
     //    架构简化：
@@ -170,7 +170,6 @@ int main(int argc, char *argv[])
     // ── 龙门组 "Gantry-A" (X1 + X2 → X) — 双轴龙门 ──
     PhysicalAxis physX1(AxisId::X1);
     PhysicalAxis physX2(AxisId::X2);
-    LogicalAxis logicX;
     GantrySystem gantryA(physX1, physX2);
 
     // 领域服务 (无状态，传入 GantrySystem& 使用)
@@ -198,23 +197,6 @@ int main(int argc, char *argv[])
     plc.setLimits(AxisId::X2, 800.0, -800.0);
 
     LOG_INFO(LogLayer::APP, "System", "Gantry-A pipeline constructed (X1+X2→X)");
-
-    // ── (预留) 龙门组 "Gantry-B" (X3 + X4 → X2_Logical) — 多组扩展示例 ──
-    // 取消注释以下代码即可激活第二组龙门:
-    //
-    // PhysicalAxis physX3(AxisId::X3);
-    // PhysicalAxis physX4(AxisId::X4);
-    // LogicalAxis logicX2;
-    // GantrySystem gantryB(physX3, physX4);
-    // GantryViewModelCore gantryBVmCore(gantryB);
-    // QtGantryViewModel qtGantryBVM(&gantryBVmCore);
-    //
-    // plc.forceState(AxisId::X3, AxisState::Disabled);
-    // plc.forceState(AxisId::X4, AxisState::Disabled);
-    // plc.setSimulatedJogVelocity(AxisId::X3, 15.0);
-    // ...
-    //
-    // gantryVMMap["Gantry-B"] = &qtGantryBVM;
 
     // ── 组装龙门 VM 映射表 (支持 QML 动态渲染多组龙门 Tab) ──
     QMap<QString, QObject*> gantryVMMap;
