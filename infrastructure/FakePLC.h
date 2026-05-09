@@ -30,10 +30,12 @@ public:
 
     // 由外部时钟驱动的物理引擎心跳（遍历所有轴独立更新）
     void tick(int ms) {
+
+        m_tickCount++;
+        // 🌟 2. 判断是否到了该打印的帧（比如每 100 个 tick 打印一次，即每秒打印一次）
+        bool shouldLog = (m_tickCount % 100 == 0);
+
         for (auto& [id, axis] : m_axes) {
-            // 🌟 核心规范：高频物理心跳采样，每 50 帧（模拟 500ms）打印一次
-            // LOG_TRACE_EVERY_N(50, LogLayer::HAL, "PLC", 
-            //     "Tick axis=" + axisIdToString(id) + " pos=" + std::to_string(axis.feedback.absPos));
 
             if (axis.stop_requested) {
                 axis.feedback.state = AxisState::Idle;
@@ -45,6 +47,13 @@ public:
             checkHardwareLimits(axis);
 
             axis.feedback.relPos = axis.feedback.absPos - axis.feedback.relZeroAbsPos;
+
+            // 🌟 核心规范：高频物理心跳采样，每 50 帧（模拟 500ms）打印一次
+            if (shouldLog) {
+                LOG_TRACE(LogLayer::HAL, "PLC", 
+                    "Tick axis=" + axisIdToString(id) + 
+                    " pos=" + std::to_string(axis.feedback.absPos));
+            }
         }
     }
 
@@ -94,19 +103,9 @@ private:
         bool stop_requested = false;
     };
 
-    std::unordered_map<AxisId, AxisStateInternal> m_axes;
+    uint64_t m_tickCount = 0; // 🌟 1. 增加一个 PLC 自己专属的滴答计数器
 
-    // 辅助：AxisId 转字符串（用于日志）
-    static std::string axisIdToString(AxisId id) {
-        switch (id) {
-            case AxisId::Y:  return "Y";
-            case AxisId::Z:  return "Z";
-            case AxisId::R:  return "R";
-            case AxisId::X1: return "X1";
-            case AxisId::X2: return "X2";
-            default:         return "?";
-        }
-    }
+    std::unordered_map<AxisId, AxisStateInternal> m_axes;
 
     static constexpr int ENABLE_DELAY_MS = 150;
 

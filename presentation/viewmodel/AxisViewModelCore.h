@@ -12,7 +12,7 @@
 class AxisViewModelCore {
 public:
     // 依赖注入：注入 AxisId + 领域实体与策略编排器
-    AxisViewModelCore(AxisId id, Axis& axis, 
+    AxisViewModelCore(const std::string& groupId, AxisId id, Axis& axis, 
                       JogOrchestrator& jogOrch, 
                       AutoAbsMoveOrchestrator& absOrch,
                       AutoRelMoveOrchestrator& relOrch,
@@ -50,6 +50,7 @@ public:
     void tick();
 
 private:
+    std::string m_groupId;
     AxisId m_axisId;
     Axis& m_axis;
     JogOrchestrator& m_jogOrch;

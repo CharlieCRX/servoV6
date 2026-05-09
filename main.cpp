@@ -95,7 +95,7 @@ int main(int argc, char *argv[])
     JogOrchestrator jogOrchY(enableUcY, jogUcY);
     AutoAbsMoveOrchestrator absOrchY(enableUcY, moveAbsUcY);
     AutoRelMoveOrchestrator relOrchY(enableUcY, moveRelUcY);
-    AxisViewModelCore axisVmCoreY(AxisId::Y, axisY, jogOrchY, absOrchY, relOrchY, stopUcY);
+    AxisViewModelCore axisVmCoreY("G1", AxisId::Y, axisY, jogOrchY, absOrchY, relOrchY, stopUcY);
     QtAxisViewModel qtAxisVM_Y(&axisVmCoreY);
 
     // ── 轴 Z ──
@@ -109,7 +109,7 @@ int main(int argc, char *argv[])
     JogOrchestrator jogOrchZ(enableUcZ, jogUcZ);
     AutoAbsMoveOrchestrator absOrchZ(enableUcZ, moveAbsUcZ);
     AutoRelMoveOrchestrator relOrchZ(enableUcZ, moveRelUcZ);
-    AxisViewModelCore axisVmCoreZ(AxisId::Z, axisZ, jogOrchZ, absOrchZ, relOrchZ, stopUcZ);
+    AxisViewModelCore axisVmCoreZ("G1", AxisId::Z, axisZ, jogOrchZ, absOrchZ, relOrchZ, stopUcZ);
     QtAxisViewModel qtAxisVM_Z(&axisVmCoreZ);
 
     // ── 轴 R ──
@@ -123,7 +123,7 @@ int main(int argc, char *argv[])
     JogOrchestrator jogOrchR(enableUcR, jogUcR);
     AutoAbsMoveOrchestrator absOrchR(enableUcR, moveAbsUcR);
     AutoRelMoveOrchestrator relOrchR(enableUcR, moveRelUcR);
-    AxisViewModelCore axisVmCoreR(AxisId::R, axisR, jogOrchR, absOrchR, relOrchR, stopUcR);
+    AxisViewModelCore axisVmCoreR("G1", AxisId::R, axisR, jogOrchR, absOrchR, relOrchR, stopUcR);
     QtAxisViewModel qtAxisVM_R(&axisVmCoreR);
 
     // ── 轴同步服务 (单轴) ──
@@ -256,6 +256,7 @@ int main(int argc, char *argv[])
         qtAxisVM_R.tick();
 
         // ── 物理世界推进 (FakePLC 内部遍历所有轴独立更新) ──
+        TraceScope scope("Sys", "HAL", "Tick");
         plc.tick(10);
 
         // ── 单轴传感器回流 ──

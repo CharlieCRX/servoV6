@@ -1,23 +1,23 @@
 #include "AxisViewModelCore.h"
 #include "infrastructure/logger/Logger.h"
-#include <random> // 用于生成伪UUID作为TraceId
 
 // 假设这是一个简单的 UUID 生成器
 std::string generateTraceId() {
     return "T-" + std::to_string(rand() % 10000); 
 }
 
-AxisViewModelCore::AxisViewModelCore(AxisId id, Axis& axis, 
-                                     JogOrchestrator& jogOrch, 
-                                     AutoAbsMoveOrchestrator& absOrch, 
+AxisViewModelCore::AxisViewModelCore(const std::string& groupId, AxisId id, Axis& axis,
+                                     JogOrchestrator& jogOrch,
+                                     AutoAbsMoveOrchestrator& absOrch,
                                      AutoRelMoveOrchestrator& relOrch,
                                      StopAxisUseCase& stopUc)
-    : m_axisId(id),
-      m_axis(axis), 
-      m_jogOrch(jogOrch), 
-      m_absOrch(absOrch), 
+    : m_groupId(groupId),
+      m_axisId(id),
+      m_axis(axis),
+      m_jogOrch(jogOrch),
+      m_absOrch(absOrch),
       m_relOrch(relOrch),
-      m_stopUc(stopUc) 
+      m_stopUc(stopUc)
 {
 }
 
@@ -48,7 +48,7 @@ double AxisViewModelCore::negLimit() const { return m_axis.negativeSoftLimit(); 
 
 void AxisViewModelCore::jogPositivePressed() {
     std::string traceId = generateTraceId();
-    TraceScope scope("G1", "Y", traceId);
+    TraceScope scope(m_groupId, axisIdToString(m_axisId), traceId);
     LOG_INFO(LogLayer::UI, "AxisVM", "User PRESSED Jog Positive (+)");
     
     m_jogOrch.startJog(m_axisId, Direction::Forward);
@@ -56,7 +56,7 @@ void AxisViewModelCore::jogPositivePressed() {
 
 void AxisViewModelCore::jogPositiveReleased() {
     std::string traceId = generateTraceId();
-    TraceScope scope("G1", "Y", traceId);
+    TraceScope scope(m_groupId, axisIdToString(m_axisId), traceId);
     LOG_INFO(LogLayer::UI, "AxisVM", "User RELEASED Jog Positive (+)");
 
     m_jogOrch.stopJog(m_axisId, Direction::Forward);
@@ -65,7 +65,7 @@ void AxisViewModelCore::jogPositiveReleased() {
 void AxisViewModelCore::jogNegativePressed()
 {
     std::string traceId = generateTraceId();
-    TraceScope scope("G1", "Y", traceId);
+    TraceScope scope(m_groupId, axisIdToString(m_axisId), traceId);
     LOG_INFO(LogLayer::UI, "AxisVM", "User PRESSED Jog Negative (-)");
 
     m_jogOrch.startJog(m_axisId, Direction::Backward);
@@ -73,7 +73,7 @@ void AxisViewModelCore::jogNegativePressed()
 
 void AxisViewModelCore::jogNegativeReleased() {
     std::string traceId = generateTraceId();
-    TraceScope scope("G1", "Y", traceId);
+    TraceScope scope(m_groupId, axisIdToString(m_axisId), traceId);
     LOG_INFO(LogLayer::UI, "AxisVM", "User RELEASED Jog Negative (-)");
 
     m_jogOrch.stopJog(m_axisId, Direction::Backward);
@@ -84,7 +84,7 @@ void AxisViewModelCore::moveAbsolute(double targetPos)
     // 🌟 1. 创立操作生命周期上下文！
     // 只要离开这个函数作用域，TraceScope 自动销毁，极度安全
     std::string traceId = generateTraceId();
-    TraceScope scope("G1", "Y", traceId); 
+    TraceScope scope(m_groupId, axisIdToString(m_axisId), traceId);
 
     LOG_INFO(LogLayer::UI, "AxisVM", "User requested MoveAbsolute to " + std::to_string(targetPos));
 
@@ -96,7 +96,7 @@ void AxisViewModelCore::moveRelative(double distance)
 {
     // 🌟 1. 创立操作生命周期上下文！
     std::string traceId = generateTraceId();
-    TraceScope scope("G1", "Y", traceId); 
+    TraceScope scope(m_groupId, axisIdToString(m_axisId), traceId);
 
     LOG_INFO(LogLayer::UI, "AxisVM", "User requested MoveRelative distance=" + std::to_string(distance));
 
