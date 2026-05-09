@@ -34,7 +34,8 @@ public:
         m_stopIssued = false;
         m_disableIssued = false;
 
-        m_traceId = TraceScope::current().traceId;
+        m_savedContext = TraceScope::current();
+
         std::string dirStr = (dir == Direction::Forward) ? "Forward(+)" : "Backward(-)";
         LOG_INFO(LogLayer::APP, "JogOrch", "START Jog direction=" + dirStr);
     }
@@ -58,7 +59,7 @@ public:
     }
 
     void update(Axis& axis) {
-        TraceScope scope("G1", "Y", m_traceId);
+        TraceScope scope(m_savedContext.group, m_savedContext.axis, m_savedContext.traceId);
 
         // 全局最高优先级：硬件/状态错误拦截
         if (axis.state() == AxisState::Error) {
@@ -144,17 +145,16 @@ public:
     RejectionReason errorReason() const { return m_rejectionReason; }
 
 private:
+    AxisId m_targetId = AxisId::R; // 默认值，实际使用时会被 startJog 设置覆盖
     EnableUseCase& m_enableUc;
     JogAxisUseCase& m_jogUc;
 
     Step m_step = Step::Idle;
-    AxisId m_targetId = AxisId::Y;   // ⭐ 目标轴标识
+    LogContext m_savedContext;
     Direction m_dir = Direction::Forward;
     RejectionReason m_rejectionReason = RejectionReason::None;
 
     bool m_jogIssued = false;
     bool m_stopIssued = false;
     bool m_disableIssued = false;
-
-    std::string m_traceId = "N/A";
 };
