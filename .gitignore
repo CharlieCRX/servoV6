@@ -18,6 +18,7 @@
 .#*
 *.*#
 difflog.txt
+filetree
 core
 !core/
 tags

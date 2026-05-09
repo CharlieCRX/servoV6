@@ -179,8 +179,8 @@ int main(int argc, char *argv[])
     QtGantryViewModel qtGantryAVM(&gantryAVmCore);
 
     // 初始化龙门物理轴状态
-    plc.forceState(AxisId::X1, AxisState::Disabled);
-    plc.forceState(AxisId::X2, AxisState::Disabled);
+    plc.forceState(AxisId::X1, AxisState::Idle);
+    plc.forceState(AxisId::X2, AxisState::Idle);
     plc.setSimulatedJogVelocity(AxisId::X1, 15.0);
     plc.setSimulatedJogVelocity(AxisId::X2, 15.0);
     plc.setSimulatedMoveVelocity(AxisId::X1, 40.0);
@@ -267,8 +267,8 @@ int main(int argc, char *argv[])
         {
             auto x1Fb = gantryFbPort.getX1Feedback();
             auto x2Fb = gantryFbPort.getX2Feedback();
-            physX1.syncState(x1Fb);
-            physX2.syncState(x2Fb);
+            gantryA.x1().syncState(x1Fb);
+            gantryA.x2().syncState(x2Fb);
 
             // 根据 FakePLC 的 AxisState 映射物理轴运动类型
             auto toAggMotion = [](AxisState s) -> LogicalAxis::AggregatedMotion {
@@ -290,6 +290,8 @@ int main(int argc, char *argv[])
         LOG_TRACE_EVERY_N(100, LogLayer::HAL, "System",
             "Tick: X1.pos=" + std::to_string(physX1.position()) +
             " X2.pos=" + std::to_string(physX2.position()) +
+            " X1.isEnabled=" + std::to_string(physX1.isEnabled()) +
+            " X2.isEnabled=" + std::to_string(physX2.isEnabled()) +
             " Mode=" + std::string(::isCoupled(gantryA.mode()) ? "Coupled" : "Decoupled"));
     });
     systemClock.start(10); // 10ms 物理心跳
