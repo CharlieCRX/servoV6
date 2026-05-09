@@ -288,10 +288,10 @@ int main(int argc, char *argv[])
         // qtGantryBVM.tick();  // 预留
 
         LOG_TRACE_EVERY_N(100, LogLayer::HAL, "System",
-            "Tick: X1.pos=" + std::to_string(physX1.position()) +
-            " X2.pos=" + std::to_string(physX2.position()) +
-            " X1.isEnabled=" + std::to_string(physX1.isEnabled()) +
-            " X2.isEnabled=" + std::to_string(physX2.isEnabled()) +
+            "Tick: X1.pos=" + std::to_string(gantryA.x1().position()) +
+            " X2.pos=" + std::to_string(gantryA.x2().position()) +
+            " X1.isEnabled=" + std::to_string(gantryA.x1().isEnabled()) +
+            " X2.isEnabled=" + std::to_string(gantryA.x2().isEnabled()) +
             " Mode=" + std::string(::isCoupled(gantryA.mode()) ? "Coupled" : "Decoupled"));
     });
     systemClock.start(10); // 10ms 物理心跳

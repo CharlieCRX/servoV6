@@ -32,8 +32,8 @@ public:
     void tick(int ms) {
         for (auto& [id, axis] : m_axes) {
             // 🌟 核心规范：高频物理心跳采样，每 50 帧（模拟 500ms）打印一次
-            LOG_TRACE_EVERY_N(50, LogLayer::HAL, "PLC", 
-                "Tick axis=" + axisIdToString(id) + " pos=" + std::to_string(axis.feedback.absPos));
+            // LOG_TRACE_EVERY_N(50, LogLayer::HAL, "PLC", 
+            //     "Tick axis=" + axisIdToString(id) + " pos=" + std::to_string(axis.feedback.absPos));
 
             if (axis.stop_requested) {
                 axis.feedback.state = AxisState::Idle;

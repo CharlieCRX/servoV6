@@ -102,10 +102,10 @@ bool GantryViewModelCore::canCouple() const {
 CouplingCondition::Result GantryViewModelCore::requestCoupling() {
     auto result = m_gantry.requestCoupling();
     if (result.allowed) {
-        LOG_INFO(LogLayer::UI, "GantryVM", "requestCoupling → ACCEPTED");
+        LOG_INFO(LogLayer::UI, "GantryVM", "requestCoupling -> ACCEPTED");
         m_lastCommandResult = "Coupling: Accepted";
     } else {
-        LOG_WARN(LogLayer::UI, "GantryVM", "requestCoupling → REJECTED: " + result.failReason);
+        LOG_WARN(LogLayer::UI, "GantryVM", "requestCoupling -> REJECTED: " + result.failReason);
         m_lastCommandResult = "Coupling: Rejected — " + result.failReason;
     }
     return result;
@@ -151,7 +151,7 @@ void GantryViewModelCore::jogCoupledReverse() {
 
 void GantryViewModelCore::jogCoupledRelease() {
     auto result = m_gantry.stop(AxisId::X);
-    LOG_INFO(LogLayer::UI, "GantryVM", "jogCoupledRelease — stop sent to logical axis X");
+    LOG_INFO(LogLayer::UI, "GantryVM", "jogCoupledRelease - stop sent to logical axis X");
 }
 
 void GantryViewModelCore::moveAbsoluteX1(double targetPos) {
@@ -253,12 +253,12 @@ void GantryViewModelCore::tick() {
 
 void GantryViewModelCore::logCommandResult(const std::string& cmdName, const CommandResult& result) {
     if (result.accepted) {
-        LOG_INFO(LogLayer::UI, "GantryVM", cmdName + " → ACCEPTED");
+        LOG_INFO(LogLayer::UI, "GantryVM", cmdName + " -> ACCEPTED");
         m_lastCommandResult = cmdName + ": Accepted";
         m_commandLog.push_back("[OK] " + cmdName);
     } else {
         std::string reason = result.rejectReason.empty() ? "Unknown" : result.rejectReason;
-        LOG_WARN(LogLayer::UI, "GantryVM", cmdName + " → REJECTED: " + reason);
+        LOG_WARN(LogLayer::UI, "GantryVM", cmdName + " -> REJECTED: " + reason);
         m_lastCommandResult = cmdName + ": Rejected — " + reason;
         m_commandLog.push_back("[REJ] " + cmdName + " (" + reason + ")");
     }
@@ -274,7 +274,7 @@ void GantryViewModelCore::detectAndLogStateChanges() {
     if (currentMode != m_prevMode) {
         LOG_SUMMARY(LogLayer::DOM, "GantryVM",
             "Mode changed: " + std::string(m_prevMode == GantryMode::Coupled ? "Coupled" : "Decoupled") +
-            " → " + std::string(currentMode == GantryMode::Coupled ? "Coupled" : "Decoupled"));
+            " -> " + std::string(currentMode == GantryMode::Coupled ? "Coupled" : "Decoupled"));
         m_prevMode = currentMode;
     }
 
@@ -283,7 +283,7 @@ void GantryViewModelCore::detectAndLogStateChanges() {
     if (currentAggState != m_prevAggState) {
         LOG_SUMMARY(LogLayer::DOM, "GantryVM",
             "AggState changed: " + std::to_string(static_cast<int>(m_prevAggState)) +
-            " → " + std::to_string(static_cast<int>(currentAggState)) +
+            " -> " + std::to_string(static_cast<int>(currentAggState)) +
             " Desc=" + m_gantry.stateDescription());
         m_prevAggState = currentAggState;
     }
