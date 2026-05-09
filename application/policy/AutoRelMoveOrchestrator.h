@@ -33,14 +33,13 @@ public:
         m_motionObserved = false;   // 重置运动观测
         m_startPos = 0.0;           // 重置起点
 
-        m_traceId = TraceScope::current().traceId;
+        m_savedContext = TraceScope::current();
         LOG_INFO(LogLayer::APP, "RelOrch", "START MoveRelative distance=" + std::to_string(distance));
     }
 
     void update(Axis& axis)
     {
-        TraceScope scope("G1", "Y", m_traceId);
-        // ⭐ 全局错误拦截（最高优先级）
+        TraceScope scope(m_savedContext.group, m_savedContext.axis, m_savedContext.traceId);        // ⭐ 全局错误拦截（最高优先级）
         if (axis.state() == AxisState::Error) {
             LOG_ERROR(LogLayer::APP, "RelOrch", "Axis entered Error state globally!");
             m_step = Step::Error;
@@ -162,7 +161,7 @@ private:
 
     RejectionReason m_rejectionReason = RejectionReason::None;
 
-    std::string m_traceId = "N/A";
+    LogContext m_savedContext;
 };
 
 #endif // AUTO_REL_MOVE_ORCHESTRATOR_H

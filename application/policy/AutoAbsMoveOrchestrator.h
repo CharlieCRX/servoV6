@@ -25,13 +25,13 @@ public:
         m_step = Step::EnsuringEnabled;
         m_motionObserved = false;
 
-        m_traceId = TraceScope::current().traceId;
+        m_savedContext = TraceScope::current();
         LOG_INFO(LogLayer::APP, "AbsOrch", "START MoveAbsolute target=" + std::to_string(target));
     }
 
     void update(Axis& axis)
     {
-        TraceScope scope("G1", "Y", m_traceId);
+        TraceScope scope(m_savedContext.group, m_savedContext.axis, m_savedContext.traceId);
         // ⭐ 全局错误拦截（最高优先级）
         if (axis.state() == AxisState::Error) {
             LOG_ERROR(LogLayer::APP, "AbsOrch", "Axis entered Error state globally!");
@@ -128,5 +128,5 @@ private:
 
     RejectionReason m_rejectionReason = RejectionReason::None;
 
-    std::string m_traceId = "N/A";
+    LogContext m_savedContext;
 };
