@@ -2,6 +2,8 @@ include(GoogleTest)
 
 add_executable(unit_tests
 
+    application/policy/test_gantry_couple_orchestrator.cpp
+
     domain/gantry/test_gantry_group.cpp
     domain/gantry/test_gantry_coupling_state.cpp
 

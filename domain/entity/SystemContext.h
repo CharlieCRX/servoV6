@@ -53,7 +53,7 @@ public:
         registerAxis(AxisId::Y);
         registerAxis(AxisId::Z);
         registerAxis(AxisId::R);
-        registerAxis(AxisId::X);
+        registerAxis(AxisId::X);    // 虚拟轴 X（联动模式使用）
         registerAxis(AxisId::X1);
         registerAxis(AxisId::X2);
     }
