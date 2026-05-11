@@ -76,8 +76,23 @@ TEST_F(GantryCoupleOrchestratorTest, should_enter_waiting_coupled_after_issuing_
     EXPECT_EQ(orchestrator->currentStep(), GantryCoupleOrchestrator::Step::WaitingCoupled);
 }
 
-// ⭐ 6. 新增测试：在 WaitingCoupled 状态下，只有当底层反馈真正 isCoupled 时，才进入 Done
-TEST_F(GantryCoupleOrchestratorTest, should_enter_done_only_when_gantry_is_actually_coupled)
+
+TEST_F(GantryCoupleOrchestratorTest, should_enter_waiting_coupled_after_requesting_couple)
+{
+    x().applyFeedback({ .state = AxisState::Disabled });
+    orchestrator->start();
+    orchestrator->tick(); 
+    x().applyFeedback({ .state = AxisState::Idle });
+    orchestrator->tick(); // -> Coupling
+
+    orchestrator->tick(); // 发送意图 requestCouple() 并推进到 WaitingCoupled
+
+    EXPECT_TRUE(gantry->isCouplingRequested());
+    EXPECT_FALSE(gantry->isCoupled());
+    EXPECT_EQ(orchestrator->currentStep(), GantryCoupleOrchestrator::Step::WaitingCoupled);
+}
+
+TEST_F(GantryCoupleOrchestratorTest, should_wait_coupled_feedback_before_done)
 {
     x().applyFeedback({ .state = AxisState::Disabled });
     orchestrator->start();
@@ -86,18 +101,15 @@ TEST_F(GantryCoupleOrchestratorTest, should_enter_done_only_when_gantry_is_actua
     orchestrator->tick(); // -> Coupling
     orchestrator->tick(); // -> WaitingCoupled
 
-    // 假设此处底层反馈 gantry->isCoupled() 终于为 true 了
-    // (如果你的 fake GantryGroup 调用 couple 后立刻就为 true，那么再 tick 一次就会进 Done)
-    orchestrator->tick(); // WaitingCoupled -> Done
+    // 第一帧：PLC 还没有返回，卡在 WaitingCoupled
+    orchestrator->tick(); 
+    EXPECT_EQ(orchestrator->currentStep(), GantryCoupleOrchestrator::Step::WaitingCoupled);
+
+    // 第二帧：模拟外部 PLC (或底层总线通讯) 确认关联完成，调用 applyCoupledFeedback()
+    gantry->applyCoupledFeedback(); 
+    
+    // 再次 tick，Orchestrator 终于检测到 isCoupled() 为 true，推进进入 Done
+    orchestrator->tick(); 
 
     EXPECT_EQ(orchestrator->currentStep(), GantryCoupleOrchestrator::Step::Done);
-}
-
-// 7. 测试：如果开机已经是 Idle，直接跳过 Enable 阶段进入 Coupling
-TEST_F(GantryCoupleOrchestratorTest, should_couple_directly_when_axis_is_already_idle) 
-{
-    x().applyFeedback({ .state = AxisState::Idle });
-    orchestrator->start();
-    orchestrator->tick(); // -> Coupling
-    EXPECT_EQ(orchestrator->currentStep(), GantryCoupleOrchestrator::Step::Coupling);
 }

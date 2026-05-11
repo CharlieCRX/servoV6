@@ -59,18 +59,17 @@ public:
                 break;
 
             case Step::Coupling:
-                // 发送耦合指令，然后立刻交出控制权，切换到倾听状态
-                m_gantry.couple();
+                // 上位机只负责表达意图 (Request)
+                m_gantry.requestCouple();
                 m_step = Step::WaitingCoupled;
                 break;
 
             case Step::WaitingCoupled:
-                // ⭐ 新增：轮询底层的真实物理状态
+                // Orchestrator 绝不做 m_gantry.markCoupled()，只做状态观测。
+                // 真正的 markCoupled 由底层 PLC 通讯机制去触发。
                 if (m_gantry.isCoupled()) {
                     m_step = Step::Done;
                 }
-                // TODO: 未来可以在这里加上 Timeout 逻辑
-                // else if (timeout) { m_step = Step::Error; }
                 break;
 
             case Step::Done:

@@ -2,21 +2,26 @@
 
 class GantryCouplingState {
 public:
-    bool isCoupled() const
-    {
-        return m_coupled;
-    }
+    enum class Status {
+        Decoupled,
+        CouplingRequested,
+        Coupled
+    };
 
-    void couple()
-    {
-        m_coupled = true;
-    }
+    Status status() const { return m_status; }
 
-    void decouple()
-    {
-        m_coupled = false;
-    }
+    bool isCoupled() const { return m_status == Status::Coupled; }
+    
+    bool isCouplingRequested() const { return m_status == Status::CouplingRequested; }
+
+    void requestCouple() { m_status = Status::CouplingRequested; }
+
+
+    // @note feedback methods for testing purposes
+    void applyCoupledFeedback() { m_status = Status::Coupled; }
+
+    void applyDecoupledFeedback() { m_status = Status::Decoupled; }
 
 private:
-    bool m_coupled = false; // 默认解耦状态，需显式调用 couple() 进入联动模式
+    Status m_status = Status::Decoupled;
 };
