@@ -29,6 +29,10 @@ public:
         if (x.state() != AxisState::Idle) {
             x.enable(true);
         }
+
+        if (!m_gantry.isCoupled()) {
+            m_gantry.couple();
+        }
     }
 
 private:
