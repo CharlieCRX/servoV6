@@ -18,5 +18,5 @@ public:
     }
 
 private:
-    bool m_coupled = false;
+    bool m_coupled = false; // 默认解耦状态，需显式调用 couple() 进入联动模式
 };
