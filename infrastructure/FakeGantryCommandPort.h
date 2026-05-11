@@ -57,6 +57,16 @@ public:
     // 龙门命令 (Coupled 模式)
     // ═══════════════════════════════════
 
+    bool setLogicalAxisEnable(bool enable) override {
+        m_plc.setXEnableRequest(enable);
+        return true;
+    }
+
+    bool setCouplingRegister(bool enable) override {
+        m_plc.setXCouplingRequest(enable);
+        return true;
+    }
+
     bool jogGantry(MotionDirection direction) override {
         // X1: 原方向, X2: 镜像方向
         Direction x1Dir = (direction == MotionDirection::Forward)

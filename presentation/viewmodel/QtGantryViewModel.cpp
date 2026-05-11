@@ -99,6 +99,24 @@ double QtGantryViewModel::jogVelocity() const {
     return m_jogVelocity;
 }
 
+// void QtGantryViewModel::toggleUnifiedPower() {
+//     if (m_core->uiState() == GantryUiState::Standby) {
+//         // 执行【上电并锁定】宏
+//         // 1. 调用各轴 EnableUseCase 使能 X1, X2
+//         // 2. 调用 GantryCouplingService 执行联动
+//         m_core->unifiedEnableAndCouple();
+//     } else {
+//         // 执行【下电并释放】宏
+//         m_core->unifiedDisableAndDecouple();
+//     }
+// }
+
+void QtGantryViewModel::requestMaintenanceMode(const QString& password) {
+    if (password == "admin123") { // 增加交互摩擦力：校验
+        m_core->requestDecoupling(); // 仅解耦，保持使能
+    }
+}
+
 void QtGantryViewModel::setJogVelocity(double v) {
     if (v < 1.0) v = 1.0;
     if (v > 100.0) v = 100.0;

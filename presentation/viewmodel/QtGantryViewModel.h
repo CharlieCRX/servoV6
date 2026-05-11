@@ -18,8 +18,16 @@
 class QtGantryViewModel : public QObject {
     Q_OBJECT
 
+    enum class GantryUiState {
+        Standby,        // 下电待机
+        Active,         // 上电并联动
+        Maintenance     // 上电但解耦 (维护模式)
+    };
+    Q_ENUM(GantryUiState)
+
     // ── 龙门模式 ──
     Q_PROPERTY(bool coupled READ isCoupled NOTIFY coupledChanged)
+    Q_PROPERTY(GantryUiState uiState READ uiState NOTIFY uiStateChanged)
 
     // ── 状态 ──
     Q_PROPERTY(int aggregatedState READ aggregatedState NOTIFY aggregatedStateChanged)
@@ -76,6 +84,10 @@ public:
     double jogVelocity() const;
 
     // ── 控制指令 (Q_INVOKABLE) ──
+    // 联动控制指令
+    Q_INVOKABLE void toggleUnifiedPower(); // 主按钮触发：在 Standby 和 Active 间切换
+    Q_INVOKABLE void requestMaintenanceMode(const QString& password); // 申请进入维护模式
+    Q_INVOKABLE void exitMaintenanceMode(); // 退出维护模式回到 Active
 
     /// 耦合/解耦
     Q_INVOKABLE void requestCoupling();

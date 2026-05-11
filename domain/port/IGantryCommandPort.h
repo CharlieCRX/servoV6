@@ -59,6 +59,21 @@ public:
     // ═══════════════════════════════════
 
     /**
+     * @brief 设置逻辑轴使能状态
+     * @param enable true = 使能, false = 禁用
+     * @return true = 命令已接受, false = 通讯失败或指令被拦截
+     */
+    virtual bool setLogicalAxisEnable(bool enable) = 0;
+
+
+    /**
+     * @brief 设置耦合寄存器状态
+     * @param enable true = 使能, false = 禁用
+     * @return true = 命令已接受, false = 通讯失败或指令被拦截
+     */
+    virtual bool setCouplingRegister(bool enable) = 0;
+
+    /**
      * @brief 向龙门系统下发 Jog 命令
      *
      * Coupled 模式下调用。端口实现需拆分为：
