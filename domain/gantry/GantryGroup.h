@@ -17,6 +17,10 @@ public:
         return m_state.isCoupled();
     }
 
+    void couple()
+    {
+        m_state.couple();
+    }
 private:
     Axis& m_x1;
     Axis& m_x2;

@@ -12,3 +12,16 @@ TEST(GantryGroup,
 
     EXPECT_FALSE(gantry.isCoupled());
 }
+
+TEST(GantryGroup,
+     should_couple_group)
+{
+    Axis x1;
+    Axis x2;
+
+    GantryGroup gantry(x1, x2);
+
+    gantry.couple();
+
+    EXPECT_TRUE(gantry.isCoupled());
+}
