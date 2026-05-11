@@ -17,7 +17,8 @@
 *.qm
 .#*
 *.*#
-difflog
+*difflog*
+filetree
 core
 !core/
 tags
