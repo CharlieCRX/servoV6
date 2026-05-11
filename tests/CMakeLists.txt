@@ -1,7 +1,8 @@
 include(GoogleTest)
 
 add_executable(unit_tests
-    
+    domain/gantry/test_gantry_coupling_state.cpp
+
     domain/test_system_context.cpp
     infrastructure/test_fake_plc.cpp
     infrastructure/test_system_integration.cpp
