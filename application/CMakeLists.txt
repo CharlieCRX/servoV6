@@ -9,6 +9,8 @@ add_library(application
     policy/JogOrchestrator.h
     policy/AutoAbsMoveOrchestrator.h
     policy/AutoRelMoveOrchestrator.h
+
+    SystemManager.h
 )
 
 target_include_directories(application

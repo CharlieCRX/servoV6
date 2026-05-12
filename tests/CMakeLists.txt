@@ -4,6 +4,7 @@ add_executable(unit_tests
 
     # application/policy/test_gantry_couple_orchestrator.cpp
 
+    application/test_system_manager.cpp
 
     domain/test_system_context.cpp
     domain/gantry/test_gantry_group.cpp
