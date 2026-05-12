@@ -24,7 +24,7 @@ TEST(GantryGroup, should_produce_and_pop_coupling_intent_when_requested)
     auto reason = gantry.requestCouple(true);
 
     // 验证：领域层放行，状态推进到 CouplingRequested
-    EXPECT_EQ(reason, RejectionReason::None);
+    EXPECT_EQ(reason, GantryRejection::None);
     EXPECT_TRUE(gantry.isCouplingRequested());
     
     // 验证：意图已生成
@@ -55,7 +55,7 @@ TEST(GantryGroup, should_produce_decoupling_intent_and_enter_decoupling_requeste
     auto reason = gantry.requestCouple(false);
 
     // 验证结果
-    EXPECT_EQ(reason, RejectionReason::None);
+    EXPECT_EQ(reason, GantryRejection::None);
     
     // ⭐ 这里是四态模型的精髓：软件不能立刻变 Decoupled，必须等待物理 OFF
     // 假设你的 GantryGroup 暴露了内部状态或者 isDecouplingRequested 接口
@@ -77,7 +77,7 @@ TEST(GantryGroup, should_reject_coupling_intent_when_axis_is_in_error_state)
 
     auto reason = gantry.requestCouple(true);
 
-    EXPECT_EQ(reason, RejectionReason::InvalidState);
+    EXPECT_EQ(reason, GantryRejection::AxisStateError);
     EXPECT_FALSE(gantry.isCouplingRequested());
     EXPECT_FALSE(gantry.hasPendingCommand()); // 拦截后绝不产生意图
 }
@@ -112,6 +112,6 @@ TEST(GantryGroup, should_update_state_and_record_error_based_on_unified_feedback
     gantry.applyFeedback({ .isCoupled = false, .errorCode = 1 });
 
     EXPECT_TRUE(gantry.hasError());
-    EXPECT_EQ(gantry.getLastError(), RejectionReason::PositionToleranceExceeded);
+    EXPECT_EQ(gantry.getLastError(), GantryRejection::PositionToleranceExceeded);
     EXPECT_FALSE(gantry.isCouplingRequested()); // 发生错误，状态机退回解耦
 }

@@ -2,6 +2,7 @@
 
 #include "entity/Axis.h"
 #include "gantry/GantryCouplingState.h"
+#include "gantry/GantryRejection.h"
 #include <optional>
 
 // ==========================================
@@ -34,17 +35,17 @@ public:
     bool isDecouplingRequested() const { return m_state.isDecouplingRequested(); } 
 
     // --- 错误查询 ---
-    bool hasError() const { return m_last_error != RejectionReason::None; }
-    RejectionReason getLastError() const { return m_last_error; }
+    bool hasError() const { return m_last_error != GantryRejection::None; }
+    GantryRejection getLastError() const { return m_last_error; }
 
 
     // ==========================================
     // 核心 1：意图生成 (Produce Intent)
     // ==========================================
-    RejectionReason requestCouple(bool active) {
+    GantryRejection requestCouple(bool active) {
         if (active) {
             if (m_x1.state() == AxisState::Error || m_x2.state() == AxisState::Error) {
-                return RejectionReason::InvalidState;
+                return GantryRejection::AxisStateError; // 领域层拦截：轴处于错误状态，拒绝联动请求
             }
             m_pending_intent = GantryCommand{ true };
             m_state.requestCouple();
@@ -52,7 +53,7 @@ public:
             m_pending_intent = GantryCommand{ false };
             m_state.requestDecouple(); 
         }
-        return RejectionReason::None;
+        return GantryRejection::None;
     }
 
     // ==========================================
@@ -78,7 +79,7 @@ public:
             m_state.applyDecoupledFeedback(); 
             return; 
         } else {
-            m_last_error = RejectionReason::None;
+            m_last_error = GantryRejection::None;
         }
 
         // 2. 根据底层物理联动标志位，驱动状态机闭环
@@ -92,14 +93,14 @@ public:
     }
 
 private:
-    RejectionReason translatePlcError(int plcErrorCode) const {
+    GantryRejection translatePlcError(int plcErrorCode) const {
         switch (plcErrorCode) {
-            case 1: return RejectionReason::PositionToleranceExceeded;
-            case 2: 
-            case 3: return RejectionReason::InvalidState;
-            case 4: 
-            case 5: return RejectionReason::AlreadyMoving;
-            default: return RejectionReason::UnknownError;
+            case 1: return GantryRejection::PositionToleranceExceeded;
+            case 2: return GantryRejection::X1NotEnabled;
+            case 3: return GantryRejection::X2NotEnabled;
+            case 4: return GantryRejection::X1NotStationary;
+            case 5: return GantryRejection::X2NotStationary;
+            default: return GantryRejection::UnknownError;
         }
     }
 
@@ -108,5 +109,5 @@ private:
     Axis& m_x2;
     GantryCouplingState m_state;
     std::optional<GantryCommand> m_pending_intent;
-    RejectionReason m_last_error = RejectionReason::None;
+    GantryRejection m_last_error = GantryRejection::None;
 };
