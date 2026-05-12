@@ -1,12 +1,12 @@
 #ifndef FAKE_AXIS_DRIVER_H
 #define FAKE_AXIS_DRIVER_H
 
-#include "../application/axis/IAxisDriver.h"
+#include "../infrastructure/ISystemDriver.h"
 #include "FakePLC.h"
 #include "infrastructure/logger/Logger.h"
 #include "infrastructure/utils/CommandFormatter.h" // 🌟 引入格式化工具
 
-class FakeAxisDriver : public IAxisDriver {
+class FakeAxisDriver : public ISystemDriver {
 public:
     explicit FakeAxisDriver(FakePLC& plc) : m_plc(plc) {}
 
@@ -16,6 +16,11 @@ public:
         LOG_TRACE(LogLayer::HAL, "Driver", "Sending to PLC: " + utils::format(cmd));
         
         m_plc.onCommand(id, cmd);
+    }
+
+    // 实现龙门口：测试中暂不需要，空实现
+    void sendGantry(const GantryCommand& /*cmd*/) override {
+        // no-op for unit tests
     }
 
 private:

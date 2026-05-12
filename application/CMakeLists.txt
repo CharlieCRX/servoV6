@@ -11,6 +11,7 @@ add_library(application
     policy/AutoRelMoveOrchestrator.h
 
     SystemManager.h
+    UsecaseError.h
 )
 
 target_include_directories(application
