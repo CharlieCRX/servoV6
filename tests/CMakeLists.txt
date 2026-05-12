@@ -5,8 +5,12 @@ add_executable(unit_tests
     application/policy/test_gantry_orchestrator.cpp
 
     application/test_enable_usecase.cpp
+    application/test_move_absolute_usecase.cpp
+    application/test_move_relative_usecase.cpp
+    application/test_stop_usecase.cpp
     application/test_system_manager.cpp
 
+    domain/test_axis.cpp
     domain/test_system_context.cpp
     domain/gantry/test_gantry_group.cpp
     domain/gantry/test_gantry_coupling_state.cpp
@@ -18,13 +22,9 @@ add_executable(unit_tests
     # application/policy/test_auto_rel_move_orchestrator.cpp
     # application/policy/test_auto_abs_move_orchestrator.cpp
 
-    # application/test_stop_usecase.cpp
     # application/test_jog_usecase.cpp
-    # application/test_move_relative_usecase.cpp
     # application/test_axis_repository.cpp
     # presentation/viewmodel/test_axis_viewmodel_core.cpp
-
-    domain/test_axis.cpp
 )
 
 target_include_directories(unit_tests

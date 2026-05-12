@@ -1,34 +1,57 @@
 #pragma once
-#include "IAxisDriver.h"
-#include "AxisRepository.h"
+#include "application/UseCaseError.h"
+#include "domain/entity/AxisId.h"
+#include "domain/entity/SystemContext.h"
+#include "application/SystemManager.h"
+#include "infrastructure/logger/Logger.h"
 
 /**
- * @brief 停止轴动作执行案例
- * 负责紧急停止或正常停止，具有最高优先级，可覆盖其他运动意图
- * 采用 AxisId 寻址模式（与 MoveAbsoluteUseCase 一致）
+ * @brief 停止轴用例
+ *
+ * 完整调用链：
+ *   UI (ViewModel) → StopAxisUseCase.execute(manager, groupName, axisId) → UseCaseError
+ *
+ * 停止是安全指令，在领域层被设计为不可拒绝。
+ * 涵盖两层错误：
+ *   1. SystemManager 层 — 分组不存在 / 名称非法
+ *   2. SystemContext 层 — 龙门联动锁定 / 轴未注册
  */
 class StopAxisUseCase {
 public:
-    StopAxisUseCase(AxisRepository& repo, IAxisDriver& driver)
-        : m_repo(repo), m_driver(driver) {}
+    StopAxisUseCase() = default;
 
     /**
-     * @brief 执行停止动作
-     * 停止是安全指令，在领域层被设计为不可拒绝
-     * @param id 目标轴的标识符
+     * @brief 对指定分组中的指定轴执行停止
+     * @param manager   系统管理器（分组注册表）
+     * @param groupName 目标分组名称
+     * @param axisId    目标轴 ID
+     * @return UseCaseError — monostate 表示成功，否则为具体错误码
      */
-    void execute(AxisId id) {
-        Axis& axis = m_repo.getAxis(id);
-
-        // 1. 调用实体层停止方法
-        // 该方法会清除 m_pending_intent 中的 Move 或 Jog，替换为 StopCommand
-        if (axis.stop()) {
-            // 2. 将产生的停止指令发送至硬件抽象层，带上 AxisId
-            m_driver.send(id, axis.getPendingCommand());
+    UseCaseError execute(SystemManager& manager,
+                         const std::string& groupName,
+                         AxisId axisId) {
+        // ===== 阶段 0：分组查找（SystemManager 层） =====
+        SystemContext* group = nullptr;
+        ContextRejection mgrReason = ContextRejection::None;
+        if (!manager.tryGetGroup(groupName, group, mgrReason)) {
+            return mgrReason;  // GroupNotFound / GroupNameInvalid
         }
-    }
 
-private:
-    AxisRepository& m_repo;
-    IAxisDriver& m_driver;
+        // ===== 阶段 1：轴获取与龙门校验（SystemContext 层） =====
+        Axis* axis = nullptr;
+        ContextRejection ctxReason = ContextRejection::None;
+        if (!group->tryGetAxis(axisId, axis, ctxReason)) {
+            return ctxReason;  // PhysicalAxisLockedByGantry / AxisNotRegistered / …
+        }
+
+        // ===== 阶段 2：执行停止（领域层不可拒绝） =====
+        if (axis->stop()) {
+            // 将产生的停止指令发送至硬件抽象层
+            if (auto* drv = group->driver()) {
+                drv->send(axisId, axis->getPendingCommand());
+            }
+        }
+
+        return std::monostate{};  // 成功
+    }
 };
