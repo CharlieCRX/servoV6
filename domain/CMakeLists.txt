@@ -4,6 +4,7 @@ add_library(domain
     entity/AxisId.h
     entity/SystemContext.h
 
+    gantry/GantryRejection.h
     gantry/GantryGroup.h
     gantry/GantryCouplingState.h
 )
