@@ -4,7 +4,6 @@ add_library(application
     axis/MoveAbsoluteUseCase.h
     axis/MoveRelativeUseCase.h
     axis/StopAxisUseCase.h
-    axis/AxisRepository.h
 
     policy/JogOrchestrator.h
     policy/AutoAbsMoveOrchestrator.h

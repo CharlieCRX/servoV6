@@ -115,3 +115,161 @@ TEST(GantryGroup, should_update_state_and_record_error_based_on_unified_feedback
     EXPECT_EQ(gantry.getLastError(), GantryRejection::PositionToleranceExceeded);
     EXPECT_FALSE(gantry.isCouplingRequested()); // 发生错误，状态机退回解耦
 }
+
+// ============================================================
+// ⭐ 新增：幂等 & 冲突拦截测试 (7 条)
+// ============================================================
+
+// 7. 幂等：已联动时再次请求联动，不应产生新命令
+TEST(GantryGroup, should_not_produce_command_when_already_coupled)
+{
+    Axis x1;
+    Axis x2;
+    GantryGroup gantry(x1, x2);
+
+    // Given: 已联动
+    gantry.requestCouple(true);
+    gantry.popPendingCommand(); // 消费意图
+    gantry.applyFeedback({ .isCoupled = true, .errorCode = 0 });
+    EXPECT_TRUE(gantry.isCoupled());
+
+    // When: 再次请求联动
+    auto reason = gantry.requestCouple(true);
+
+    // Then: 返回成功，但不产生新命令
+    EXPECT_EQ(reason, GantryRejection::None);
+    EXPECT_FALSE(gantry.hasPendingCommand());
+    EXPECT_TRUE(gantry.isCoupled()); // 状态保持
+}
+
+// 8. 幂等：已解耦时再次请求解耦，不应产生新命令
+TEST(GantryGroup, should_not_produce_command_when_already_decoupled)
+{
+    Axis x1;
+    Axis x2;
+    GantryGroup gantry(x1, x2);
+
+    // Given: 已解耦（初始状态）
+    EXPECT_FALSE(gantry.isCoupled());
+
+    // When: 请求解耦
+    auto reason = gantry.requestCouple(false);
+
+    // Then: 返回成功，但不产生新命令
+    EXPECT_EQ(reason, GantryRejection::None);
+    EXPECT_FALSE(gantry.hasPendingCommand());
+}
+
+// 9. 幂等：联动请求进行中，再次请求联动不重复产生命令
+TEST(GantryGroup, should_not_duplicate_command_when_coupling_already_requested)
+{
+    Axis x1;
+    Axis x2;
+    GantryGroup gantry(x1, x2);
+
+    // Given: 已发起联动请求，PendingCommand 未消费
+    gantry.requestCouple(true);
+    EXPECT_TRUE(gantry.hasPendingCommand());
+    EXPECT_TRUE(gantry.isCouplingRequested());
+
+    // When: 再次请求联动
+    auto reason = gantry.requestCouple(true);
+
+    // Then: 幂等返回成功，命令不被覆盖
+    EXPECT_EQ(reason, GantryRejection::None);
+    EXPECT_TRUE(gantry.hasPendingCommand()); // 原命令保留
+    EXPECT_TRUE(gantry.isCouplingRequested());
+}
+
+// 10. 幂等：解耦请求进行中，再次请求解耦不重复产生命令
+TEST(GantryGroup, should_not_duplicate_command_when_decoupling_already_requested)
+{
+    Axis x1;
+    Axis x2;
+    GantryGroup gantry(x1, x2);
+
+    // Given: 先联动
+    gantry.requestCouple(true);
+    gantry.popPendingCommand();
+    gantry.applyFeedback({ .isCoupled = true, .errorCode = 0 });
+    EXPECT_TRUE(gantry.isCoupled());
+
+    // Given: 发起解耦请求
+    gantry.requestCouple(false);
+    EXPECT_TRUE(gantry.hasPendingCommand());
+    EXPECT_TRUE(gantry.isDecouplingRequested());
+
+    // When: 再次请求解耦
+    auto reason = gantry.requestCouple(false);
+
+    // Then: 幂等返回成功
+    EXPECT_EQ(reason, GantryRejection::None);
+    EXPECT_TRUE(gantry.hasPendingCommand()); // 原命令保留
+}
+
+// 11. 冲突：联动请求进行中，不允许发起解耦
+TEST(GantryGroup, should_reject_decouple_when_coupling_in_progress)
+{
+    Axis x1;
+    Axis x2;
+    GantryGroup gantry(x1, x2);
+
+    // Given: 联动请求已发起，等待 PLC 确认
+    gantry.requestCouple(true);
+    EXPECT_TRUE(gantry.isCouplingRequested());
+
+    // When: 尝试解耦
+    auto reason = gantry.requestCouple(false);
+
+    // Then: 被拦截，返回 StateConflict
+    EXPECT_EQ(reason, GantryRejection::StateConflict);
+    EXPECT_TRUE(gantry.isCouplingRequested()); // 状态不变
+}
+
+// 12. 冲突：解耦请求进行中，不允许发起联动
+TEST(GantryGroup, should_reject_couple_when_decoupling_in_progress)
+{
+    Axis x1;
+    Axis x2;
+    GantryGroup gantry(x1, x2);
+
+    // Given: 先联动
+    gantry.requestCouple(true);
+    gantry.popPendingCommand();
+    gantry.applyFeedback({ .isCoupled = true, .errorCode = 0 });
+
+    // Given: 发起解耦请求，等待 PLC 确认
+    gantry.requestCouple(false);
+    EXPECT_TRUE(gantry.isDecouplingRequested());
+
+    // When: 尝试再次联动
+    auto reason = gantry.requestCouple(true);
+
+    // Then: 被拦截，返回 StateConflict
+    EXPECT_EQ(reason, GantryRejection::StateConflict);
+    EXPECT_TRUE(gantry.isDecouplingRequested()); // 状态不变
+}
+
+// 13. 正交：幂等联动不消耗已存在的待发送命令
+TEST(GantryGroup, idempotent_couple_does_not_clear_existing_pending_command)
+{
+    Axis x1;
+    Axis x2;
+    GantryGroup gantry(x1, x2);
+
+    // Given: 已发起一次联动请求，命令尚未被消费
+    gantry.requestCouple(true);
+    EXPECT_TRUE(gantry.hasPendingCommand());
+    EXPECT_TRUE(gantry.isCouplingRequested());
+
+    // When: 幂等再次请求联动
+    auto reason = gantry.requestCouple(true);
+
+    // Then: 命令保留，未被清除或覆盖
+    EXPECT_EQ(reason, GantryRejection::None);
+    EXPECT_TRUE(gantry.hasPendingCommand());
+    
+    // 消费后验证命令正确
+    auto cmd = gantry.popPendingCommand();
+    EXPECT_TRUE(cmd.enableCoupling);
+}

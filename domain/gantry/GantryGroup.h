@@ -44,14 +44,35 @@ public:
     // ==========================================
     GantryRejection requestCouple(bool active) {
         if (active) {
+            // --- 联动请求 ---
+            // 安全屏障：任一轴处于 Error 状态，拒绝联动
             if (m_x1.state() == AxisState::Error || m_x2.state() == AxisState::Error) {
-                return GantryRejection::AxisStateError; // 领域层拦截：轴处于错误状态，拒绝联动请求
+                return GantryRejection::AxisStateError;
             }
+            // 幂等：已联动或联动请求进行中，视为成功但不产生新命令
+            if (m_state.isCoupled() || m_state.isCouplingRequested()) {
+                return GantryRejection::None;
+            }
+            // 冲突：解耦请求进行中，不允许反向操作
+            if (m_state.isDecouplingRequested()) {
+                return GantryRejection::StateConflict;
+            }
+            // 通过：Decoupled → 生成联动意图
             m_pending_intent = GantryCommand{ true };
             m_state.requestCouple();
         } else {
+            // --- 解耦请求 ---
+            // 幂等：已解耦或解耦请求进行中，视为成功但不产生新命令
+            if (!m_state.isCoupled() && !m_state.isCouplingRequested()) {
+                return GantryRejection::None;
+            }
+            // 冲突：联动请求进行中，不允许反向操作
+            if (m_state.isCouplingRequested()) {
+                return GantryRejection::StateConflict;
+            }
+            // 通过：Coupled → 生成解耦意图
             m_pending_intent = GantryCommand{ false };
-            m_state.requestDecouple(); 
+            m_state.requestDecouple();
         }
         return GantryRejection::None;
     }
