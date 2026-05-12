@@ -1,52 +1,56 @@
 #pragma once
-
 #include <string>
 #include <map>
 #include <memory>
 #include "domain/entity/SystemContext.h"
 
-/**
- * @brief SystemManager - 分组管理器（应用层单例或全局容器）
- * 负责管理多个 SystemContext 实例的生命周期与路由
- */
 class SystemManager {
 public:
     SystemManager() = default;
 
     /**
      * @brief 创建一个新系统分组
-     * @return true 创建成功；false 已存在同名分组
+     * @param[out] outReason 失败时的拒绝原因
+     * @return true 成功；false 失败（通过 outReason 获取原因）
      */
-    bool createGroup(const std::string& name) {
-        if (m_groups.find(name) != m_groups.end()) {
+    bool createGroup(const std::string& name, ContextRejection& outReason) {
+        if (name.empty()) {
+            outReason = ContextRejection::GroupNameInvalid;
             return false;
         }
-        // 使用 unique_ptr 自动管理 SystemContext 的生命周期
+        if (m_groups.find(name) != m_groups.end()) {
+            outReason = ContextRejection::GroupAlreadyExists;
+            return false;
+        }
         m_groups[name] = std::make_unique<SystemContext>();
+        outReason = ContextRejection::None;
         return true;
     }
 
     /**
-     * @brief 获取分组实例
-     * @param name 分组唯一名称
-     * @return SystemContext* 成功返回指针；失败返回 nullptr
+     * @brief 获取分组实例（Try-Get 模式）
+     * @param[out] outGroup 成功时指向分组实例
+     * @param[out] outReason 失败时的拒绝原因
+     * @return true 成功；false 失败
      */
-    SystemContext* getGroup(const std::string& name) {
+    bool tryGetGroup(const std::string& name, 
+                     SystemContext*& outGroup, 
+                     ContextRejection& outReason) {
         auto it = m_groups.find(name);
         if (it == m_groups.end()) {
-            return nullptr;
+            outReason = ContextRejection::GroupNotFound;
+            outGroup = nullptr;
+            return false;
         }
-        return it->second.get();
+        outGroup = it->second.get();
+        outReason = ContextRejection::None;
+        return true;
     }
 
-    /**
-     * @brief 移除分组
-     */
     void removeGroup(const std::string& name) {
         m_groups.erase(name);
     }
 
 private:
-    // 使用 std::map 保证查找效率并支持按名称排序
     std::map<std::string, std::unique_ptr<SystemContext>> m_groups;
 };
