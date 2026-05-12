@@ -3,6 +3,7 @@
 #include <memory>
 #include "entity/Axis.h"
 #include "entity/AxisId.h"
+#include "entity/ContextRejection.h"
 #include "gantry/GantryGroup.h"
 #include "infrastructure/ISystemDriver.h"
 #include <unordered_map>
@@ -29,17 +30,17 @@ public:
      * @param reason [输出参数] 失败时的具体拒绝原因
      * @return true 允许访问；false 拒绝访问
      */
-    bool tryGetAxis(AxisId id, Axis*& outAxis, RejectionReason& reason) {
+    bool tryGetAxis(AxisId id, Axis*& outAxis, ContextRejection& reason) {
         // A. 龙门业务语义校验（宪法）
         if (m_isGantryCoupled) {
             if (id == AxisId::X1 || id == AxisId::X2) {
-                reason = RejectionReason::InvalidState; // 联动模式锁定物理轴
+                reason = ContextRejection::PhysicalAxisLockedByGantry; // 联动模式锁定物理轴
                 outAxis = nullptr;
                 return false;
             }
         } else {
             if (id == AxisId::X) {
-                reason = RejectionReason::InvalidState; // 解耦模式锁定逻辑轴
+                reason = ContextRejection::LogicalAxisUnavailableWhenDecoupled; // 解耦模式锁定逻辑轴
                 outAxis = nullptr;
                 return false;
             }
@@ -48,14 +49,14 @@ public:
         // B. 容器查找
         auto it = m_axes.find(id);
         if (it == m_axes.end()) {
-            reason = RejectionReason::UnknownError; // 轴未在系统中注册
+            reason = ContextRejection::AxisNotRegistered; // 轴未在系统中注册
             outAxis = nullptr;
             return false;
         }
 
         // C. 校验通过
         outAxis = it->second.get();
-        reason = RejectionReason::None;
+        reason = ContextRejection::None;
         return true;
     }
 

@@ -38,8 +38,6 @@ enum class RejectionReason {
     AtPositiveLimit,          // 当前已处于正向限位点（禁正向点动/定位）
     AtNegativeLimit,          // 当前已处于负向限位点（禁负向点动/定位）
 
-    // ⭐ 场景 3：针对 PLC 返回的错误码进行翻译
-    PositionToleranceExceeded, // 对应 PLC 码: 1
     UnknownError,
 
     InvalidArgument,

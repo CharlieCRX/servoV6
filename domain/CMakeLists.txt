@@ -2,6 +2,7 @@ add_library(domain
     entity/Axis.h
     entity/Axis.cpp
     entity/AxisId.h
+    entity/ContextRejection.h
     entity/SystemContext.h
 
     gantry/GantryRejection.h
