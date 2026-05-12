@@ -73,28 +73,21 @@ public:
     // 核心 3：统一的反馈接收 (Apply Feedback)
     // ==========================================
     void applyFeedback(const GantryFeedback& feedback) {
-        // 1. 优先处理错误情况
-        if (feedback.errorCode != 0) {
-            m_last_error = translatePlcError(feedback.errorCode);
-            m_state.applyDecoupledFeedback(); 
-            return; 
-        } else {
-            m_last_error = GantryRejection::None;
-        }
+        // 1. 翻译并记录 PLC 错误码
+        m_last_error = translatePlcError(feedback.errorCode);
 
-        // 2. 根据底层物理联动标志位，驱动状态机闭环
+        // 2. 根据 PLC 实际联动状态驱动本地状态机
         if (feedback.isCoupled) {
             m_state.applyCoupledFeedback();
         } else {
-            if (m_state.status() != GantryCouplingState::Status::CouplingRequested) {
-                m_state.applyDecoupledFeedback();
-            }
+            m_state.applyDecoupledFeedback();
         }
     }
 
 private:
     GantryRejection translatePlcError(int plcErrorCode) const {
         switch (plcErrorCode) {
+            case 0: return GantryRejection::None;
             case 1: return GantryRejection::PositionToleranceExceeded;
             case 2: return GantryRejection::X1NotEnabled;
             case 3: return GantryRejection::X2NotEnabled;
