@@ -8,6 +8,7 @@ add_library(application
     policy/JogOrchestrator.h
     policy/AutoAbsMoveOrchestrator.h
     policy/AutoRelMoveOrchestrator.h
+    policy/GantryOrchestrator.h
 
     SystemManager.h
     UsecaseError.h
