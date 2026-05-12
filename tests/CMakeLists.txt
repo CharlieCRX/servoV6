@@ -4,10 +4,11 @@ add_executable(unit_tests
 
     # application/policy/test_gantry_couple_orchestrator.cpp
 
+
+    domain/test_system_context.cpp
     domain/gantry/test_gantry_group.cpp
     domain/gantry/test_gantry_coupling_state.cpp
 
-    domain/test_system_context.cpp
     infrastructure/test_fake_plc.cpp
     infrastructure/test_system_integration.cpp
 
