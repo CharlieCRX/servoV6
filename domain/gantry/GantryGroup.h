@@ -30,6 +30,7 @@ public:
         : m_x1(x1), m_x2(x2) {}
 
     // --- 状态查询 ---
+    bool isNotSynchronized() const { return m_state.isNotSynchronized(); }
     bool isCoupled() const { return m_state.isCoupled(); }
     bool isCouplingRequested() const { return m_state.isCouplingRequested(); }
     bool isDecouplingRequested() const { return m_state.isDecouplingRequested(); } 
@@ -43,6 +44,11 @@ public:
     // 核心 1：意图生成 (Produce Intent)
     // ==========================================
     GantryRejection requestCouple(bool active) {
+        // 前置拦截：状态机尚未与 PLC 物理状态同步，拒绝一切意图操作
+        if (m_state.isNotSynchronized()) {
+            return GantryRejection::NotSynchronized;
+        }
+
         if (active) {
             // --- 联动请求 ---
             // 安全屏障：任一轴处于 Error 状态，拒绝联动

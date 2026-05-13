@@ -19,7 +19,7 @@ add_executable(unit_tests
     # application/test_jog_usecase.cpp
 
     # domain/test_system_context.cpp
-    # domain/gantry/test_gantry_group.cpp
+    domain/gantry/test_gantry_group.cpp
     domain/gantry/test_gantry_coupling_state.cpp
 
     domain/test_axis.cpp
