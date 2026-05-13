@@ -249,6 +249,7 @@ TEST_F(JogAxisUseCaseTest, ShouldReturnGroupNameInvalidWhenNameEmpty) {
 // 场景 11：龙门联动时，禁止直接点动物理轴 X1
 TEST_F(JogAxisUseCaseTest, ShouldRejectPhysicalAxisWhenGantryCoupled) {
     // 默认 SetUp 中龙门处于联动状态（isGantryCoupled = true）
+    group->gantry().applyFeedback({.isCoupled = true, .errorCode = 0});  // 明确反馈龙门联动状态
     UseCaseError result = usecase.execute(mgr, "Default", AxisId::X1, Direction::Forward);
 
     ASSERT_TRUE(std::holds_alternative<ContextRejection>(result));
@@ -257,6 +258,7 @@ TEST_F(JogAxisUseCaseTest, ShouldRejectPhysicalAxisWhenGantryCoupled) {
 
 // 场景 12：龙门联动时，禁止直接点动物理轴 X2
 TEST_F(JogAxisUseCaseTest, ShouldRejectX2WhenGantryCoupled) {
+    group->gantry().applyFeedback({.isCoupled = true, .errorCode = 0});  // 明确反馈龙门联动状态
     UseCaseError result = usecase.execute(mgr, "Default", AxisId::X2, Direction::Forward);
 
     ASSERT_TRUE(std::holds_alternative<ContextRejection>(result));
@@ -265,7 +267,7 @@ TEST_F(JogAxisUseCaseTest, ShouldRejectX2WhenGantryCoupled) {
 
 // 场景 13：龙门解耦时，禁止点动逻辑轴 X
 TEST_F(JogAxisUseCaseTest, ShouldRejectLogicalAxisWhenGantryDecoupled) {
-    group->setCoupledState(false);
+    group->gantry().applyFeedback({.isCoupled = false, .errorCode = 0});
 
     UseCaseError result = usecase.execute(mgr, "Default", AxisId::X, Direction::Forward);
 

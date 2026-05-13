@@ -184,7 +184,7 @@ TEST_F(StopAxisUseCaseTest, StopX1_WhenGantryCoupled_ReturnsPhysicalAxisLocked) 
     SystemContext* ctx = nullptr;
     ContextRejection reason;
     manager.tryGetGroup(GROUP, ctx, reason);
-    ctx->setCoupledState(true);
+    ctx->gantry().applyFeedback({.isCoupled = true, .errorCode = 0});
 
     UseCaseError result = useCase.execute(manager, GROUP, X1);
 
@@ -196,7 +196,7 @@ TEST_F(StopAxisUseCaseTest, StopX1_WhenGantryDecoupled_PassesThrough) {
     SystemContext* ctx = nullptr;
     ContextRejection reason;
     manager.tryGetGroup(GROUP, ctx, reason);
-    ctx->setCoupledState(false);
+    ctx->gantry().applyFeedback({.isCoupled = false, .errorCode = 0});
 
     Axis* x1 = getAxis(X1);
     ASSERT_NE(x1, nullptr);

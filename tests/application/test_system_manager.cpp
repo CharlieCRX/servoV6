@@ -88,7 +88,7 @@ TEST_F(SystemManagerTest, CreateGroup_DuplicateName_OriginalGroupRemainsIntact) 
     // 在原始分组上做状态变更
     SystemContext* a = nullptr;
     ASSERT_TRUE(manager.tryGetGroup("GroupA", a, reason));
-    a->setCoupledState(false);  // 解耦
+    a->gantry().applyFeedback({.isCoupled = false, .errorCode = 0});  // 解耦
     
     // 重复创建应失败
     manager.createGroup("GroupA", reason);
@@ -96,7 +96,7 @@ TEST_F(SystemManagerTest, CreateGroup_DuplicateName_OriginalGroupRemainsIntact) 
     // 原始分组的状态不应被影响
     SystemContext* aAgain = nullptr;
     ASSERT_TRUE(manager.tryGetGroup("GroupA", aAgain, reason));
-    EXPECT_FALSE(aAgain->isGantryCoupled()) << "原始分组状态应保持不变";
+    EXPECT_FALSE(aAgain->gantry().isCoupled()) << "原始分组状态应保持不变";
 }
 
 // ============================================================
@@ -213,12 +213,12 @@ TEST_F(SystemManagerTest, MultiGroup_StateIsolation_MutualIndependence) {
     manager.tryGetGroup("Group_B", b, reason);
     
     // A 解耦
-    a->setCoupledState(false);
+    a->gantry().applyFeedback({.isCoupled = false, .errorCode = 0});
     // B 保持联动
-    b->setCoupledState(true);
+    b->gantry().applyFeedback({.isCoupled = true, .errorCode = 0});
     
-    EXPECT_FALSE(a->isGantryCoupled());
-    EXPECT_TRUE(b->isGantryCoupled());
+    EXPECT_FALSE(a->gantry().isCoupled());
+    EXPECT_TRUE(b->gantry().isCoupled());
 }
 
 // ============================================================
