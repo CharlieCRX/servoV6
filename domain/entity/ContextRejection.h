@@ -5,6 +5,7 @@ enum class ContextRejection {
     // --- SystemContext 内部（已有）---
     PhysicalAxisLockedByGantry,
     LogicalAxisUnavailableWhenDecoupled,
+    GantryNotSynchronized,     // 龙门状态机尚未与 PLC 物理状态同步，拒绝 X/X1/X2 访问
     AxisNotRegistered,
 
     // --- SystemManager 分组管理（新增）---

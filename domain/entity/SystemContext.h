@@ -29,32 +29,47 @@ public:
      * @param outAxis [输出参数] 成功则指向轴对象，失败为 nullptr
      * @param reason [输出参数] 失败时的具体拒绝原因
      * @return true 允许访问；false 拒绝访问
+     *
+     * 业务语义：
+     * - NotSynchronized 态：X / X1 / X2 全部拒绝，物理真相未知
+     * - Coupled 态：物理轴 X1/X2 锁定，仅暴露逻辑轴 X
+     * - Decoupled 态：逻辑轴 X 不可用，暴露物理轴 X1/X2
      */
     bool tryGetAxis(AxisId id, Axis*& outAxis, ContextRejection& reason) {
-        // A. 龙门业务语义校验（宪法）
-        if (m_isGantryCoupled) {
-            if (id == AxisId::X1 || id == AxisId::X2) {
-                reason = ContextRejection::PhysicalAxisLockedByGantry; // 联动模式锁定物理轴
+        // 仅龙门相关轴受联动状态约束，非龙门轴跳过
+        if (id == AxisId::X || id == AxisId::X1 || id == AxisId::X2) {
+            // A. 前置拦截：状态机尚未同步，物理真相未知 → 拒绝一切龙门轴访问
+            if (m_gantry->isNotSynchronized()) {
+                reason = ContextRejection::GantryNotSynchronized;
                 outAxis = nullptr;
                 return false;
             }
-        } else {
-            if (id == AxisId::X) {
-                reason = ContextRejection::LogicalAxisUnavailableWhenDecoupled; // 解耦模式锁定逻辑轴
-                outAxis = nullptr;
-                return false;
+
+            // B. 龙门联动/解耦语义：由 GantryGroup 唯一真相源裁决
+            if (m_gantry->isCoupled()) {
+                if (id == AxisId::X1 || id == AxisId::X2) {
+                    reason = ContextRejection::PhysicalAxisLockedByGantry;
+                    outAxis = nullptr;
+                    return false;
+                }
+            } else {
+                if (id == AxisId::X) {
+                    reason = ContextRejection::LogicalAxisUnavailableWhenDecoupled;
+                    outAxis = nullptr;
+                    return false;
+                }
             }
         }
 
-        // B. 容器查找
+        // C. 容器查找
         auto it = m_axes.find(id);
         if (it == m_axes.end()) {
-            reason = ContextRejection::AxisNotRegistered; // 轴未在系统中注册
+            reason = ContextRejection::AxisNotRegistered;
             outAxis = nullptr;
             return false;
         }
 
-        // C. 校验通过
+        // D. 校验通过
         outAxis = it->second.get();
         reason = ContextRejection::None;
         return true;
@@ -66,12 +81,8 @@ public:
     void setDriver(ISystemDriver* driver) { m_driver = driver; }
     ISystemDriver* driver() { return m_driver; }
 
-    bool isGantryCoupled() const { return m_isGantryCoupled; }
-    void setCoupledState(bool coupled) { m_isGantryCoupled = coupled; }
-
 private:
     std::unordered_map<AxisId, std::unique_ptr<Axis>> m_axes;
     std::unique_ptr<GantryGroup> m_gantry;
     ISystemDriver* m_driver = nullptr;
-    bool m_isGantryCoupled = true; 
 };
