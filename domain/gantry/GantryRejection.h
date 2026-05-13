@@ -12,5 +12,6 @@ enum class GantryRejection {
     // --- 以下为领域逻辑层拦截 ---
     StateConflict = 100,           // 内部状态机冲突（如：已在联动中再次请求联动）
     AxisStateError = 101,          // 内部状态机错误（如：非法状态转换）
+    NotSynchronized = 102,         // 状态机尚未与 PLC 物理状态同步，拒绝操作
     UnknownError = 999
 };
