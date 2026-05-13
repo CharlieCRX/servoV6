@@ -62,7 +62,8 @@ TEST_F(SystemManagerTest, CreateGroup_EmptyName_DoesNotCreateGroup) {
     bool found = manager.tryGetGroup("", group, reason);
     
     EXPECT_FALSE(found);
-    EXPECT_EQ(reason, ContextRejection::GroupNotFound);
+    // 空名称被 tryGetGroup 的入参校验拦截，返回 GroupNameInvalid
+    EXPECT_EQ(reason, ContextRejection::GroupNameInvalid);
 }
 
 // ============================================================

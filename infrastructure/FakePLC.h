@@ -8,6 +8,35 @@
 #include <algorithm>
 #include <unordered_map>
 
+/**
+ * @brief 虚拟 PLC 仿真器（物理引擎模拟）
+ *
+ * 设计职责：仿真一个独立硬件 PLC 的物理行为（运动学演算、限位检测、使能延迟）。
+ *
+ * ╔══════════════════════════════════════════════════════════════╗
+ * ║  分组架构：每个 SystemContext 绑定一个独立的 FakePLC 实例   ║
+ * ║                                                              ║
+ * ║  GroupA (Machine_A)          GroupB (Machine_B)              ║
+ * ║  ┌─────────────────┐        ┌─────────────────┐             ║
+ * ║  │ FakePLC_A       │        │ FakePLC_B       │             ║
+ * ║  │  Y: 独立物理态   │        │  Y: 独立物理态   │             ║
+ * ║  │  Z: 独立物理态   │        │  Z: 独立物理态   │             ║
+ * ║  │  ...            │        │  ...            │             ║
+ * ║  └─────────────────┘        └─────────────────┘             ║
+ * ║        ↑                          ↑                         ║
+ * ║  FakeAxisDriver_A          FakeAxisDriver_B                 ║
+ * ║        ↑                          ↑                         ║
+ * ║  SystemContext_A            SystemContext_B                 ║
+ * ╚══════════════════════════════════════════════════════════════╝
+ *
+ * 每个 FakePLC 内部独立维护 6 个轴的物理状态寄存器。
+ * 不同 FakePLC 实例之间完全隔离 —— GroupA 的指令不会影响 GroupB 的轴。
+ *
+ * 使用示例：
+ *   FakePLC plcA, plcB;  // 两台独立硬件
+ *   plcA.onCommand(AxisId::Y, EnableCommand{true});  // 只影响 plcA 的 Y 轴
+ *   plcB.tick(10);  // 只推进 plcB 的物理引擎
+ */
 class FakePLC {
 public:
     FakePLC() {
@@ -20,19 +49,28 @@ public:
         m_axes[AxisId::X2] = AxisStateInternal{};
     }
 
-    // --- 1. 核心对外接口（多轴签名）---
+    // ========== 核心对外接口（多轴签名） ==========
 
+    /**
+     * @brief 向指定轴下发指令
+     * @param id  目标轴 ID
+     * @param cmd 轴命令（EnableCommand / MoveCommand / JogCommand / StopCommand / …）
+     */
     void onCommand(AxisId id, const AxisCommand& cmd) {
         std::visit([this, id](auto&& arg) {
             this->processCommand(id, arg);
         }, cmd);
     }
 
-    // 由外部时钟驱动的物理引擎心跳（遍历所有轴独立更新）
+    /**
+     * @brief 物理引擎心跳
+     * @param ms 自上次调用经过的毫秒数
+     *
+     * 遍历所有轴独立执行：状态跃迁 → 运动学推演 → 限位检测
+     */
     void tick(int ms) {
         for (auto& [id, axis] : m_axes) {
-            // 🌟 核心规范：高频物理心跳采样，每 50 帧（模拟 500ms）打印一次
-            LOG_TRACE_EVERY_N(50, LogLayer::HAL, "PLC", 
+            LOG_TRACE_EVERY_N(50, LogLayer::HAL, "PLC",
                 "Tick axis=" + axisIdToString(id) + " pos=" + std::to_string(axis.feedback.absPos));
 
             if (axis.stop_requested) {
@@ -48,28 +86,59 @@ public:
         }
     }
 
+    /**
+     * @brief 读取指定轴的当前反馈
+     */
     AxisFeedback getFeedback(AxisId id) const {
         return m_axes.at(id).feedback;
     }
 
-    // --- 2. 仿真环境配置接口（多轴签名）---
+    // ========== 仿真环境配置接口 ==========
 
+    /**
+     * @brief 强制设置轴状态（用于测试注入）
+     */
     void forceState(AxisId id, AxisState s) {
         m_axes.at(id).feedback.state = s;
     }
 
+    /**
+     * @brief 设置定位速度
+     */
     void setSimulatedMoveVelocity(AxisId id, double v) {
         m_axes.at(id).move_velocity = std::abs(v);
     }
 
+    /**
+     * @brief 设置点动速度
+     */
     void setSimulatedJogVelocity(AxisId id, double v) {
         m_axes.at(id).jog_velocity = std::abs(v);
     }
 
+    /**
+     * @brief 设置软限位
+     */
     void setLimits(AxisId id, double pos, double neg) {
         auto& axis = m_axes.at(id);
         axis.feedback.posLimitValue = pos;
         axis.feedback.negLimitValue = neg;
+    }
+
+    /**
+     * @brief 强制设置绝对位置（用于测试模拟）
+     */
+    void setAbsolutePosition(AxisId id, double pos) {
+        m_axes.at(id).feedback.absPos = pos;
+    }
+
+    /**
+     * @brief 重置所有轴到初始状态（Disabled，位置归零，限位默认）
+     */
+    void resetAll() {
+        for (auto& [id, axis] : m_axes) {
+            axis = AxisStateInternal{};
+        }
     }
 
 private:
@@ -98,15 +167,16 @@ private:
             case AxisId::Y:  return "Y";
             case AxisId::Z:  return "Z";
             case AxisId::R:  return "R";
+            case AxisId::X:  return "X";
             case AxisId::X1: return "X1";
             case AxisId::X2: return "X2";
-            default:         return "?";
         }
+        return "?";
     }
 
     static constexpr int ENABLE_DELAY_MS = 150;
 
-    // --- 3. 命令分发处理（多轴版本）---
+    // ========== 命令分发处理 ==========
 
     void processCommand(AxisId id, std::monostate) {} // 空指令不处理
 
@@ -179,7 +249,6 @@ private:
     }
 
     void handleStop(AxisStateInternal& axis) {
-        // Stop 只对运动态生效
         if (axis.feedback.state == AxisState::Jogging ||
             axis.feedback.state == AxisState::MovingAbsolute ||
             axis.feedback.state == AxisState::MovingRelative) {
@@ -187,7 +256,7 @@ private:
         }
     }
 
-    // --- 4. 物理引擎演算（操作指定轴）---
+    // ========== 物理引擎演算 ==========
 
     void updateStateTransitions(AxisStateInternal& axis, int ms) {
         if (axis.feedback.state == AxisState::Unknown) {
@@ -202,7 +271,6 @@ private:
         if (axis.feedback.state == AxisState::MovingAbsolute ||
             axis.feedback.state == AxisState::MovingRelative) {
 
-            // Move: 使用 move_velocity 进行 P 控制收敛
             double step = (axis.move_velocity * ms) / 1000.0;
             double diff = axis.target_pos - axis.feedback.absPos;
 
@@ -215,7 +283,6 @@ private:
         }
         else if (axis.feedback.state == AxisState::Jogging) {
 
-            // Jog: 使用 jog_velocity 进行连续累加
             double step = (axis.jog_velocity * ms) / 1000.0;
             if (axis.jog_dir == Direction::Forward) {
                 axis.feedback.absPos += step;

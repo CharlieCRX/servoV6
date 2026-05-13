@@ -7,6 +7,30 @@
 #include "infrastructure/utils/CommandFormatter.h"
 #include <vector>
 
+/**
+ * @brief ISystemDriver 的假实现，用作测试替身
+ *
+ * ╔══════════════════════════════════════════════════════════════╗
+ * ║  分组感知：每个 SystemContext 绑定一个独立的                 ║
+ * ║            FakeAxisDriver + FakePLC 对                       ║
+ * ║                                                              ║
+ * ║  GroupA (Machine_A)          GroupB (Machine_B)              ║
+ * ║  ┌───────────────────┐      ┌───────────────────┐           ║
+ * ║  │ FakeAxisDriver_A  │      │ FakeAxisDriver_B  │           ║
+ * ║  │   (FakePLC_A)     │      │   (FakePLC_B)     │           ║
+ * ║  └───────────────────┘      └───────────────────┘           ║
+ * ║        ↑                          ↑                         ║
+ * ║  SystemContext_A            SystemContext_B                 ║
+ * ╚══════════════════════════════════════════════════════════════╝
+ *
+ * 构造时注入独立的 FakePLC 引用，不同分组拥有独立的 history 记录。
+ *
+ * 使用示例：
+ *   FakePLC plcA, plcB;
+ *   FakeAxisDriver driverA(plcA), driverB(plcB);
+ *   SystemContext ctxA(driverA);  // 绑定 driverA
+ *   SystemContext ctxB(driverB);  // 绑定 driverB
+ */
 class FakeAxisDriver : public ISystemDriver {
 public:
     struct Record {

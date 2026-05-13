@@ -36,6 +36,11 @@ public:
     bool tryGetGroup(const std::string& name, 
                      SystemContext*& outGroup, 
                      ContextRejection& outReason) {
+        if (name.empty()) {
+            outReason = ContextRejection::GroupNameInvalid;
+            outGroup = nullptr;
+            return false;
+        }
         auto it = m_groups.find(name);
         if (it == m_groups.end()) {
             outReason = ContextRejection::GroupNotFound;
