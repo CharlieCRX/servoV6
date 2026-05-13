@@ -2,6 +2,8 @@ include(GoogleTest)
 
 add_executable(unit_tests
 
+    application/policy/test_auto_rel_move_orchestrator.cpp
+    application/policy/test_auto_abs_move_orchestrator.cpp
     application/policy/test_jog_orchestrator.cpp
     application/policy/test_gantry_orchestrator.cpp
 
@@ -19,11 +21,6 @@ add_executable(unit_tests
     # infrastructure/test_fake_plc.cpp
     # infrastructure/test_system_integration.cpp
 
-    # application/policy/test_auto_rel_move_orchestrator.cpp
-    # application/policy/test_auto_abs_move_orchestrator.cpp
-
-    # application/test_jog_usecase.cpp
-    # application/test_axis_repository.cpp
     # presentation/viewmodel/test_axis_viewmodel_core.cpp
 )
 
