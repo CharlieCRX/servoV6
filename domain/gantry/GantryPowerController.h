@@ -12,16 +12,16 @@
  *
  * 状态机流转：
  *  NotSynchronized ──[applyFeedback]──→ Disabled / Enabled
- *  Disabled  ──[requestEnable(true)]──→ Enabling + ServoPowerCommand
+ *  Disabled  ──[requestEnable(true)]──→ Enabling + GantryPowerCommand
  *  Enabling  ──[applyFeedback]────────→ Enabled / Disabled
- *  Enabled   ──[requestEnable(false)]─→ Disabling + ServoPowerCommand
+ *  Enabled   ──[requestEnable(false)]─→ Disabling + GantryPowerCommand
  *  Disabling ──[applyFeedback]────────→ Disabled / Enabled
  *
  * m_enabled 废除，由 m_status 统一管理：
  *  - isEnabled() → m_status == Enabled
  *  - isSynchronized() → m_status != NotSynchronized
  */
-struct ServoPowerCommand {
+struct GantryPowerCommand {
     bool enable;  // true = 使能, false = 掉电
 };
 
@@ -51,7 +51,7 @@ public:
         if (active && m_status == Status::Enabled)  return GantryRejection::None;  // 幂等
         if (!active && m_status == Status::Disabled) return GantryRejection::None;  // 幂等
 
-        m_pending_command = ServoPowerCommand{active};
+        m_pending_command = GantryPowerCommand{active};
         m_status = active ? Status::Enabling : Status::Disabling;
         return GantryRejection::None;
     }
@@ -68,7 +68,7 @@ public:
 
     bool hasPendingCommand() const { return m_pending_command.has_value(); }
 
-    ServoPowerCommand popPendingCommand() {
+    GantryPowerCommand popPendingCommand() {
         auto cmd = *m_pending_command;
         m_pending_command.reset();
         return cmd;
@@ -87,5 +87,5 @@ public:
 
 private:
     Status m_status = Status::NotSynchronized;
-    std::optional<ServoPowerCommand> m_pending_command;
+    std::optional<GantryPowerCommand> m_pending_command;
 };

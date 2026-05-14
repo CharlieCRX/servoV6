@@ -1,6 +1,7 @@
 #ifndef FAKE_PLC_H
 #define FAKE_PLC_H
 
+#include "../domain/command/SystemCommand.h"
 #include "../domain/entity/Axis.h"
 #include "../domain/entity/AxisId.h"
 #include "infrastructure/logger/Logger.h"
@@ -246,6 +247,18 @@ private:
 
     void processCommand(AxisId id, const SetMoveVelocityCommand& cmd) {
         m_axes.at(id).move_velocity = std::abs(cmd.velocity);
+    }
+
+    // ========== Gantry & ServoPower 命令处理 ==========
+
+    void processCommand(AxisId id, const GantryCouplingCommand& /*cmd*/) {
+        // no-op for unit tests
+        (void)id;
+    }
+
+    void processCommand(AxisId id, const GantryPowerCommand& /*cmd*/) {
+        // no-op for unit tests
+        (void)id;
     }
 
     void handleStop(AxisStateInternal& axis) {

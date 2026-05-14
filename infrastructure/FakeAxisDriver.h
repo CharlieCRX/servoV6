@@ -40,15 +40,12 @@ public:
 
     explicit FakeAxisDriver(FakePLC& plc) : m_plc(plc) {}
 
-    void send(AxisId id, const AxisCommand& cmd) override {
-        LOG_TRACE(LogLayer::HAL, "Driver", "Sending to PLC: " + utils::format(cmd));
+    // ========== ISystemDriver 统一入口 ==========
 
-        history.push_back({id, cmd});  // ← 写入公开成员 history
-        m_plc.onCommand(id, cmd);
-    }
-
-    void sendGantry(const GantryCommand& /*cmd*/) override {
-        // no-op for unit tests
+    void send(const SystemCommand& cmd) override {
+        std::visit([this](auto&& c) {
+            handle(c);
+        }, cmd);
     }
 
     // ========== 测试辅助 ==========
@@ -77,6 +74,23 @@ public:
 
 private:
     FakePLC& m_plc;
+
+    // ========== 命令分发处理 ==========
+
+    void handle(const AxisCommandWithId& c) {
+        LOG_TRACE(LogLayer::HAL, "Driver", "Sending to PLC: " + utils::format(c.cmd));
+
+        history.push_back({c.id, c.cmd});
+        m_plc.onCommand(c.id, c.cmd);
+    }
+
+    void handle(const GantryCouplingCommand& /*cmd*/) {
+        // no-op for unit tests
+    }
+
+    void handle(const GantryPowerCommand& /*cmd*/) {
+        // no-op for unit tests
+    }
 };
 
 #endif // FAKE_AXIS_DRIVER_H
