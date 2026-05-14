@@ -10,12 +10,12 @@ protected:
 };
 
 // ============================================================
-// 新增：GantryMotorController 集成测试
+// 新增：GantryPowerController 集成测试
 // ============================================================
 
 // 构造后 gantryMotor() 返回非空引用
 TEST_F(SystemContextTest, GantryMotor_ShouldReturnNonNullOnConstruction) {
-    GantryMotorController& motor = context.gantryMotor();
+    GantryPowerController& motor = context.gantryMotor();
     // 引用本身无法判空，但调用方法不崩溃即说明对象存在
     EXPECT_NO_THROW(motor.status());
 }
@@ -28,9 +28,9 @@ TEST_F(SystemContextTest, GantryMotor_ShouldBeDistinctFromGantry) {
     EXPECT_NE(gantryAddr, motorAddr);
 }
 
-// 默认构造后 GantryMotorController 处于 NotSynchronized
+// 默认构造后 GantryPowerController 处于 NotSynchronized
 TEST_F(SystemContextTest, GantryMotor_ShouldBeNotSynchronizedByDefault) {
-    GantryMotorController& motor = context.gantryMotor();
+    GantryPowerController& motor = context.gantryMotor();
 
     EXPECT_TRUE(motor.isNotSynchronized());
     EXPECT_FALSE(motor.isSynchronized());
@@ -41,7 +41,7 @@ TEST_F(SystemContextTest, GantryMotor_ShouldBeNotSynchronizedByDefault) {
 TEST_F(SystemContextTest, GantryMotor_AccessibleInAllCouplingStates) {
     // NotSynchronized 态下可访问
     {
-        GantryMotorController& motor = context.gantryMotor();
+        GantryPowerController& motor = context.gantryMotor();
         EXPECT_TRUE(motor.isNotSynchronized());
     }
 
@@ -49,7 +49,7 @@ TEST_F(SystemContextTest, GantryMotor_AccessibleInAllCouplingStates) {
     context.gantryMotor().applyFeedback({ .isCoupled = false, .errorCode = 0 });
 
     {
-        GantryMotorController& motor = context.gantryMotor();
+        GantryPowerController& motor = context.gantryMotor();
         EXPECT_TRUE(motor.isSynchronized());
     }
 }
@@ -59,8 +59,8 @@ TEST_F(SystemContextTest, GantryMotor_SynchronizationIndependentOfGantry) {
     // GantryGroup 未同步
     EXPECT_TRUE(context.gantry().isNotSynchronized());
 
-    // 直接向 GantryMotorController 注入反馈 → 独立同步
-    GantryMotorController& motor = context.gantryMotor();
+    // 直接向 GantryPowerController 注入反馈 → 独立同步
+    GantryPowerController& motor = context.gantryMotor();
     motor.applyFeedback({ .enable = true, .isCoupled = true, .errorCode = 0 });
     EXPECT_TRUE(motor.isSynchronized());
     EXPECT_TRUE(motor.isEnabled());

@@ -19,9 +19,9 @@ add_executable(unit_tests
     # application/test_system_manager.cpp
 
     # domain/test_system_context.cpp
+    domain/gantry/test_gantry_power_controller.cpp
     domain/gantry/test_gantry_coupling_controller.cpp
     domain/gantry/test_gantry_coupling_state.cpp
-    # domain/gantry/test_gantry_motor_controller.cpp
 
     domain/test_axis.cpp
 

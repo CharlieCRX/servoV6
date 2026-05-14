@@ -8,7 +8,7 @@
  *  - isCoupled: 寄存器「轴X联动状态」（ON/OFF）
  *  - errorCode: 寄存器「Gantry_Error_Code」
  *
- * 由 PLC 轮询线程一次性读取、分别推送给 GantryMotorController 和 GantryGroup。
+ * 由 PLC 轮询线程一次性读取、分别推送给 GantryPowerController 和 GantryGroup。
  */
 struct GantryFeedback {
     bool enable;        // 电机使能状态

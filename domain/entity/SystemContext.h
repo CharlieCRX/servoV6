@@ -5,7 +5,7 @@
 #include "entity/AxisId.h"
 #include "entity/ContextRejection.h"
 #include "gantry/GantryGroup.h"
-#include "gantry/GantryMotorController.h"
+#include "gantry/GantryPowerController.h"
 #include "infrastructure/ISystemDriver.h"
 #include <unordered_map>
 
@@ -24,7 +24,7 @@ public:
         m_gantry = std::make_unique<GantryGroup>(*m_axes[AxisId::X1], *m_axes[AxisId::X2]);
 
         // 3. 初始化龙门电机控制器（独立于联动状态，任何状态下均可访问）
-        m_gantryMotor = std::make_unique<GantryMotorController>();
+        m_gantryMotor = std::make_unique<GantryPowerController>();
     }
 
     /**
@@ -86,7 +86,7 @@ public:
      * @brief 获取龙门电机控制器（不经过 tryGetAxis 锁定逻辑）
      *        在任何联动状态下均可访问，用于独立控制使能/掉电
      */
-    GantryMotorController& gantryMotor() { return *m_gantryMotor; }
+    GantryPowerController& gantryMotor() { return *m_gantryMotor; }
     
     void setDriver(ISystemDriver* driver) { m_driver = driver; }
     ISystemDriver* driver() { return m_driver; }
@@ -94,6 +94,6 @@ public:
 private:
     std::unordered_map<AxisId, std::unique_ptr<Axis>> m_axes;
     std::unique_ptr<GantryGroup> m_gantry;
-    std::unique_ptr<GantryMotorController> m_gantryMotor;
+    std::unique_ptr<GantryPowerController> m_gantryMotor;
     ISystemDriver* m_driver = nullptr;
 };

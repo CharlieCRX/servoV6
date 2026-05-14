@@ -12,20 +12,20 @@
  *
  * 状态机流转：
  *  NotSynchronized ──[applyFeedback]──→ Disabled / Enabled
- *  Disabled  ──[requestEnable(true)]──→ Enabling + MotorCommand
+ *  Disabled  ──[requestEnable(true)]──→ Enabling + ServoPowerCommand
  *  Enabling  ──[applyFeedback]────────→ Enabled / Disabled
- *  Enabled   ──[requestEnable(false)]─→ Disabling + MotorCommand
+ *  Enabled   ──[requestEnable(false)]─→ Disabling + ServoPowerCommand
  *  Disabling ──[applyFeedback]────────→ Disabled / Enabled
  *
  * m_enabled 废除，由 m_status 统一管理：
  *  - isEnabled() → m_status == Enabled
  *  - isSynchronized() → m_status != NotSynchronized
  */
-struct MotorCommand {
+struct ServoPowerCommand {
     bool enable;  // true = 使能, false = 掉电
 };
 
-class GantryMotorController {
+class GantryPowerController {
 public:
     enum class Status {
         NotSynchronized,  // 上电后尚未收到任何 PLC 反馈
@@ -51,7 +51,7 @@ public:
         if (active && m_status == Status::Enabled)  return GantryRejection::None;  // 幂等
         if (!active && m_status == Status::Disabled) return GantryRejection::None;  // 幂等
 
-        m_pending_command = MotorCommand{active};
+        m_pending_command = ServoPowerCommand{active};
         m_status = active ? Status::Enabling : Status::Disabling;
         return GantryRejection::None;
     }
@@ -68,7 +68,7 @@ public:
 
     bool hasPendingCommand() const { return m_pending_command.has_value(); }
 
-    MotorCommand popPendingCommand() {
+    ServoPowerCommand popPendingCommand() {
         auto cmd = *m_pending_command;
         m_pending_command.reset();
         return cmd;
@@ -87,5 +87,5 @@ public:
 
 private:
     Status m_status = Status::NotSynchronized;
-    std::optional<MotorCommand> m_pending_command;
+    std::optional<ServoPowerCommand> m_pending_command;
 };

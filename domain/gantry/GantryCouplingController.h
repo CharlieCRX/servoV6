@@ -98,7 +98,7 @@ public:
     // 核心 3：统一的反馈接收 (Apply Feedback)
     // ==========================================
     // 注意：只消费 isCoupled 和 errorCode，不消费 enable
-    //       enable 由 GantryServoPowerController（原 GantryMotorController）消费
+    //       enable 由 GantryServoPowerController（原 GantryServoPowerController）消费
     void applyFeedback(const GantryFeedback& feedback) {
         // 1. 翻译并记录 PLC 错误码
         m_last_error = translatePlcError(feedback.errorCode);
