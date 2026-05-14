@@ -5,54 +5,64 @@
 #include <optional>
 
 /**
- * @brief 龙门电机命令
+ * @brief 龙门电机控制器 — 五态全闭环状态机
  *
- * 对应 PLC 寄存器「使能轴X电机」（同时使能 X1/X2 电机）。
- * enable = true → 使能, false → 掉电
- */
-struct MotorCommand {
-    bool enable;
-};
-
-/**
- * @brief 龙门电机控制器
- *
- * 职责：控制 PLC 寄存器「使能轴X电机」。
+ * 职责：控制 PLC 寄存器「使能轴X电机」（同时使能 X1/X2 电机）。
  *      在任何联动状态下均可访问（不经过 SystemContext 的龙门锁定逻辑）。
  *
- * PLC 硬件约束：
- *  - 「使能轴X电机」寄存器同时控制 X1/X2 电机（PLC 内部逻辑）
- *  - 「轴X状态显示」寄存器反馈电机是否已使能（0/1）
+ * 状态机流转：
+ *  NotSynchronized ──[applyFeedback]──→ Disabled / Enabled
+ *  Disabled  ──[requestEnable(true)]──→ Enabling + MotorCommand
+ *  Enabling  ──[applyFeedback]────────→ Enabled / Disabled
+ *  Enabled   ──[requestEnable(false)]─→ Disabling + MotorCommand
+ *  Disabling ──[applyFeedback]────────→ Disabled / Enabled
  *
- * 设计决策：
- *  - m_synchronized 独立于 GantryCouplingState::NotSynchronized
- *    电机控制器只需知道是否收到过反馈，不需要五态状态机
- *  - requestEnable 在任何联动状态下均可调用
- *    调用方自行保证语义正确性（场景 2 使能解耦是合理的）
- *  - 幂等内建：m_enabled == active → 返回 None，不生成新命令
+ * m_enabled 废除，由 m_status 统一管理：
+ *  - isEnabled() → m_status == Enabled
+ *  - isSynchronized() → m_status != NotSynchronized
  */
+struct MotorCommand {
+    bool enable;  // true = 使能, false = 掉电
+};
+
 class GantryMotorController {
 public:
+    enum class Status {
+        NotSynchronized,  // 上电后尚未收到任何 PLC 反馈
+        Disabled,         // 已同步，电机掉电
+        Enabling,         // 已下发使能命令，等待 PLC 确认
+        Enabled,          // 电机已使能（PLC 反馈确认）
+        Disabling         // 已下发掉电命令，等待 PLC 确认
+    };
+
     // ========== 意图生成 ==========
 
     /**
      * @brief 请求使能/掉电龙门电机
-     * @return None           成功（包括幂等：已在目标状态）
-     *         NotSynchronized 尚未收到第一帧 PLC 反馈，拒绝操作
+     * @return None            成功
+     *         NotSynchronized 尚未收到第一帧 PLC 反馈
+     *         StateConflict   转换进行中（已在 Enabling / Disabling），拒绝操作
      */
     GantryRejection requestEnable(bool active) {
-        if (!m_synchronized) return GantryRejection::NotSynchronized;
-        if (m_enabled == active) return GantryRejection::None;  // 幂等
-        m_enabled = active;
+        if (m_status == Status::NotSynchronized) return GantryRejection::NotSynchronized;
+        if (m_status == Status::Enabling || m_status == Status::Disabling)
+            return GantryRejection::StateConflict;
+
+        if (active && m_status == Status::Enabled)  return GantryRejection::None;  // 幂等
+        if (!active && m_status == Status::Disabled) return GantryRejection::None;  // 幂等
+
         m_pending_command = MotorCommand{active};
+        m_status = active ? Status::Enabling : Status::Disabling;
         return GantryRejection::None;
     }
 
     // ========== 状态查询 ==========
 
-    bool isEnabled() const { return m_enabled; }
-    bool isSynchronized() const { return m_synchronized; }
-    bool isNotSynchronized() const { return !m_synchronized; }
+    Status status() const { return m_status; }
+
+    bool isEnabled() const        { return m_status == Status::Enabled; }
+    bool isSynchronized() const   { return m_status != Status::NotSynchronized; }
+    bool isNotSynchronized() const { return m_status == Status::NotSynchronized; }
 
     // ========== 命令弹出 ==========
 
@@ -68,15 +78,14 @@ public:
 
     /**
      * @brief 接收 PLC 寄存器「轴X状态显示」的反馈
-     *        首次反馈自动标记 m_synchronized = true（退出未同步态）
+     *        首次反馈从 NotSynchronized 迁出；
+     *        后续反馈如实反映物理真相，可能将 Enabling→Disabled（PLC 未确认）等。
      */
     void applyFeedback(const GantryFeedback& feedback) {
-        m_synchronized = true;
-        m_enabled = feedback.enable;
+        m_status = feedback.enable ? Status::Enabled : Status::Disabled;
     }
 
 private:
-    bool m_enabled = false;
-    bool m_synchronized = false;
+    Status m_status = Status::NotSynchronized;
     std::optional<MotorCommand> m_pending_command;
 };
