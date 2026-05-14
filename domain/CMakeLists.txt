@@ -8,6 +8,8 @@ add_library(domain
     gantry/GantryRejection.h
     gantry/GantryGroup.h
     gantry/GantryCouplingState.h
+    gantry/GantryFeedback.h
+    gantry/GantryMotorController.h
 )
 
 target_include_directories(domain PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

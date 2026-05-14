@@ -2,22 +2,13 @@
 
 #include "entity/Axis.h"
 #include "gantry/GantryCouplingState.h"
+#include "gantry/GantryFeedback.h"
 #include "gantry/GantryRejection.h"
 #include <optional>
-
-// ==========================================
-// 1. 独立的数据传输对象 (DTOs)
-// ==========================================
 
 // 表达龙门控制意图的独立 Command
 struct GantryCommand { 
     bool enableCoupling; 
-};
-
-// 表达龙门底层物理状态的反馈快照
-struct GantryFeedback {
-    bool isCoupled;      // 对应 PLC 寄存器: 轴X联动状态 (ON/OFF)
-    int errorCode;       // 对应 PLC 寄存器: Gantry_Error_Code
 };
 
 // ==========================================
