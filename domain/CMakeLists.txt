@@ -6,9 +6,9 @@ add_library(domain
     entity/SystemContext.h
 
     gantry/GantryRejection.h
-    gantry/GantryGroup.h
     gantry/GantryCouplingState.h
     gantry/GantryFeedback.h
+    gantry/GantryCouplingController.h
     gantry/GantryMotorController.h
 )
 

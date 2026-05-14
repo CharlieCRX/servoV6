@@ -1,24 +1,33 @@
 #pragma once
 
-#include "entity/Axis.h"
 #include "gantry/GantryCouplingState.h"
 #include "gantry/GantryFeedback.h"
 #include "gantry/GantryRejection.h"
 #include <optional>
 
-// 表达龙门控制意图的独立 Command
-struct GantryCommand { 
+// 表达龙门联动控制意图的独立 Command
+struct GantryCouplingCommand { 
     bool enableCoupling; 
 };
 
 // ==========================================
-// 2. 充血的聚合根 GantryGroup
+// 龙门联动控制器 — 四态耦合状态机
+// ==========================================
+// 职责：管理 PLC 寄存器「轴X联动使能」的上位机侧状态机
+//       - 生成联动/解耦意图（GantryCouplingCommand）
+//       - 接收 PLC 反馈（GantryFeedback::isCoupled / errorCode）同步状态
+//       - 不持有任何 Axis 引用（PLC 负责所有物理安全校验）
+//       - 在任何联动状态下均可独立访问
+//
+// 状态机：
+//   NotSynchronized → Coupled / Decoupled（仅通过 applyFeedback 退出）
+//   Decoupled       → CouplingRequested → Coupled
+//   Coupled         → DecouplingRequested → Decoupled
 // ==========================================
 
-class GantryGroup {
+class GantryCouplingController {
 public:
-    GantryGroup(Axis& x1, Axis& x2)
-        : m_x1(x1), m_x2(x2) {}
+    GantryCouplingController() = default;
 
     // --- 状态查询 ---
     bool isNotSynchronized() const { return m_state.isNotSynchronized(); }
@@ -42,10 +51,6 @@ public:
 
         if (active) {
             // --- 联动请求 ---
-            // 安全屏障：任一轴处于 Error 状态，拒绝联动
-            if (m_x1.state() == AxisState::Error || m_x2.state() == AxisState::Error) {
-                return GantryRejection::AxisStateError;
-            }
             // 幂等：已联动或联动请求进行中，视为成功但不产生新命令
             if (m_state.isCoupled() || m_state.isCouplingRequested()) {
                 return GantryRejection::None;
@@ -55,7 +60,9 @@ public:
                 return GantryRejection::StateConflict;
             }
             // 通过：Decoupled → 生成联动意图
-            m_pending_intent = GantryCommand{ true };
+            // 注意：不再检查 Axis Error 状态，X1/X2 是否使能/静止/超差
+            //       由 PLC 通过 Gantry_Error_Code 反馈，PLC 是最终安全裁决者
+            m_pending_intent = GantryCouplingCommand{ true };
             m_state.requestCouple();
         } else {
             // --- 解耦请求 ---
@@ -68,7 +75,7 @@ public:
                 return GantryRejection::StateConflict;
             }
             // 通过：Coupled → 生成解耦意图
-            m_pending_intent = GantryCommand{ false };
+            m_pending_intent = GantryCouplingCommand{ false };
             m_state.requestDecouple();
         }
         return GantryRejection::None;
@@ -81,7 +88,7 @@ public:
         return m_pending_intent.has_value(); 
     }
 
-    GantryCommand popPendingCommand() {
+    GantryCouplingCommand popPendingCommand() {
         auto cmd = *m_pending_intent;
         m_pending_intent.reset(); 
         return cmd;
@@ -90,6 +97,8 @@ public:
     // ==========================================
     // 核心 3：统一的反馈接收 (Apply Feedback)
     // ==========================================
+    // 注意：只消费 isCoupled 和 errorCode，不消费 enable
+    //       enable 由 GantryServoPowerController（原 GantryMotorController）消费
     void applyFeedback(const GantryFeedback& feedback) {
         // 1. 翻译并记录 PLC 错误码
         m_last_error = translatePlcError(feedback.errorCode);
@@ -116,9 +125,7 @@ private:
     }
 
 private:
-    Axis& m_x1;
-    Axis& m_x2;
     GantryCouplingState m_state;
-    std::optional<GantryCommand> m_pending_intent;
+    std::optional<GantryCouplingCommand> m_pending_intent;
     GantryRejection m_last_error = GantryRejection::None;
 };

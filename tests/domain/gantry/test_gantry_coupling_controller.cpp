@@ -1,16 +1,14 @@
 #include <gtest/gtest.h>
-#include "gantry/GantryGroup.h"
+#include "gantry/GantryCouplingController.h"
 
 // ============================================================
-// NotSynchronized 前置拦截测试 (新增)
+// NotSynchronized 前置拦截测试
 // ============================================================
 
 // 1. 验证初始状态为 NotSynchronized
-TEST(GantryGroup, should_be_not_synchronized_initially)
+TEST(GantryCouplingController, should_be_not_synchronized_initially)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
     EXPECT_TRUE(gantry.isNotSynchronized());
     EXPECT_FALSE(gantry.isCoupled());
@@ -20,11 +18,9 @@ TEST(GantryGroup, should_be_not_synchronized_initially)
 }
 
 // 2. NotSynchronized 下 requestCouple(true) 被拒绝
-TEST(GantryGroup, should_reject_couple_when_not_synchronized)
+TEST(GantryCouplingController, should_reject_couple_when_not_synchronized)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
     auto reason = gantry.requestCouple(true);
 
@@ -34,11 +30,9 @@ TEST(GantryGroup, should_reject_couple_when_not_synchronized)
 }
 
 // 3. NotSynchronized 下 requestCouple(false) 被拒绝
-TEST(GantryGroup, should_reject_decouple_when_not_synchronized)
+TEST(GantryCouplingController, should_reject_decouple_when_not_synchronized)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
     auto reason = gantry.requestCouple(false);
 
@@ -48,13 +42,11 @@ TEST(GantryGroup, should_reject_decouple_when_not_synchronized)
 }
 
 // 4. applyFeedback 是唯一退出 NotSynchronized 的途径 — 进入 Coupled
-TEST(GantryGroup, should_exit_not_synchronized_to_coupled_via_feedback)
+TEST(GantryCouplingController, should_exit_not_synchronized_to_coupled_via_feedback)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
-    gantry.applyFeedback({ .isCoupled = true, .errorCode = 0 });
+    gantry.applyFeedback({ .enable = false, .isCoupled = true, .errorCode = 0 });
 
     EXPECT_FALSE(gantry.isNotSynchronized());
     EXPECT_TRUE(gantry.isCoupled());
@@ -66,13 +58,11 @@ TEST(GantryGroup, should_exit_not_synchronized_to_coupled_via_feedback)
 }
 
 // 5. applyFeedback 是唯一退出 NotSynchronized 的途径 — 进入 Decoupled
-TEST(GantryGroup, should_exit_not_synchronized_to_decoupled_via_feedback)
+TEST(GantryCouplingController, should_exit_not_synchronized_to_decoupled_via_feedback)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
-    gantry.applyFeedback({ .isCoupled = false, .errorCode = 0 });
+    gantry.applyFeedback({ .enable = false, .isCoupled = false, .errorCode = 0 });
 
     EXPECT_FALSE(gantry.isNotSynchronized());
     EXPECT_FALSE(gantry.isCoupled());
@@ -88,13 +78,11 @@ TEST(GantryGroup, should_exit_not_synchronized_to_decoupled_via_feedback)
 // ============================================================
 
 // 6. 意图生成与弹出消费 (Produce & Pop Intent)
-TEST(GantryGroup, should_produce_and_pop_coupling_intent_when_requested)
+TEST(GantryCouplingController, should_produce_and_pop_coupling_intent_when_requested)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
-    gantry.applyFeedback({ .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized
+    gantry.applyFeedback({ .enable = false, .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized
 
     auto reason = gantry.requestCouple(true);
 
@@ -108,14 +96,12 @@ TEST(GantryGroup, should_produce_and_pop_coupling_intent_when_requested)
 }
 
 // 7. 非对称解耦的四态闭环 (DecouplingRequested)
-TEST(GantryGroup, should_produce_decoupling_intent_and_enter_decoupling_requested_state)
+TEST(GantryCouplingController, should_produce_decoupling_intent_and_enter_decoupling_requested_state)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
     // 先同步到 Coupled
-    gantry.applyFeedback({ .isCoupled = true, .errorCode = 0 });
+    gantry.applyFeedback({ .enable = false, .isCoupled = true, .errorCode = 0 });
     EXPECT_TRUE(gantry.isCoupled());
 
     auto reason = gantry.requestCouple(false);
@@ -128,34 +114,32 @@ TEST(GantryGroup, should_produce_decoupling_intent_and_enter_decoupling_requeste
     EXPECT_FALSE(cmd.enableCoupling); 
 }
 
-// 8. 验证领域安全防线：轴 Error 状态拒绝联动
-TEST(GantryGroup, should_reject_coupling_intent_when_axis_is_in_error_state)
+// 8. PLC 负责安全校验：上位机不再因 Axis Error 状态拦截联动请求
+//    （X1/X2 是否使能/静止/超差由 PLC 通过 Gantry_Error_Code 反馈）
+TEST(GantryCouplingController, should_not_reject_coupling_when_physical_axes_may_be_in_error)
 {
-    Axis x1;
-    Axis x2;
-    x1.applyFeedback({ .state = AxisState::Error }); 
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
-    gantry.applyFeedback({ .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized
+    gantry.applyFeedback({ .enable = false, .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized
 
+    // 即使物理轴可能在 Error 状态，上位机不拦截，允许下发联动命令
+    // PLC 会通过 Gantry_Error_Code 反馈实际结果
     auto reason = gantry.requestCouple(true);
 
-    EXPECT_EQ(reason, GantryRejection::AxisStateError);
-    EXPECT_FALSE(gantry.isCouplingRequested());
-    EXPECT_FALSE(gantry.hasPendingCommand());
+    EXPECT_EQ(reason, GantryRejection::None);
+    EXPECT_TRUE(gantry.isCouplingRequested());
+    EXPECT_TRUE(gantry.hasPendingCommand());
 }
 
 // 9. 验证统一的 GantryFeedback 成功路径处理
-TEST(GantryGroup, should_update_state_based_on_unified_feedback_success)
+TEST(GantryCouplingController, should_update_state_based_on_unified_feedback_success)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
-    gantry.applyFeedback({ .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized
+    gantry.applyFeedback({ .enable = false, .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized
 
     gantry.requestCouple(true);
-    gantry.applyFeedback({ .isCoupled = true, .errorCode = 0 });
+    gantry.applyFeedback({ .enable = false, .isCoupled = true, .errorCode = 0 });
 
     EXPECT_FALSE(gantry.isCouplingRequested());
     EXPECT_TRUE(gantry.isCoupled());
@@ -163,16 +147,14 @@ TEST(GantryGroup, should_update_state_based_on_unified_feedback_success)
 }
 
 // 10. 验证统一的 GantryFeedback 错误码映射与状态重置
-TEST(GantryGroup, should_update_state_and_record_error_based_on_unified_feedback)
+TEST(GantryCouplingController, should_update_state_and_record_error_based_on_unified_feedback)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
-    gantry.applyFeedback({ .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized
+    gantry.applyFeedback({ .enable = false, .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized
 
     gantry.requestCouple(true);
-    gantry.applyFeedback({ .isCoupled = false, .errorCode = 1 });
+    gantry.applyFeedback({ .enable = false, .isCoupled = false, .errorCode = 1 });
 
     EXPECT_TRUE(gantry.hasError());
     EXPECT_EQ(gantry.getLastError(), GantryRejection::PositionToleranceExceeded);
@@ -184,13 +166,11 @@ TEST(GantryGroup, should_update_state_and_record_error_based_on_unified_feedback
 // ============================================================
 
 // 11. 幂等：已联动时再次请求联动，不产生新命令
-TEST(GantryGroup, should_not_produce_command_when_already_coupled)
+TEST(GantryCouplingController, should_not_produce_command_when_already_coupled)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
-    gantry.applyFeedback({ .isCoupled = true, .errorCode = 0 }); // 快捷进入 Coupled
+    gantry.applyFeedback({ .enable = false, .isCoupled = true, .errorCode = 0 }); // 快捷进入 Coupled
     EXPECT_TRUE(gantry.isCoupled());
 
     auto reason = gantry.requestCouple(true);
@@ -201,13 +181,11 @@ TEST(GantryGroup, should_not_produce_command_when_already_coupled)
 }
 
 // 12. 幂等：已解耦时再次请求解耦，不产生新命令
-TEST(GantryGroup, should_not_produce_command_when_already_decoupled)
+TEST(GantryCouplingController, should_not_produce_command_when_already_decoupled)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
-    gantry.applyFeedback({ .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized 到 Decoupled
+    gantry.applyFeedback({ .enable = false, .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized 到 Decoupled
     EXPECT_FALSE(gantry.isCoupled());
 
     auto reason = gantry.requestCouple(false);
@@ -217,13 +195,11 @@ TEST(GantryGroup, should_not_produce_command_when_already_decoupled)
 }
 
 // 13. 幂等：联动请求进行中，再次请求联动不重复产生命令
-TEST(GantryGroup, should_not_duplicate_command_when_coupling_already_requested)
+TEST(GantryCouplingController, should_not_duplicate_command_when_coupling_already_requested)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
-    gantry.applyFeedback({ .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized
+    gantry.applyFeedback({ .enable = false, .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized
 
     gantry.requestCouple(true);
     EXPECT_TRUE(gantry.hasPendingCommand());
@@ -237,13 +213,11 @@ TEST(GantryGroup, should_not_duplicate_command_when_coupling_already_requested)
 }
 
 // 14. 幂等：解耦请求进行中，再次请求解耦不重复产生命令
-TEST(GantryGroup, should_not_duplicate_command_when_decoupling_already_requested)
+TEST(GantryCouplingController, should_not_duplicate_command_when_decoupling_already_requested)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
-    gantry.applyFeedback({ .isCoupled = true, .errorCode = 0 }); // 快捷进入 Coupled
+    gantry.applyFeedback({ .enable = false, .isCoupled = true, .errorCode = 0 }); // 快捷进入 Coupled
     EXPECT_TRUE(gantry.isCoupled());
 
     gantry.requestCouple(false);
@@ -257,13 +231,11 @@ TEST(GantryGroup, should_not_duplicate_command_when_decoupling_already_requested
 }
 
 // 15. 冲突：联动请求进行中，不允许发起解耦
-TEST(GantryGroup, should_reject_decouple_when_coupling_in_progress)
+TEST(GantryCouplingController, should_reject_decouple_when_coupling_in_progress)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
-    gantry.applyFeedback({ .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized
+    gantry.applyFeedback({ .enable = false, .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized
 
     gantry.requestCouple(true);
     EXPECT_TRUE(gantry.isCouplingRequested());
@@ -275,13 +247,11 @@ TEST(GantryGroup, should_reject_decouple_when_coupling_in_progress)
 }
 
 // 16. 冲突：解耦请求进行中，不允许发起联动
-TEST(GantryGroup, should_reject_couple_when_decoupling_in_progress)
+TEST(GantryCouplingController, should_reject_couple_when_decoupling_in_progress)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
-    gantry.applyFeedback({ .isCoupled = true, .errorCode = 0 }); // 快捷进入 Coupled
+    gantry.applyFeedback({ .enable = false, .isCoupled = true, .errorCode = 0 }); // 快捷进入 Coupled
     EXPECT_TRUE(gantry.isCoupled());
 
     gantry.requestCouple(false);
@@ -294,13 +264,11 @@ TEST(GantryGroup, should_reject_couple_when_decoupling_in_progress)
 }
 
 // 17. 正交：幂等联动不消耗已存在的待发送命令
-TEST(GantryGroup, idempotent_couple_does_not_clear_existing_pending_command)
+TEST(GantryCouplingController, idempotent_couple_does_not_clear_existing_pending_command)
 {
-    Axis x1;
-    Axis x2;
-    GantryGroup gantry(x1, x2);
+    GantryCouplingController gantry;
 
-    gantry.applyFeedback({ .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized
+    gantry.applyFeedback({ .enable = false, .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized
 
     gantry.requestCouple(true);
     EXPECT_TRUE(gantry.hasPendingCommand());
