@@ -13,61 +13,61 @@ protected:
 // 新增：GantryPowerController 集成测试
 // ============================================================
 
-// 构造后 gantryMotor() 返回非空引用
+// 构造后 gantryPowerController() 返回非空引用
 TEST_F(SystemContextTest, GantryMotor_ShouldReturnNonNullOnConstruction) {
-    GantryPowerController& motor = context.gantryMotor();
+    GantryPowerController& motor = context.gantryPowerController();
     // 引用本身无法判空，但调用方法不崩溃即说明对象存在
     EXPECT_NO_THROW(motor.status());
 }
 
-// gantryMotor() 与 gantry() 返回不同对象
+// gantryPowerController() 与 gantryCouplingController() 返回不同对象
 TEST_F(SystemContextTest, GantryMotor_ShouldBeDistinctFromGantry) {
-    void* gantryAddr = &context.gantry();
-    void* motorAddr  = &context.gantryMotor();
+    void* gantryAddr = &context.gantryCouplingController();
+    void* motorAddr  = &context.gantryPowerController();
 
     EXPECT_NE(gantryAddr, motorAddr);
 }
 
 // 默认构造后 GantryPowerController 处于 NotSynchronized
 TEST_F(SystemContextTest, GantryMotor_ShouldBeNotSynchronizedByDefault) {
-    GantryPowerController& motor = context.gantryMotor();
+    GantryPowerController& motor = context.gantryPowerController();
 
     EXPECT_TRUE(motor.isNotSynchronized());
     EXPECT_FALSE(motor.isSynchronized());
     EXPECT_FALSE(motor.isEnabled());
 }
 
-// gantryMotor() 在任何龙门联动状态下均可访问（不经过 tryGetAxis 锁定逻辑）
+// gantryPowerController() 在任何龙门联动状态下均可访问（不经过 tryGetAxis 锁定逻辑）
 TEST_F(SystemContextTest, GantryMotor_AccessibleInAllCouplingStates) {
     // NotSynchronized 态下可访问
     {
-        GantryPowerController& motor = context.gantryMotor();
+        GantryPowerController& motor = context.gantryPowerController();
         EXPECT_TRUE(motor.isNotSynchronized());
     }
 
     // Decoupled 态下可访问
-    context.gantryMotor().applyFeedback({ .isCoupled = false, .errorCode = 0 });
+    context.gantryPowerController().applyFeedback({ .isCoupled = false, .errorCode = 0 });
 
     {
-        GantryPowerController& motor = context.gantryMotor();
+        GantryPowerController& motor = context.gantryPowerController();
         EXPECT_TRUE(motor.isSynchronized());
     }
 }
 
-// gantryMotor 的同步状态独立于 GantryGroup（各自独立接收 applyFeedback）
+// gantryPowerController 的同步状态独立于 GantryGroup（各自独立接收 applyFeedback）
 TEST_F(SystemContextTest, GantryMotor_SynchronizationIndependentOfGantry) {
     // GantryGroup 未同步
-    EXPECT_TRUE(context.gantry().isNotSynchronized());
+    EXPECT_TRUE(context.gantryCouplingController().isNotSynchronized());
 
     // 直接向 GantryPowerController 注入反馈 → 独立同步
-    GantryPowerController& motor = context.gantryMotor();
+    GantryPowerController& motor = context.gantryPowerController();
     motor.applyFeedback({ .enable = true, .isCoupled = true, .errorCode = 0 });
     EXPECT_TRUE(motor.isSynchronized());
     EXPECT_TRUE(motor.isEnabled());
 
     // GantryGroup 仍然未同步（未收到反馈）
-    EXPECT_TRUE(context.gantry().isNotSynchronized());
-    // 但 gantryMotor 已同步，证明彼此独立
+    EXPECT_TRUE(context.gantryCouplingController().isNotSynchronized());
+    // 但 gantryPowerController 已同步，证明彼此独立
 }
 
 // setDriver / driver 接口不变
@@ -142,7 +142,7 @@ TEST_F(SystemContextTest, TryGet_R_ShouldSucceed_EvenWhenNotSynchronized) {
 // ============================================================
 
 TEST_F(SystemContextTest, TryGet_X_ShouldSucceed_InCoupledMode) {
-    context.gantry().applyFeedback({ .isCoupled = true, .errorCode = 0 }); // 退出 NotSynchronized → Coupled
+    context.gantryCouplingController().applyFeedback({ .isCoupled = true, .errorCode = 0 }); // 退出 NotSynchronized → Coupled
     
     bool success = context.tryGetAxis(AxisId::X, outAxis, reason);
     
@@ -152,7 +152,7 @@ TEST_F(SystemContextTest, TryGet_X_ShouldSucceed_InCoupledMode) {
 }
 
 TEST_F(SystemContextTest, TryGet_X1_ShouldFail_InCoupledMode) {
-    context.gantry().applyFeedback({ .isCoupled = true, .errorCode = 0 });
+    context.gantryCouplingController().applyFeedback({ .isCoupled = true, .errorCode = 0 });
     
     bool success = context.tryGetAxis(AxisId::X1, outAxis, reason);
     
@@ -162,7 +162,7 @@ TEST_F(SystemContextTest, TryGet_X1_ShouldFail_InCoupledMode) {
 }
 
 TEST_F(SystemContextTest, TryGet_X2_ShouldFail_InCoupledMode) {
-    context.gantry().applyFeedback({ .isCoupled = true, .errorCode = 0 });
+    context.gantryCouplingController().applyFeedback({ .isCoupled = true, .errorCode = 0 });
     
     bool success = context.tryGetAxis(AxisId::X2, outAxis, reason);
     
@@ -176,7 +176,7 @@ TEST_F(SystemContextTest, TryGet_X2_ShouldFail_InCoupledMode) {
 // ============================================================
 
 TEST_F(SystemContextTest, TryGet_X_ShouldFail_InDecoupledMode) {
-    context.gantry().applyFeedback({ .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized → Decoupled
+    context.gantryCouplingController().applyFeedback({ .isCoupled = false, .errorCode = 0 }); // 退出 NotSynchronized → Decoupled
     
     bool success = context.tryGetAxis(AxisId::X, outAxis, reason);
     
@@ -185,7 +185,7 @@ TEST_F(SystemContextTest, TryGet_X_ShouldFail_InDecoupledMode) {
 }
 
 TEST_F(SystemContextTest, TryGet_X1_ShouldSucceed_InDecoupledMode) {
-    context.gantry().applyFeedback({ .isCoupled = false, .errorCode = 0 });
+    context.gantryCouplingController().applyFeedback({ .isCoupled = false, .errorCode = 0 });
     
     bool success = context.tryGetAxis(AxisId::X1, outAxis, reason);
     
@@ -195,7 +195,7 @@ TEST_F(SystemContextTest, TryGet_X1_ShouldSucceed_InDecoupledMode) {
 }
 
 TEST_F(SystemContextTest, TryGet_X2_ShouldSucceed_InDecoupledMode) {
-    context.gantry().applyFeedback({ .isCoupled = false, .errorCode = 0 });
+    context.gantryCouplingController().applyFeedback({ .isCoupled = false, .errorCode = 0 });
     
     bool success = context.tryGetAxis(AxisId::X2, outAxis, reason);
     

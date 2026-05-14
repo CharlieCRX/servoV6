@@ -4,7 +4,7 @@
 #include "entity/Axis.h"
 #include "entity/AxisId.h"
 #include "entity/ContextRejection.h"
-#include "gantry/GantryGroup.h"
+#include "gantry/GantryCouplingController.h"
 #include "gantry/GantryPowerController.h"
 #include "infrastructure/ISystemDriver.h"
 #include <unordered_map>
@@ -20,11 +20,11 @@ public:
         m_axes[AxisId::Z] = std::make_unique<Axis>();
         m_axes[AxisId::R] = std::make_unique<Axis>();
 
-        // 2. 初始化龙门大脑，并注入本组内部的 X1, X2 引用
-        m_gantry = std::make_unique<GantryGroup>(*m_axes[AxisId::X1], *m_axes[AxisId::X2]);
+        // 2. 初始化龙门联动控制器（不持有 Axis 引用，PLC 负责物理安全校验）
+        m_gantryCouplingController = std::make_unique<GantryCouplingController>();
 
         // 3. 初始化龙门电机控制器（独立于联动状态，任何状态下均可访问）
-        m_gantryMotor = std::make_unique<GantryPowerController>();
+        m_gantryPowerController = std::make_unique<GantryPowerController>();
     }
 
     /**
@@ -43,14 +43,14 @@ public:
         // 仅龙门相关轴受联动状态约束，非龙门轴跳过
         if (id == AxisId::X || id == AxisId::X1 || id == AxisId::X2) {
             // A. 前置拦截：状态机尚未同步，物理真相未知 → 拒绝一切龙门轴访问
-            if (m_gantry->isNotSynchronized()) {
+            if (m_gantryCouplingController->isNotSynchronized()) {
                 reason = ContextRejection::GantryNotSynchronized;
                 outAxis = nullptr;
                 return false;
             }
 
-            // B. 龙门联动/解耦语义：由 GantryGroup 唯一真相源裁决
-            if (m_gantry->isCoupled()) {
+            // B. 龙门联动/解耦语义：由 GantryCouplingController 唯一真相源裁决
+            if (m_gantryCouplingController->isCoupled()) {
                 if (id == AxisId::X1 || id == AxisId::X2) {
                     reason = ContextRejection::PhysicalAxisLockedByGantry;
                     outAxis = nullptr;
@@ -79,21 +79,16 @@ public:
         return true;
     }
 
-    // --- 其他基础接口 ---
-    GantryGroup& gantry() { return *m_gantry; }
-
-    /**
-     * @brief 获取龙门电机控制器（不经过 tryGetAxis 锁定逻辑）
-     *        在任何联动状态下均可访问，用于独立控制使能/掉电
-     */
-    GantryPowerController& gantryMotor() { return *m_gantryMotor; }
+    // --- 龙门控制的基础接口 ---
+    GantryCouplingController& gantryCouplingController() { return *m_gantryCouplingController; }
+    GantryPowerController& gantryPowerController() { return *m_gantryPowerController; }
     
     void setDriver(ISystemDriver* driver) { m_driver = driver; }
     ISystemDriver* driver() { return m_driver; }
 
 private:
     std::unordered_map<AxisId, std::unique_ptr<Axis>> m_axes;
-    std::unique_ptr<GantryGroup> m_gantry;
-    std::unique_ptr<GantryPowerController> m_gantryMotor;
+    std::unique_ptr<GantryCouplingController> m_gantryCouplingController;
+    std::unique_ptr<GantryPowerController> m_gantryPowerController;
     ISystemDriver* m_driver = nullptr;
 };
