@@ -1,5 +1,6 @@
 #pragma once
 #include "application/UseCaseError.h"
+#include "domain/command/SystemCommand.h"
 #include "domain/entity/AxisId.h"
 #include "domain/entity/SystemContext.h"
 #include "application/SystemManager.h"
@@ -46,9 +47,9 @@ public:
 
         // ===== 阶段 2：执行停止（领域层不可拒绝） =====
         if (axis->stop()) {
-            // 将产生的停止指令发送至硬件抽象层
+            // 将产生的停止指令通过统一命令总线下发
             if (auto* drv = group->driver()) {
-                drv->send(axisId, axis->getPendingCommand());
+                drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
             }
         }
 

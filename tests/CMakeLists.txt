@@ -11,11 +11,11 @@ add_executable(unit_tests
     # application/policy/test_jog_orchestrator.cpp
     # application/policy/test_gantry_orchestrator.cpp
 
+    application/test_move_absolute_usecase.cpp
+    application/test_move_relative_usecase.cpp
+    application/test_stop_usecase.cpp
+    application/test_jog_usecase.cpp
     application/test_enable_usecase.cpp
-    # application/test_move_absolute_usecase.cpp
-    # application/test_move_relative_usecase.cpp
-    # application/test_stop_usecase.cpp
-    # application/test_jog_usecase.cpp
     application/test_system_manager.cpp
     application/safety/test_emergency_stop_usecase.cpp
 

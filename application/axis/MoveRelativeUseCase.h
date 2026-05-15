@@ -1,5 +1,6 @@
 #pragma once
 #include "application/UseCaseError.h"
+#include "domain/command/SystemCommand.h"
 #include "domain/entity/AxisId.h"
 #include "domain/entity/SystemContext.h"
 #include "application/SystemManager.h"
@@ -54,10 +55,10 @@ public:
             return axis->lastRejection();  // RejectionReason::InvalidState / TargetOutOf… / At…Limit
         }
 
-        // ===== 阶段 3：若产生了待发送命令，下发至物理驱动 =====
+        // ===== 阶段 3：若产生了待发送命令，通过统一命令总线包装下发 =====
         if (axis->hasPendingCommand()) {
             if (auto* drv = group->driver()) {
-                drv->send(axisId, axis->getPendingCommand());
+                drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
             }
         }
 

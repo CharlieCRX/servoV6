@@ -1,5 +1,6 @@
 #pragma once
 #include "application/UseCaseError.h"
+#include "domain/command/SystemCommand.h"
 #include "domain/entity/AxisId.h"
 #include "domain/entity/SystemContext.h"
 #include "application/SystemManager.h"
@@ -51,10 +52,10 @@ public:
             return axis->lastRejection();  // RejectionReason::InvalidState / AtPositiveLimit / AtNegativeLimit ...
         }
 
-        // ===== 阶段 3：若产生了待发送命令，下发至物理驱动 =====
+        // ===== 阶段 3：若产生了待发送命令，通过统一命令总线包装下发 =====
         if (axis->hasPendingCommand()) {
             if (auto* drv = group->driver()) {
-                drv->send(axisId, axis->getPendingCommand());
+                drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
             }
         }
 
@@ -94,9 +95,9 @@ public:
 
         // ===== 阶段 2：轴领域层停止点动 =====
         if (axis->stopJog(dir)) {
-            // 3. 将产生的指令（JogCommand {active: false}）下发
+            // 3. 将产生的指令（JogCommand {active: false}）通过统一命令总线下发
             if (auto* drv = group->driver()) {
-                drv->send(axisId, axis->getPendingCommand());
+                drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
             }
         }
     }
