@@ -60,6 +60,12 @@ protected:
         SystemContext* ctx = nullptr;
         ASSERT_TRUE(manager.tryGetGroup(GROUP, ctx, reason));
         ctx->setDriver(&driver);
+
+        // 3. 首次同步 EmergencyStopController
+        //    EmergencyStopController 初始态为 NotSynchronized，
+        //    isSystemLocked() 返回 true，tryGetAxis() Layer 0 会拒绝所有轴访问。
+        //    applyFeedback(false) 完成同步，跃迁到 Running，解锁所有轴访问。
+        ctx->emergencyStopController().applyFeedback(false);
     }
 
     // 快捷方法：获取分组内指定的轴
@@ -209,7 +215,7 @@ TEST_F(EnableUseCaseTest, EnableX1_WhenGantryCoupled_ReturnsPhysicalAxisLocked) 
     SystemContext* ctx = nullptr;
     ContextRejection reason;
     manager.tryGetGroup(GROUP, ctx, reason);
-    ctx->gantry().applyFeedback({.isCoupled = true, .errorCode = 0});
+    ctx->gantryCouplingController().applyFeedback({.isCoupled = true, .errorCode = 0});
 
     // When: 尝试直接操作物理轴 X1
     UseCaseError result = useCase.execute(manager, GROUP, X1, true);
@@ -225,7 +231,7 @@ TEST_F(EnableUseCaseTest, EnableX1_WhenGantryDecoupled_PassesThrough) {
     SystemContext* ctx = nullptr;
     ContextRejection reason;
     manager.tryGetGroup(GROUP, ctx, reason);
-    ctx->gantry().applyFeedback({.isCoupled = false, .errorCode = 0});
+    ctx->gantryCouplingController().applyFeedback({.isCoupled = false, .errorCode = 0});
 
     Axis* x1 = getAxis(X1);
     ASSERT_NE(x1, nullptr);
@@ -280,7 +286,7 @@ TEST_F(EnableUseCaseTest, X1Failed_YStillSucceeds) {
     SystemContext* ctx = nullptr;
     ContextRejection reason;
     manager.tryGetGroup(GROUP, ctx, reason);
-    ctx->gantry().applyFeedback({.isCoupled = true, .errorCode = 0});
+    ctx->gantryCouplingController().applyFeedback({.isCoupled = true, .errorCode = 0});
 
     // Y 轴正常
     Axis* y = getAxis(Y);
