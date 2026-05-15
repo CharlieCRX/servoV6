@@ -14,4 +14,7 @@ enum class ContextRejection {
     GroupNameInvalid,         // 分组名称为空或包含非法字符
 
     DriverNotReady,           // 驱动未就绪（已有）
+
+    // --- 安全域锁定（新增）---
+    SystemSafetyLocked,       // 系统处于安全锁定状态（急停中 / 急停解除中），禁止轴访问
 };

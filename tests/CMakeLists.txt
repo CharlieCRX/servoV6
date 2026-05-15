@@ -22,6 +22,7 @@ add_executable(unit_tests
     domain/gantry/test_gantry_power_controller.cpp
     domain/gantry/test_gantry_coupling_controller.cpp
     domain/gantry/test_gantry_coupling_state.cpp
+    domain/safety/test_emergency_stop_controller.cpp
 
     domain/test_axis.cpp
 
