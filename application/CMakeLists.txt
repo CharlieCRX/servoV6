@@ -10,6 +10,9 @@ add_library(application
     policy/AutoRelMoveOrchestrator.h
     policy/GantryOrchestrator.h
 
+    safety/EmergencyStopUseCase.h
+    safety/ReleaseEmergencyStopUseCase.h
+
     SystemManager.h
     UsecaseError.h
 )

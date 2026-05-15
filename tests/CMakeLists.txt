@@ -17,12 +17,14 @@ add_executable(unit_tests
     # application/test_stop_usecase.cpp
     # application/test_jog_usecase.cpp
     # application/test_system_manager.cpp
+    application/safety/test_emergency_stop_usecase.cpp
 
     domain/test_system_context.cpp
     domain/gantry/test_gantry_power_controller.cpp
     domain/gantry/test_gantry_coupling_controller.cpp
     domain/gantry/test_gantry_coupling_state.cpp
     domain/safety/test_emergency_stop_controller.cpp
+
 
     domain/test_axis.cpp
 
