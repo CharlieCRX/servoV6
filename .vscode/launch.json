@@ -12,14 +12,14 @@
             "environment": [
                 {
                     "name": "PATH",
-                    "value": "D:\\develop\\Qt6\\Tools\\mingw1310_64\\bin;${env:PATH}"
+                    "value": "${config:servo.mingwBinDir};${env:PATH}"
                 }
             ],
             "console": "integratedTerminal",
             "MIMode": "gdb",
-            "miDebuggerPath": "D:/develop/Qt6/Tools/mingw1310_64/bin/gdb.exe",
+            "miDebuggerPath": "${config:servo.mingwBinDir}/gdb.exe",
             "preLaunchTask": "cmake-build",
-            "visualizerFile": "c:\\Users\\Administrator\\AppData\\Roaming\\Code\\User\\workspaceStorage\\4e5d2f5d9528eacdab6e8377eb68db3c\\tonka3000.qtvsctools\\qt.natvis.xml",
+            "visualizerFile": "${config:servo.qtNatvisFile}",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -42,14 +42,14 @@
             "environment": [
                 {
                     "name": "PATH",
-                    "value": "D:\\develop\\Qt6\\Tools\\mingw1310_64\\bin;${env:PATH}"
+                    "value": "${config:servo.mingwBinDir};${env:PATH}"
                 }
             ],
             "console": "integratedTerminal",
             "MIMode": "gdb",
-            "miDebuggerPath": "D:/develop/Qt6/Tools/mingw1310_64/bin/gdb.exe",
+            "miDebuggerPath": "${config:servo.mingwBinDir}/gdb.exe",
             "preLaunchTask": "cmake-build",
-            "visualizerFile": "c:\\Users\\Administrator\\AppData\\Roaming\\Code\\User\\workspaceStorage\\4e5d2f5d9528eacdab6e8377eb68db3c\\tonka3000.qtvsctools\\qt.natvis.xml",
+            "visualizerFile": "${config:servo.qtNatvisFile}",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -69,13 +69,13 @@
             "environment": [
                 {
                     "name": "PATH",
-                    "value": "D:\\develop\\Qt6\\Tools\\mingw1310_64\\bin;${env:PATH}"
+                    "value": "${config:servo.mingwBinDir};${env:PATH}"
                 }
             ],
             "console": "integratedTerminal",
             "MIMode": "gdb",
-            "miDebuggerPath": "D:/develop/Qt6/Tools/mingw1310_64/bin/gdb.exe",
-            "visualizerFile": "c:\\Users\\Administrator\\AppData\\Roaming\\Code\\User\\workspaceStorage\\4e5d2f5d9528eacdab6e8377eb68db3c\\tonka3000.qtvsctools\\qt.natvis.xml",
+            "miDebuggerPath": "${config:servo.mingwBinDir}/gdb.exe",
+            "visualizerFile": "${config:servo.qtNatvisFile}",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -97,14 +97,14 @@
             "environment": [
                 {
                     "name": "PATH",
-                    "value": "D:\\develop\\Qt6\\Tools\\mingw1310_64\\bin;${env:PATH}"
+                    "value": "${config:servo.mingwBinDir};${env:PATH}"
                 }
             ],
             "console": "integratedTerminal",
             "MIMode": "gdb",
-            "miDebuggerPath": "D:/develop/Qt6/Tools/mingw1310_64/bin/gdb.exe",
+            "miDebuggerPath": "${config:servo.mingwBinDir}/gdb.exe",
             "preLaunchTask": "cmake-build",
-            "visualizerFile": "c:\\Users\\Administrator\\AppData\\Roaming\\Code\\User\\workspaceStorage\\4e5d2f5d9528eacdab6e8377eb68db3c\\tonka3000.qtvsctools\\qt.natvis.xml",
+            "visualizerFile": "${config:servo.qtNatvisFile}",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
@@ -127,14 +127,14 @@
             "environment": [
                 {
                     "name": "PATH",
-                    "value": "D:\\develop\\Qt6\\Tools\\mingw1310_64\\bin;${env:PATH}"
+                    "value": "${config:servo.mingwBinDir};${env:PATH}"
                 }
             ],
             "console": "integratedTerminal",
             "MIMode": "gdb",
-            "miDebuggerPath": "D:/develop/Qt6/Tools/mingw1310_64/bin/gdb.exe",
+            "miDebuggerPath": "${config:servo.mingwBinDir}/gdb.exe",
             "preLaunchTask": "cmake-build",
-            "visualizerFile": "c:\\Users\\Administrator\\AppData\\Roaming\\Code\\User\\workspaceStorage\\4e5d2f5d9528eacdab6e8377eb68db3c\\tonka3000.qtvsctools\\qt.natvis.xml",
+            "visualizerFile": "${config:servo.qtNatvisFile}",
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
