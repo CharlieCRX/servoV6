@@ -16,7 +16,7 @@ add_executable(unit_tests
     # application/test_move_relative_usecase.cpp
     # application/test_stop_usecase.cpp
     # application/test_jog_usecase.cpp
-    # application/test_system_manager.cpp
+    application/test_system_manager.cpp
     application/safety/test_emergency_stop_usecase.cpp
 
     domain/test_system_context.cpp
