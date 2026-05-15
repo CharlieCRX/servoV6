@@ -25,6 +25,14 @@
  *
  * 构造时注入独立的 FakePLC 引用，不同分组拥有独立的 history 记录。
  *
+ * --- 急停命令处理 ---
+ *
+ * 当 SystemManager 消费 EmergencyStopCommand 并通过 send() 发送时：
+ *   - Driver 将 active 写入 FakePLC 的"设备急停"命令寄存器
+ *   - FakePLC::tick() 在 delay 后将"设备急停中"状态寄存器同步为 true
+ *   - Domain 侧通过 FakePLC::getEmergencyStopFeedback() 获取状态反馈
+ *     并调用 EmergencyStopController::applyFeedback() 驱动状态机跃迁
+ *
  * 使用示例：
  *   FakePLC plcA, plcB;
  *   FakeAxisDriver driverA(plcA), driverB(plcB);
@@ -90,6 +98,20 @@ private:
 
     void handle(const GantryPowerCommand& /*cmd*/) {
         // no-op for unit tests
+    }
+
+    /**
+     * @brief 急停命令处理
+     *
+     * 将 EmergencyStopCommand 的 active 写入 FakePLC 的命令寄存器。
+     * FakePLC::tick() 将在延迟后同步状态寄存器，
+     * Domain 侧通过 getEmergencyStopFeedback() 读取并驱动状态机。
+     */
+    void handle(const EmergencyStopCommand& cmd) {
+        LOG_TRACE(LogLayer::HAL, "Driver",
+            cmd.active ? "EmergencyStopCommand: ACTIVATE" : "EmergencyStopCommand: RELEASE");
+
+        m_plc.forceEmergencyStopCommand(cmd.active);
     }
 };
 

@@ -9,10 +9,19 @@
 #include <algorithm>
 #include <unordered_map>
 
+// --- 急停仿真相关 ---
+
+/// @brief 急停生效仿真延迟（对应 PLC 扫描周期 × N）
+constexpr int EMERGENCY_STOP_ENGAGE_DELAY_MS = 50;
+
+/// @brief 急停解除仿真延迟
+constexpr int EMERGENCY_STOP_RELEASE_DELAY_MS = 50;
+
 /**
- * @brief 虚拟 PLC 仿真器（物理引擎模拟）
+ * @brief 虚拟 PLC 仿真器（物理引擎模拟 + 急停硬件仿真）
  *
- * 设计职责：仿真一个独立硬件 PLC 的物理行为（运动学演算、限位检测、使能延迟）。
+ * 设计职责：仿真一个独立硬件 PLC 的物理行为（运动学演算、限位检测、使能延迟、
+ *            急停命令/状态分离寄存器）。
  *
  * ╔══════════════════════════════════════════════════════════════╗
  * ║  分组架构：每个 SystemContext 绑定一个独立的 FakePLC 实例   ║
@@ -33,6 +42,21 @@
  * 每个 FakePLC 内部独立维护 6 个轴的物理状态寄存器。
  * 不同 FakePLC 实例之间完全隔离 —— GroupA 的指令不会影响 GroupB 的轴。
  *
+ * --- 急停仿真模型 ---
+ *
+ * 对应真实 PLC 的两个独立寄存器：
+ *   - 命令寄存器（"设备急停"）：Domain 写入，PLC 读取
+ *   - 状态寄存器（"设备急停中"）：PLC 写入，Domain 读取
+ *
+ * 两者之间存在硬件延迟：
+ *   - 命令写入激活 → 经过 EMERGENCY_STOP_ENGAGE_DELAY_MS → 状态寄存设置为 true
+ *   - 命令写入解除 → 经过 EMERGENCY_STOP_RELEASE_DELAY_MS → 状态寄存设置为 false
+ *
+ * 急停生效时 PLC 行为（与真实 PLC 一致）：
+ *   1. 所有轴立即掉电（状态强制 Disabled）
+ *   2. 所有运动立即停止
+ *   3. EnableCommand 在急停激活期间被忽略
+ *
  * 使用示例：
  *   FakePLC plcA, plcB;  // 两台独立硬件
  *   plcA.onCommand(AxisId::Y, EnableCommand{true});  // 只影响 plcA 的 Y 轴
@@ -41,7 +65,6 @@
 class FakePLC {
 public:
     FakePLC() {
-        // 初始化所有 AxisId 对应的寄存器组
         m_axes[AxisId::Y] = AxisStateInternal{};
         m_axes[AxisId::Z] = AxisStateInternal{};
         m_axes[AxisId::R] = AxisStateInternal{};
@@ -54,8 +77,6 @@ public:
 
     /**
      * @brief 向指定轴下发指令
-     * @param id  目标轴 ID
-     * @param cmd 轴命令（EnableCommand / MoveCommand / JogCommand / StopCommand / …）
      */
     void onCommand(AxisId id, const AxisCommand& cmd) {
         std::visit([this, id](auto&& arg) {
@@ -64,12 +85,18 @@ public:
     }
 
     /**
-     * @brief 物理引擎心跳
-     * @param ms 自上次调用经过的毫秒数
+     * @brief 物理引擎 heartbeat
      *
-     * 遍历所有轴独立执行：状态跃迁 → 运动学推演 → 限位检测
+     * 执行顺序：
+     *   1. 急停延迟状态机
+     *   2. 急停生效 → 所有轴强制掉电+停止
+     *   3. 各轴状态跃迁 → 运动学推演 → 限位检测
      */
     void tick(int ms) {
+        // --- 急停延迟状态机 ---
+        tickEmergencyStop(ms);
+
+        // --- 各轴独立推演 ---
         for (auto& [id, axis] : m_axes) {
             LOG_TRACE_EVERY_N(50, LogLayer::HAL, "PLC",
                 "Tick axis=" + axisIdToString(id) + " pos=" + std::to_string(axis.feedback.absPos));
@@ -94,67 +121,77 @@ public:
         return m_axes.at(id).feedback;
     }
 
-    // ========== 仿真环境配置接口 ==========
+    // ========== 急停仿真接口 ==========
 
     /**
-     * @brief 强制设置轴状态（用于测试注入）
+     * @brief 获取 PLC 的"设备急停中"状态寄存器值
+     *
+     * 对应真实 PLC 的：设备急停中
+     * 用于 EmergencyStopController::applyFeedback() 的反馈源
      */
+    bool getEmergencyStopFeedback() const {
+        return m_emergencyStoppedReg;
+    }
+
+    /**
+     * @brief 强制设置"设备急停中"状态（用于测试注入物理急停按钮）
+     *
+     * bypass 延迟，直接置位状态寄存器
+     */
+    void forceEmergencyStopFeedback(bool stopped) {
+        m_emergencyStoppedReg = stopped;
+    }
+
+    /**
+     * @brief 强制设置"设备急停"命令寄存器（用于测试注入命令来源）
+     */
+    void forceEmergencyStopCommand(bool active) {
+        m_emergencyStopCmdPending = active;
+        m_emergencyStopTimer = 0;
+    }
+
+    // ========== 仿真环境配置接口 ==========
+
     void forceState(AxisId id, AxisState s) {
         m_axes.at(id).feedback.state = s;
     }
 
-    /**
-     * @brief 设置定位速度
-     */
     void setSimulatedMoveVelocity(AxisId id, double v) {
         m_axes.at(id).move_velocity = std::abs(v);
     }
 
-    /**
-     * @brief 设置点动速度
-     */
     void setSimulatedJogVelocity(AxisId id, double v) {
         m_axes.at(id).jog_velocity = std::abs(v);
     }
 
-    /**
-     * @brief 设置软限位
-     */
     void setLimits(AxisId id, double pos, double neg) {
         auto& axis = m_axes.at(id);
         axis.feedback.posLimitValue = pos;
         axis.feedback.negLimitValue = neg;
     }
 
-    /**
-     * @brief 强制设置绝对位置（用于测试模拟）
-     */
     void setAbsolutePosition(AxisId id, double pos) {
         m_axes.at(id).feedback.absPos = pos;
     }
 
     /**
-     * @brief 重置所有轴到初始状态（Disabled，位置归零，限位默认）
+     * @brief 重置所有轴 + 急停状态到初始值
      */
     void resetAll() {
         for (auto& [id, axis] : m_axes) {
             axis = AxisStateInternal{};
         }
+        m_emergencyStopCmdPending = false;
+        m_emergencyStopTimer = 0;
+        m_emergencyStoppedReg = false;
     }
 
 private:
-    // 每个轴独立的内部状态
     struct AxisStateInternal {
         AxisFeedback feedback{ AxisState::Disabled, 0.0, 0.0, 0.0, false, false, 1000.0, -1000.0 };
-
-        // 独立速度配置
-        double move_velocity = 50.0; // 默认定位速度 50 unit/s
-        double jog_velocity = 10.0;  // 默认点动速度 10 unit/s
-
-        // 内部定时器
+        double move_velocity = 50.0;
+        double jog_velocity = 10.0;
         int enable_timer_ms = 0;
-
-        // 运动学内部状态
         double target_pos = 0.0;
         Direction jog_dir = Direction::Forward;
         bool stop_requested = false;
@@ -162,7 +199,19 @@ private:
 
     std::unordered_map<AxisId, AxisStateInternal> m_axes;
 
-    // 辅助：AxisId 转字符串（用于日志）
+    // ========== 急停寄存器（命令/状态分离） ==========
+
+    /// @brief "设备急停"命令寄存器（对应 PLC 输入，Driver 写入）
+    bool m_emergencyStopCmdPending = false;
+
+    /// @brief 延迟定时器（从命令变更到状态变更的过渡时间）
+    int m_emergencyStopTimer = 0;
+
+    /// @brief "设备急停中"状态寄存器（对应 PLC 输出，Driver 读取反馈）
+    bool m_emergencyStoppedReg = false;
+
+    // ========== 内部方法 ==========
+
     static std::string axisIdToString(AxisId id) {
         switch (id) {
             case AxisId::Y:  return "Y";
@@ -177,9 +226,34 @@ private:
 
     static constexpr int ENABLE_DELAY_MS = 150;
 
-    // ========== 命令分发处理 ==========
+    /// @brief 急停延迟状态机（对应用真实 PLC 的扫描周期延迟）
+    void tickEmergencyStop(int ms) {
+        if (m_emergencyStopCmdPending != m_emergencyStoppedReg) {
+            m_emergencyStopTimer += ms;
+            int requiredDelay = m_emergencyStopCmdPending
+                                ? EMERGENCY_STOP_ENGAGE_DELAY_MS
+                                : EMERGENCY_STOP_RELEASE_DELAY_MS;
+            if (m_emergencyStopTimer >= requiredDelay) {
+                m_emergencyStoppedReg = m_emergencyStopCmdPending;
+                m_emergencyStopTimer = 0;
+            }
+        }
 
-    void processCommand(AxisId id, std::monostate) {} // 空指令不处理
+        // 急停生效：所有轴强制掉电 + 停止
+        if (m_emergencyStoppedReg) {
+            for (auto& [id, axis] : m_axes) {
+                if (axis.feedback.state != AxisState::Disabled) {
+                    axis.feedback.state = AxisState::Disabled;
+                }
+                axis.enable_timer_ms = 0;
+                axis.stop_requested = false;
+            }
+        }
+    }
+
+    // ========== 命令分发 ==========
+
+    void processCommand(AxisId id, std::monostate) {}
 
     void processCommand(AxisId id, const StopCommand&) {
         auto& axis = m_axes.at(id);
@@ -187,19 +261,22 @@ private:
     }
 
     void processCommand(AxisId id, const EnableCommand& cmd) {
+        // 急停激活时，忽略一切使能命令（模拟真实 PLC AND NOT 设备急停 逻辑）
+        if (m_emergencyStoppedReg) {
+            return;
+        }
         auto& axis = m_axes.at(id);
         if (cmd.active && axis.feedback.state == AxisState::Disabled) {
-            // 进入"启动中"过渡态
             axis.enable_timer_ms = 0;
             axis.feedback.state = AxisState::Unknown;
         } else if (!cmd.active) {
-            // 掉电立即生效
             axis.feedback.state = AxisState::Disabled;
         }
     }
 
     void processCommand(AxisId id, const JogCommand& cmd) {
         auto& axis = m_axes.at(id);
+        if (m_emergencyStoppedReg) return;
         if (cmd.active) {
             if (axis.feedback.state == AxisState::Idle) {
                 axis.feedback.state = AxisState::Jogging;
@@ -207,17 +284,17 @@ private:
             }
         } else {
             if (axis.feedback.state == AxisState::Jogging) {
-                axis.stop_requested = true; // 触发制动
+                axis.stop_requested = true;
             }
         }
     }
 
     void processCommand(AxisId id, const MoveCommand& cmd) {
         auto& axis = m_axes.at(id);
+        if (m_emergencyStoppedReg) return;
         if (axis.feedback.state == AxisState::Idle) {
             axis.feedback.state = (cmd.type == MoveType::Absolute) ?
                                    AxisState::MovingAbsolute : AxisState::MovingRelative;
-
             if (cmd.type == MoveType::Absolute) {
                 axis.target_pos = cmd.target;
             } else {
@@ -249,17 +326,15 @@ private:
         m_axes.at(id).move_velocity = std::abs(cmd.velocity);
     }
 
-    // ========== Gantry & ServoPower 命令处理 ==========
-
     void processCommand(AxisId id, const GantryCouplingCommand& /*cmd*/) {
-        // no-op for unit tests
         (void)id;
     }
 
     void processCommand(AxisId id, const GantryPowerCommand& /*cmd*/) {
-        // no-op for unit tests
         (void)id;
     }
+
+    // ========== 运动控制辅助 ==========
 
     void handleStop(AxisStateInternal& axis) {
         if (axis.feedback.state == AxisState::Jogging ||
@@ -268,8 +343,6 @@ private:
             axis.stop_requested = true;
         }
     }
-
-    // ========== 物理引擎演算 ==========
 
     void updateStateTransitions(AxisStateInternal& axis, int ms) {
         if (axis.feedback.state == AxisState::Unknown) {
@@ -283,19 +356,15 @@ private:
     void updateKinematics(AxisStateInternal& axis, int ms) {
         if (axis.feedback.state == AxisState::MovingAbsolute ||
             axis.feedback.state == AxisState::MovingRelative) {
-
             double step = (axis.move_velocity * ms) / 1000.0;
             double diff = axis.target_pos - axis.feedback.absPos;
-
             if (std::abs(diff) <= step) {
                 axis.feedback.absPos = axis.target_pos;
-                axis.feedback.state = AxisState::Idle; // 闭环收敛
+                axis.feedback.state = AxisState::Idle;
             } else {
                 axis.feedback.absPos += (diff > 0) ? step : -step;
             }
-        }
-        else if (axis.feedback.state == AxisState::Jogging) {
-
+        } else if (axis.feedback.state == AxisState::Jogging) {
             double step = (axis.jog_velocity * ms) / 1000.0;
             if (axis.jog_dir == Direction::Forward) {
                 axis.feedback.absPos += step;
@@ -316,7 +385,6 @@ private:
         } else {
             axis.feedback.posLimit = false;
         }
-
         if (axis.feedback.absPos <= axis.feedback.negLimitValue) {
             if (!axis.feedback.negLimit) {
                 LOG_ERROR(LogLayer::HAL, "PLC", "LIMIT TRIGGERED at Negative Soft Limit: " + std::to_string(axis.feedback.negLimitValue));
