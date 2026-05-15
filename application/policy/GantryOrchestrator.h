@@ -1,27 +1,27 @@
 #pragma once
 
 #include "application/SystemManager.h"
-#include "application/axis/EnableUseCase.h"
 #include "domain/entity/SystemContext.h"
-#include "domain/gantry/GantryGroup.h"
+#include "domain/gantry/GantryCouplingController.h"
+#include "domain/gantry/GantryPowerController.h"
 #include "application/UseCaseError.h"
 #include <variant>
 #include <string>
 
 /**
  * @brief 龙门联动/解耦编排器
- * 
- * 职责：编排"使能 X 轴 → 等待使能完成 → 下发联动/解耦指令 → 等待 PLC 确认"的完整流程。
- * 
- * PLC 硬件约束：
- *   - 使能轴X电机 寄存器会同时使能 X1/X2（PLC 内部逻辑）
- *   - 轴X联动使能 寄存器必须在 使能轴X电机 = ON 时才可操作
- * 
+ *
+ * 职责：编排「使能龙门电机 → 等待使能完成 → 下发联动/解耦指令 → 等待 PLC 确认」的完整流程。
+ *
  * 分层职责：
- *   - EnableUseCase 负责：分组路由 + 轴状态幂等检查 + 下发使能命令
- *   - GantryGroup 负责：联动幂等/冲突检查 + 产生 GantryCommand
- *   - GantryOrchestrator 负责：流程编排 + 错误转发
- * 
+ *   - GantryPowerController    负责：电机使能/掉电状态机 + 生成 GantryPowerCommand
+ *   - GantryCouplingController 负责：联动/解耦状态机 + 生成 GantryCouplingCommand
+ *   - GantryOrchestrator       负责：流程编排 + 错误转发
+ *
+ * PLC 硬件约束：
+ *   -「使能轴X电机」寄存器会同时使能 X1/X2（PLC 内部逻辑）
+ *   -「轴X联动使能」寄存器必须在电机使能后才可操作
+ *
  * 使用示例：
  *   GantryOrchestrator orch(manager, "Machine_A");
  *   orch.startCoupling();   // 或 orch.startDecoupling();
@@ -33,8 +33,8 @@ class GantryOrchestrator {
 public:
     enum class Step {
         Initial,
-        EnsuringEnabled,      // 下发使能 X 轴
-        WaitingEnabled,       // 等待 X 轴进入 Idle（使能成功）
+        EnsuringEnabled,      // 下发龙门电机使能命令
+        WaitingEnabled,       // 等待电机使能完成
         Coupling,             // 下发联动指令
         WaitingCoupled,       // 等待 PLC 反馈联动完成
         Decoupling,           // 下发解耦指令
@@ -44,7 +44,7 @@ public:
     };
 
     /**
-     * @param manager   系统管理器（用于 EnableUseCase 的分组路由）
+     * @param manager   系统管理器（用于获取 SystemContext）
      * @param groupName 目标分组名称
      */
     GantryOrchestrator(SystemManager& manager, const std::string& groupName)
@@ -67,7 +67,7 @@ public:
     // ========== 逐帧驱动 ==========
 
     void tick() {
-        // 分层获取组、轴、龙门对象
+        // 获取 SystemContext
         SystemContext* group = nullptr;
         ContextRejection mgrReason = ContextRejection::None;
         if (!m_manager.tryGetGroup(m_groupName, group, mgrReason)) {
@@ -76,15 +76,9 @@ public:
             return;
         }
 
-        Axis* x = nullptr;
-        ContextRejection ctxReason = ContextRejection::None;
-        if (!group->tryGetAxis(AxisId::X, x, ctxReason)) {
-            m_step = Step::Error;
-            m_lastError = ctxReason;
-            return;
-        }
-
-        GantryGroup& gantry = group->gantry();
+        GantryPowerController& power = group->gantryPowerController();
+        GantryCouplingController& coupling = group->gantryCouplingController();
+        ISystemDriver* drv = group->driver();
 
         switch (m_step) {
         case Step::Initial:
@@ -95,37 +89,37 @@ public:
         // ============================================================
 
         case Step::EnsuringEnabled: {
-            // EnableUseCase 内部已做分组路由 + 领域幂等检查
-            // 不在此处检查 X 是否使能——Axis::enable 自己判断
-            auto err = EnableUseCase{}.execute(m_manager, m_groupName, AxisId::X, true);
-            if (std::holds_alternative<std::monostate>(err)) {
+            // 调用 GantryPowerController::requestEnable(true)
+            // 内部已做幂等/冲突检查，不在此处重复
+            auto result = power.requestEnable(true);
+            if (result == GantryRejection::None) {
+                // 下发 GantryPowerCommand 到驱动
+                if (power.hasPendingCommand() && drv) {
+                    drv->send(power.popPendingCommand());
+                }
                 m_step = Step::WaitingEnabled;
             } else {
                 m_step = Step::Error;
-                m_lastError = err;
+                m_lastError = result;
             }
             break;
         }
 
         case Step::WaitingEnabled:
-            if (x->state() == AxisState::Idle) {
+            if (power.isEnabled()) {
                 m_step = Step::Coupling;
-            } else if (x->state() == AxisState::Error) {
-                m_step = Step::Error;
-                m_lastError = x->lastRejection();
             }
-            // 其他状态继续等待
+            // 其他状态继续等待（Enabling 尚未完成）
+            // 注意：即使 PLC 反馈 Disabled（使能失败），也继续等待，
+            //       GantryPowerController::applyFeedback 会如实反映物理状态
             break;
 
         case Step::Coupling: {
-            auto result = gantry.requestCouple(true);
+            auto result = coupling.requestCouple(true);
             if (result == GantryRejection::None) {
-                // 下发 GantryCommand 到驱动
-                if (gantry.hasPendingCommand()) {
-                    if (auto* drv = group->driver()) {
-                        auto cmd = gantry.popPendingCommand();
-                        drv->sendGantry(cmd);
-                    }
+                // 下发 GantryCouplingCommand 到驱动
+                if (coupling.hasPendingCommand() && drv) {
+                    drv->send(coupling.popPendingCommand());
                 }
                 m_step = Step::WaitingCoupled;
             } else {
@@ -136,11 +130,11 @@ public:
         }
 
         case Step::WaitingCoupled:
-            if (gantry.isCoupled()) {
+            if (coupling.isCoupled()) {
                 m_step = Step::Done;
-            } else if (gantry.hasError()) {
+            } else if (coupling.hasError()) {
                 m_step = Step::Error;
-                m_lastError = gantry.getLastError();
+                m_lastError = coupling.getLastError();
             }
             break;
 
@@ -149,13 +143,10 @@ public:
         // ============================================================
 
         case Step::Decoupling: {
-            auto result = gantry.requestCouple(false);
+            auto result = coupling.requestCouple(false);
             if (result == GantryRejection::None) {
-                if (gantry.hasPendingCommand()) {
-                    if (auto* drv = group->driver()) {
-                        auto cmd = gantry.popPendingCommand();
-                        drv->sendGantry(cmd);
-                    }
+                if (coupling.hasPendingCommand() && drv) {
+                    drv->send(coupling.popPendingCommand());
                 }
                 m_step = Step::WaitingDecoupled;
             } else {
@@ -166,11 +157,11 @@ public:
         }
 
         case Step::WaitingDecoupled:
-            if (!gantry.isCoupled() && !gantry.isCouplingRequested() && !gantry.isDecouplingRequested()) {
+            // 解耦操作 PLC 不返回错误码（errorCode 始终为 None），
+            // 因此仅依赖 isDecouplingRequested 变为 false 判断解耦完成，
+            // 不需要检查 hasError()。
+            if (!coupling.isDecouplingRequested()) {
                 m_step = Step::Done;
-            } else if (gantry.hasError()) {
-                m_step = Step::Error;
-                m_lastError = gantry.getLastError();
             }
             break;
 
@@ -188,7 +179,7 @@ public:
 
     /**
      * @brief 获取最后一次错误
-     * @return UseCaseError variant，包含 ContextRejection / RejectionReason / GantryRejection
+     * @return UseCaseError variant，包含 ContextRejection / GantryRejection
      */
     UseCaseError lastError() const { return m_lastError; }
 

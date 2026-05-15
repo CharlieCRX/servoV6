@@ -9,7 +9,7 @@ add_executable(unit_tests
     # application/policy/test_auto_rel_move_orchestrator.cpp
     # application/policy/test_auto_abs_move_orchestrator.cpp
     # application/policy/test_jog_orchestrator.cpp
-    # application/policy/test_gantry_orchestrator.cpp
+    application/policy/test_gantry_orchestrator.cpp
 
     application/test_move_absolute_usecase.cpp
     application/test_move_relative_usecase.cpp
