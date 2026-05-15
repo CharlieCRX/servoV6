@@ -11,7 +11,7 @@ struct GantryCouplingCommand {
 };
 
 // ==========================================
-// 龙门联动控制器 — 四态耦合状态机
+// 龙门联动控制器 — 五态耦合状态机
 // ==========================================
 // 职责：管理 PLC 寄存器「轴X联动使能」的上位机侧状态机
 //       - 生成联动/解耦意图（GantryCouplingCommand）
@@ -103,11 +103,34 @@ public:
         // 1. 翻译并记录 PLC 错误码
         m_last_error = translatePlcError(feedback.errorCode);
 
-        // 2. 根据 PLC 实际联动状态驱动本地状态机
-        if (feedback.isCoupled) {
-            m_state.applyCoupledFeedback();
+        // 2. 状态感知的反馈处理
+        if (m_state.isCouplingRequested()) {
+            if (feedback.errorCode != 0) {
+                // PLC 已明确拒绝联动 → 回退到解耦状态
+                m_state.applyDecoupledFeedback();
+            } else if (feedback.isCoupled) {
+                // PLC 已确认联动成功
+                m_state.applyCoupledFeedback();
+            }
+            // isCoupled=false 且 errorCode=0：中间帧，保持 CouplingRequested 等待
+
+        } else if (m_state.isDecouplingRequested()) {
+            // 解耦操作 PLC 不返回错误码（errorCode 始终为 None），
+            // 因此不需要根据 errorCode 回退状态。
+            // 仅根据 isCoupled 判断解耦是否完成。
+            if (!feedback.isCoupled) {
+                // PLC 已确认解耦成功
+                m_state.applyDecoupledFeedback();
+            }
+            // isCoupled=true：中间帧，保持 DecouplingRequested 等待
+
         } else {
-            m_state.applyDecoupledFeedback();
+            // NotSynchronized / Coupled / Decoupled：直接反映物理真相
+            if (feedback.isCoupled) {
+                m_state.applyCoupledFeedback();
+            } else {
+                m_state.applyDecoupledFeedback();
+            }
         }
     }
 

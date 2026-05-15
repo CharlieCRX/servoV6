@@ -147,6 +147,7 @@ TEST(GantryCouplingController, should_update_state_based_on_unified_feedback_suc
 }
 
 // 10. 验证统一的 GantryFeedback 错误码映射与状态重置
+//     PLC 拒绝联动 → 回退到 Decoupled（未联动状态）
 TEST(GantryCouplingController, should_update_state_and_record_error_based_on_unified_feedback)
 {
     GantryCouplingController gantry;
@@ -159,6 +160,55 @@ TEST(GantryCouplingController, should_update_state_and_record_error_based_on_uni
     EXPECT_TRUE(gantry.hasError());
     EXPECT_EQ(gantry.getLastError(), GantryRejection::PositionToleranceExceeded);
     EXPECT_FALSE(gantry.isCouplingRequested());
+    EXPECT_FALSE(gantry.isCoupled()); // PLC 拒绝联动 → 回退到未联动状态
+}
+
+// 10b. 解耦请求中收到 errorCode != 0 时，不应回退到 Coupled 状态
+//      因为 PLC 解耦操作不会返回错误码（始终为 None），
+//      解耦中间态仅根据 isCoupled 标志决定是否完成
+TEST(GantryCouplingController, should_not_revert_to_coupled_on_error_during_decoupling)
+{
+    GantryCouplingController gantry;
+
+    // 先同步到 Coupled
+    gantry.applyFeedback({ .enable = false, .isCoupled = true, .errorCode = 0 });
+    EXPECT_TRUE(gantry.isCoupled());
+
+    // 发起解耦
+    gantry.requestCouple(false);
+    EXPECT_TRUE(gantry.isDecouplingRequested());
+
+    // 解耦过程中收到带错误码的反馈（模拟异常场景）
+    gantry.applyFeedback({ .enable = false, .isCoupled = true, .errorCode = 2 });
+
+    // 错误码被记录
+    EXPECT_TRUE(gantry.hasError());
+    EXPECT_EQ(gantry.getLastError(), GantryRejection::X1NotEnabled);
+
+    // 但不应回退到 Coupled（解耦不依赖 errorCode 做状态回退）
+    EXPECT_TRUE(gantry.isDecouplingRequested());
+    EXPECT_FALSE(gantry.isCoupled());
+}
+
+// 10c. 解耦请求中 PLC 反馈 isCoupled=false 正常完成解耦
+TEST(GantryCouplingController, should_complete_decoupling_when_feedback_is_uncoupled)
+{
+    GantryCouplingController gantry;
+
+    // 先同步到 Coupled
+    gantry.applyFeedback({ .enable = false, .isCoupled = true, .errorCode = 0 });
+    EXPECT_TRUE(gantry.isCoupled());
+
+    // 发起解耦
+    gantry.requestCouple(false);
+    EXPECT_TRUE(gantry.isDecouplingRequested());
+
+    // PLC 反馈解耦成功
+    gantry.applyFeedback({ .enable = false, .isCoupled = false, .errorCode = 0 });
+
+    EXPECT_FALSE(gantry.isDecouplingRequested());
+    EXPECT_FALSE(gantry.isCoupled());
+    EXPECT_FALSE(gantry.hasError());
 }
 
 // ============================================================

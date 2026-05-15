@@ -1,0 +1,155 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug unit_tests",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/unit_tests.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build",
+            "environment": [
+                {
+                    "name": "PATH",
+                    "value": "D:\\develop\\Qt6\\Tools\\mingw1310_64\\bin;${env:PATH}"
+                }
+            ],
+            "console": "integratedTerminal",
+            "MIMode": "gdb",
+            "miDebuggerPath": "D:/develop/Qt6/Tools/mingw1310_64/bin/gdb.exe",
+            "preLaunchTask": "cmake-build",
+            "visualizerFile": "c:\\Users\\Administrator\\AppData\\Roaming\\Code\\User\\workspaceStorage\\4e5d2f5d9528eacdab6e8377eb68db3c\\tonka3000.qtvsctools\\qt.natvis.xml",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Debug unit_tests (指定测试用例)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/unit_tests.exe",
+            "args": [
+                "--gtest_filter=${input:testFilter}",
+                "--gtest_color=yes"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build",
+            "environment": [
+                {
+                    "name": "PATH",
+                    "value": "D:\\develop\\Qt6\\Tools\\mingw1310_64\\bin;${env:PATH}"
+                }
+            ],
+            "console": "integratedTerminal",
+            "MIMode": "gdb",
+            "miDebuggerPath": "D:/develop/Qt6/Tools/mingw1310_64/bin/gdb.exe",
+            "preLaunchTask": "cmake-build",
+            "visualizerFile": "c:\\Users\\Administrator\\AppData\\Roaming\\Code\\User\\workspaceStorage\\4e5d2f5d9528eacdab6e8377eb68db3c\\tonka3000.qtvsctools\\qt.natvis.xml",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Debug unit_tests (不编译，直接调试)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/unit_tests.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build",
+            "environment": [
+                {
+                    "name": "PATH",
+                    "value": "D:\\develop\\Qt6\\Tools\\mingw1310_64\\bin;${env:PATH}"
+                }
+            ],
+            "console": "integratedTerminal",
+            "MIMode": "gdb",
+            "miDebuggerPath": "D:/develop/Qt6/Tools/mingw1310_64/bin/gdb.exe",
+            "visualizerFile": "c:\\Users\\Administrator\\AppData\\Roaming\\Code\\User\\workspaceStorage\\4e5d2f5d9528eacdab6e8377eb68db3c\\tonka3000.qtvsctools\\qt.natvis.xml",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Debug unit_tests (列出所有测试)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/unit_tests.exe",
+            "args": [
+                "--gtest_list_tests"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build",
+            "environment": [
+                {
+                    "name": "PATH",
+                    "value": "D:\\develop\\Qt6\\Tools\\mingw1310_64\\bin;${env:PATH}"
+                }
+            ],
+            "console": "integratedTerminal",
+            "MIMode": "gdb",
+            "miDebuggerPath": "D:/develop/Qt6/Tools/mingw1310_64/bin/gdb.exe",
+            "preLaunchTask": "cmake-build",
+            "visualizerFile": "c:\\Users\\Administrator\\AppData\\Roaming\\Code\\User\\workspaceStorage\\4e5d2f5d9528eacdab6e8377eb68db3c\\tonka3000.qtvsctools\\qt.natvis.xml",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Debug unit_tests (重复运行直到失败)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/unit_tests.exe",
+            "args": [
+                "--gtest_repeat=100",
+                "--gtest_break_on_failure"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build",
+            "environment": [
+                {
+                    "name": "PATH",
+                    "value": "D:\\develop\\Qt6\\Tools\\mingw1310_64\\bin;${env:PATH}"
+                }
+            ],
+            "console": "integratedTerminal",
+            "MIMode": "gdb",
+            "miDebuggerPath": "D:/develop/Qt6/Tools/mingw1310_64/bin/gdb.exe",
+            "preLaunchTask": "cmake-build",
+            "visualizerFile": "c:\\Users\\Administrator\\AppData\\Roaming\\Code\\User\\workspaceStorage\\4e5d2f5d9528eacdab6e8377eb68db3c\\tonka3000.qtvsctools\\qt.natvis.xml",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ],
+    "inputs": [
+        {
+            "id": "testFilter",
+            "type": "promptString",
+            "description": "输入 gtest 过滤器，如 TestSuiteName.TestName 或 *Abs*",
+            "default": "*"
+        }
+    ]
+}
