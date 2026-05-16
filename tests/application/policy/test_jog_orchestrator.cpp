@@ -68,6 +68,7 @@ protected:
         ContextRejection mgrReason;
         manager.tryGetGroup(groupName, group, mgrReason);
         group->setDriver(&driver);
+        group->emergencyStopController().applyFeedback(false); // 默认不急停
 
         Axis* axisPtr = nullptr;
         ContextRejection ctxReason;

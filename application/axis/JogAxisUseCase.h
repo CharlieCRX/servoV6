@@ -4,6 +4,7 @@
 #include "domain/entity/AxisId.h"
 #include "domain/entity/SystemContext.h"
 #include "application/SystemManager.h"
+#include "infrastructure/logger/Logger.h"
 
 /**
  * @brief 点动用例
@@ -55,7 +56,10 @@ public:
         // ===== 阶段 3：若产生了待发送命令，通过统一命令总线包装下发 =====
         if (axis->hasPendingCommand()) {
             if (auto* drv = group->driver()) {
-                drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
+                auto commResult = drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
+                if (!commResult.ok()) {
+                    return commResult;
+                }
             }
         }
 
@@ -97,7 +101,12 @@ public:
         if (axis->stopJog(dir)) {
             // 3. 将产生的指令（JogCommand {active: false}）通过统一命令总线下发
             if (auto* drv = group->driver()) {
-                drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
+                auto commResult = drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
+                if (!commResult.ok()) {
+                    // stop() 是 void 返回，仅记录日志不返回错误
+                    LOG_WARN(LogLayer::APP, "JogUC",
+                        "send stop failed for axis, diagnostic=" + commResult.diagnostic);
+                }
             }
         }
     }

@@ -58,7 +58,10 @@ public:
         // ===== 阶段 3：若产生了待发送命令，通过统一命令总线包装下发 =====
         if (axis->hasPendingCommand()) {
             if (auto* drv = group->driver()) {
-                drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
+                auto commResult = drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
+                if (!commResult.ok()) {
+                    return commResult;
+                }
             }
         }
 

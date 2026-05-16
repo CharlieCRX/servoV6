@@ -174,7 +174,12 @@ public:
             // 领域层通过 → 下发 JogCommand 到驱动
             if (axis->hasPendingCommand()) {
                 if (auto* drv = group->driver()) {
-                    drv->send(m_targetId, axis->getPendingCommand());
+                    auto commResult = drv->send(AxisCommandWithId{m_targetId, axis->getPendingCommand()});
+                    if (!commResult.ok()) {
+                        m_step = Step::Error;
+                        m_lastError = commResult;
+                        return;
+                    }
                 }
             }
 
@@ -207,7 +212,12 @@ public:
                 if (axis->stopJog(m_dir)) {
                     if (axis->hasPendingCommand()) {
                         if (auto* drv = group->driver()) {
-                            drv->send(m_targetId, axis->getPendingCommand());
+                            auto commResult = drv->send(AxisCommandWithId{m_targetId, axis->getPendingCommand()});
+                            if (!commResult.ok()) {
+                                m_step = Step::Error;
+                                m_lastError = commResult;
+                                return;
+                            }
                         }
                     }
                 }

@@ -75,7 +75,10 @@ public:
         // 将命令写入 FakePLC 物理寄存器并记录 history。
         if (axis->hasPendingCommand()) {
             if (auto* drv = group->driver()) {
-                drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
+                auto commResult = drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
+                if (!commResult.ok()) {
+                    return commResult;
+                }
             }
         }
 

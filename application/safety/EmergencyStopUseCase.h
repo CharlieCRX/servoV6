@@ -56,7 +56,10 @@ public:
         // ===== 阶段 2：若产生了待发送命令，下发至物理驱动 =====
         if (controller.hasPendingCommand()) {
             if (auto* drv = group->driver()) {
-                drv->send(controller.popPendingCommand());
+                auto commResult = drv->send(controller.popPendingCommand());
+                if (!commResult.ok()) {
+                    return commResult;
+                }
             }
         }
 

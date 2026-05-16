@@ -95,7 +95,12 @@ public:
             if (result == GantryRejection::None) {
                 // 下发 GantryPowerCommand 到驱动
                 if (power.hasPendingCommand() && drv) {
-                    drv->send(power.popPendingCommand());
+                    auto commResult = drv->send(power.popPendingCommand());
+                    if (!commResult.ok()) {
+                        m_step = Step::Error;
+                        m_lastError = commResult;
+                        return;
+                    }
                 }
                 m_step = Step::WaitingEnabled;
             } else {
@@ -119,7 +124,12 @@ public:
             if (result == GantryRejection::None) {
                 // 下发 GantryCouplingCommand 到驱动
                 if (coupling.hasPendingCommand() && drv) {
-                    drv->send(coupling.popPendingCommand());
+                    auto commResult = drv->send(coupling.popPendingCommand());
+                    if (!commResult.ok()) {
+                        m_step = Step::Error;
+                        m_lastError = commResult;
+                        return;
+                    }
                 }
                 m_step = Step::WaitingCoupled;
             } else {
@@ -146,7 +156,12 @@ public:
             auto result = coupling.requestCouple(false);
             if (result == GantryRejection::None) {
                 if (coupling.hasPendingCommand() && drv) {
-                    drv->send(coupling.popPendingCommand());
+                    auto commResult = drv->send(coupling.popPendingCommand());
+                    if (!commResult.ok()) {
+                        m_step = Step::Error;
+                        m_lastError = commResult;
+                        return;
+                    }
                 }
                 m_step = Step::WaitingDecoupled;
             } else {

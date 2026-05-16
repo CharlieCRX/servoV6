@@ -49,7 +49,10 @@ public:
         if (axis->stop()) {
             // 将产生的停止指令通过统一命令总线下发
             if (auto* drv = group->driver()) {
-                drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
+                auto commResult = drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
+                if (!commResult.ok()) {
+                    return commResult;
+                }
             }
         }
 

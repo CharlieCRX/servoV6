@@ -6,18 +6,18 @@ add_executable(unit_tests
     # infrastructure/test_fake_plc.cpp
     # infrastructure/test_system_integration.cpp
 
-    # application/policy/test_auto_rel_move_orchestrator.cpp
-    # application/policy/test_auto_abs_move_orchestrator.cpp
-    # application/policy/test_jog_orchestrator.cpp
-    # application/policy/test_gantry_orchestrator.cpp
+    application/policy/test_auto_rel_move_orchestrator.cpp
+    application/policy/test_auto_abs_move_orchestrator.cpp
+    application/policy/test_jog_orchestrator.cpp
+    application/policy/test_gantry_orchestrator.cpp
 
-    # application/test_move_absolute_usecase.cpp
-    # application/test_move_relative_usecase.cpp
-    # application/test_stop_usecase.cpp
-    # application/test_jog_usecase.cpp
-    # application/test_enable_usecase.cpp
-    # application/test_system_manager.cpp
-    # application/safety/test_emergency_stop_usecase.cpp
+    application/test_move_absolute_usecase.cpp
+    application/test_move_relative_usecase.cpp
+    application/test_stop_usecase.cpp
+    application/test_jog_usecase.cpp
+    application/test_enable_usecase.cpp
+    application/test_system_manager.cpp
+    application/safety/test_emergency_stop_usecase.cpp
 
     domain/test_system_context.cpp
     domain/gantry/test_gantry_power_controller.cpp
