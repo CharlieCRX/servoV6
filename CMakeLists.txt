@@ -20,7 +20,7 @@ enable_testing()
 add_subdirectory(external/googletest)
 add_subdirectory(domain)
 add_subdirectory(application)
-# add_subdirectory(presentation)
+add_subdirectory(presentation)
 add_subdirectory(tests)
 
 

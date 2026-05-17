@@ -2,6 +2,9 @@ include(GoogleTest)
 
 add_executable(unit_tests
 
+    presentation/viewmodel/test_axis_viewmodel_core.cpp
+    presentation/viewmodel/test_error_translator.cpp
+
     infrastructure/test_system_integration.cpp
     infrastructure/test_fake_plc.cpp
 
@@ -26,9 +29,6 @@ add_executable(unit_tests
 
 
     domain/test_axis.cpp
-
-
-    # presentation/viewmodel/test_axis_viewmodel_core.cpp
 )
 
 target_include_directories(unit_tests
@@ -40,7 +40,7 @@ target_link_libraries(unit_tests
     PRIVATE
         domain
         application
-        # presentation
+        presentation
         GTest::gtest
         GTest::gtest_main
 )
