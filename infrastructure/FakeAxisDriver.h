@@ -40,6 +40,8 @@
  *   1. 推进 FakePLC 一个周期 (tick)
  *   2. 遍历所有 6 个轴，读取 FakePLC 反馈并注入 Axis::applyFeedback()
  *   3. 注入急停状态反馈 → EmergencyStopController::applyFeedback()
+ *   4. 注入龙门反馈 → GantryCouplingController::applyFeedback()
+ *                     + GantryPowerController::applyFeedback()
  *
  * --- 测试辅助 ---
  *   disconnect() / connect() — 模拟网络通断
@@ -79,7 +81,15 @@ public:
         // 1. 推进硬件模拟一个周期
         m_plc.tick(10);
 
-        // 2. 读取所有轴的反馈并注入
+        // 2. 注入安全状态反馈 — 急停
+        ctx.emergencyStopController().applyFeedback(m_plc.getEmergencyStopFeedback());
+
+        // 3. 注入龙门反馈 — 电机使能 + 联动状态
+        GantryFeedback gf = m_plc.getGantryFeedback();
+        ctx.gantryPowerController().applyFeedback(gf);
+        ctx.gantryCouplingController().applyFeedback(gf);
+
+        // 4. 读取所有轴的反馈并注入
         constexpr std::array<AxisId, 6> ALL_AXIS_IDS = {
             AxisId::X, AxisId::X1, AxisId::X2, AxisId::Y, AxisId::Z, AxisId::R
         };
@@ -90,13 +100,6 @@ public:
                 axis->applyFeedback(m_plc.getFeedback(axisId));
             }
         }
-
-        // 3. 注入安全状态反馈 — 急停
-        ctx.emergencyStopController().applyFeedback(m_plc.getEmergencyStopFeedback());
-
-        // 4. 龙门耦合反馈：FakePLC 目前不模拟龙门物理状态寄存器，
-        //    因此暂不注入 GantryCouplingController::applyFeedback()。
-        //    生产驱动 ModbusTcpAxisDriver 需要实现此部分。
     }
 
     // ========== 测试辅助 ==========
@@ -145,13 +148,13 @@ private:
     void handle(const GantryCouplingCommand& cmd) {
         LOG_TRACE(LogLayer::HAL, "Driver",
             cmd.enableCoupling ? "GantryCouplingCommand: COUPLE" : "GantryCouplingCommand: DECOUPLE");
-        (void)cmd;
+        m_plc.onGantryCommand(cmd);
     }
 
     void handle(const GantryPowerCommand& cmd) {
         LOG_TRACE(LogLayer::HAL, "Driver",
             cmd.enable ? "GantryPowerCommand: POWER_ON" : "GantryPowerCommand: POWER_OFF");
-        (void)cmd;
+        m_plc.onGantryCommand(cmd);
     }
 
     /**

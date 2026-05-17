@@ -4,6 +4,7 @@
 #include "../domain/command/SystemCommand.h"
 #include "../domain/entity/Axis.h"
 #include "../domain/entity/AxisId.h"
+#include "../domain/gantry/GantryFeedback.h"
 #include "infrastructure/logger/Logger.h"
 #include <cmath>
 #include <algorithm>
@@ -17,11 +18,29 @@ constexpr int EMERGENCY_STOP_ENGAGE_DELAY_MS = 50;
 /// @brief 急停解除仿真延迟
 constexpr int EMERGENCY_STOP_RELEASE_DELAY_MS = 50;
 
+/// @brief 龙门联动允许的最大位置差（mm）
+static constexpr double GANTRY_MAX_POSITION_DELTA = 0.1;
+
+/// @brief 龙门联动超差报警阈值（联动建立后持续监测，mm）
+static constexpr double GANTRY_COUPLED_POSITION_DELTA_ALARM = 0.5;
+
+/// @brief 龙门物理状态快照（每个 tick 从 X1/X2 聚合刷新）
+struct GantryPhysicalState {
+    bool x1Enabled = false;
+    bool x2Enabled = false;
+    bool x1Stationary = true;
+    bool x2Stationary = true;
+    double positionDelta = 0.0;  // |X1.absPos - X2.absPos|
+    bool x1HasAlarm = false;
+    bool x2HasAlarm = false;
+    bool emergencyStopActive = false;
+};
+
 /**
- * @brief 虚拟 PLC 仿真器（物理引擎模拟 + 急停硬件仿真）
+ * @brief 虚拟 PLC 仿真器（物理引擎模拟 + 急停硬件仿真 + 龙门硬件仿真）
  *
  * 设计职责：仿真一个独立硬件 PLC 的物理行为（运动学演算、限位检测、使能延迟、
- *            急停命令/状态分离寄存器）。
+ *            急停命令/状态分离寄存器、龙门命令/反馈寄存器）。
  *
  * ╔══════════════════════════════════════════════════════════════╗
  * ║  分组架构：每个 SystemContext 绑定一个独立的 FakePLC 实例   ║
@@ -57,6 +76,20 @@ constexpr int EMERGENCY_STOP_RELEASE_DELAY_MS = 50;
  *   2. 所有运动立即停止
  *   3. EnableCommand 在急停激活期间被忽略
  *
+ * --- 龙门反馈仿真模型 ---
+ *
+ * 对应真实 PLC 的龙门相关寄存器：
+ *   - GantryPowerCommand{enable}    → 写入使能命令，延迟后 → GantryFeedback::enable
+ *   - GantryCouplingCommand{couple} → 写入耦合命令，延迟后 → GantryFeedback::isCoupled
+ *   - GantryFeedback::errorCode     → 耦合条件不满足时的错误码
+ *
+ * 仿真延迟：
+ *   - GANTRY_POWER_DELAY_MS    (150ms) 电机使能延迟
+ *   - GANTRY_COUPLING_DELAY_MS (100ms) 耦合/解耦延迟
+ *
+ * PLC 在每个 tick 中执行扫描周期：刷新物理状态 → 条件检查 → 反馈生成。
+ * 联动建立后会持续监测：超差/报警/掉电/急停任一触发即自动解耦。
+ *
  * 使用示例：
  *   FakePLC plcA, plcB;  // 两台独立硬件
  *   plcA.onCommand(AxisId::Y, EnableCommand{true});  // 只影响 plcA 的 Y 轴
@@ -85,12 +118,38 @@ public:
     }
 
     /**
+     * @brief 下发龙门相关命令（GantryCouplingCommand / GantryPowerCommand）
+     *
+     * 龙门命令不绑定特定轴，由 GantryOrchestrator 通过 Driver → PLC 路径下发。
+     */
+    void onGantryCommand(const GantryCouplingCommand& cmd) {
+        m_gantryCouplingCmdPending = true;
+        m_gantryCouplingTarget = cmd.enableCoupling;
+        m_gantryCouplingTimer = 0;
+        m_gantryFeedbackLocked = false;  // 新命令到来，让 PLC 重新接管
+    }
+
+    void onGantryCommand(const GantryPowerCommand& cmd) {
+        m_gantryPowerCmdPending = true;
+        m_gantryPowerTarget = cmd.enable;
+        m_gantryPowerTimer = 0;
+    }
+
+    /**
+     * @brief 强制设置"设备急停"命令寄存器（用于测试注入命令来源）
+     */
+    void forceEmergencyStopCommand(bool active) {
+        m_emergencyStopCmdPending = active;
+        m_emergencyStopTimer = 0;
+    }
+
+    /**
      * @brief 物理引擎 heartbeat
      *
      * 执行顺序：
      *   1. 急停延迟状态机
-     *   2. 急停生效 → 所有轴强制掉电+停止
-     *   3. 各轴状态跃迁 → 运动学推演 → 限位检测
+     *   2. 各轴状态跃迁 → 运动学推演 → 限位检测（先推演轴，让 X1/X2 位置更新）
+     *   3. 龙门状态机（依赖最新 X1/X2 物理状态 → 必须在轴推演之后执行）
      */
     void tick(int ms) {
         // --- 急停延迟状态机 ---
@@ -112,6 +171,9 @@ public:
 
             axis.feedback.relPos = axis.feedback.absPos - axis.feedback.relZeroAbsPos;
         }
+
+        // --- 龙门状态机（依赖最新的X1/X2物理状态 → 必须在轴推演之后执行） ---
+        tickGantry(ms);
     }
 
     /**
@@ -119,6 +181,38 @@ public:
      */
     AxisFeedback getFeedback(AxisId id) const {
         return m_axes.at(id).feedback;
+    }
+
+    // ========== 龙门仿真接口 ==========
+
+    /**
+     * @brief 获取龙门反馈快照（用于 pollFeedback 注入领域实体）
+     */
+    GantryFeedback getGantryFeedback() const {
+        return m_gantryFeedback;
+    }
+
+    /**
+     * @brief 强制设置龙门反馈（用于测试注入龙门物理状态）
+     *
+     * bypass 延迟，直接覆盖反馈寄存器。设置后锁定自动刷新。
+     */
+    void forceGantryFeedback(const GantryFeedback& fb) {
+        m_gantryFeedback = fb;
+        m_gantryPowerCmdPending = false;
+        m_gantryCouplingCmdPending = false;
+        m_gantryFeedbackLocked = true;
+    }
+
+    /**
+     * @brief 注入龙门耦合错误码（用于模拟 PLC 拒绝耦合）
+     *
+     * 仅在 GantryCouplingCommand 处理过程中生效，
+     * 模拟 PLC 检测到 X1/X2 未使能/未静止/超差等条件时写入的错误码。
+     */
+    void forceGantryCouplingError(int errorCode) {
+        m_gantryFeedback.errorCode = errorCode;
+        m_gantryFeedbackLocked = true;
     }
 
     // ========== 急停仿真接口 ==========
@@ -140,14 +234,6 @@ public:
      */
     void forceEmergencyStopFeedback(bool stopped) {
         m_emergencyStoppedReg = stopped;
-    }
-
-    /**
-     * @brief 强制设置"设备急停"命令寄存器（用于测试注入命令来源）
-     */
-    void forceEmergencyStopCommand(bool active) {
-        m_emergencyStopCmdPending = active;
-        m_emergencyStopTimer = 0;
     }
 
     // ========== 仿真环境配置接口 ==========
@@ -175,7 +261,7 @@ public:
     }
 
     /**
-     * @brief 重置所有轴 + 急停状态到初始值
+     * @brief 重置所有轴 + 急停状态 + 龙门状态到初始值
      */
     void resetAll() {
         for (auto& [id, axis] : m_axes) {
@@ -184,6 +270,13 @@ public:
         m_emergencyStopCmdPending = false;
         m_emergencyStopTimer = 0;
         m_emergencyStoppedReg = false;
+        m_gantryFeedback = GantryFeedback{false, false, 0};
+        m_gantryPowerCmdPending = false;
+        m_gantryPowerTimer = 0;
+        m_gantryCouplingCmdPending = false;
+        m_gantryCouplingTimer = 0;
+        m_gantryPhysical = GantryPhysicalState{};
+        m_gantryFeedbackLocked = false;
     }
 
 private:
@@ -209,6 +302,29 @@ private:
 
     /// @brief "设备急停中"状态寄存器（对应 PLC 输出，Driver 读取反馈）
     bool m_emergencyStoppedReg = false;
+
+    // ========== 龙门寄存器（命令/反馈分离） ==========
+
+    /// @brief 龙门反馈寄存器
+    GantryFeedback m_gantryFeedback{false, false, 0};
+
+    /// @brief 龙门物理状态快照（每个 tick 从 X1/X2 聚合刷新）
+    GantryPhysicalState m_gantryPhysical{};
+
+    /// @brief 测试注入锁定标志（true 时跳过 tickGantry 自动刷新）
+    bool m_gantryFeedbackLocked = false;
+
+    /// @brief 龙门电机使能命令延迟仿真
+    bool m_gantryPowerCmdPending = false;
+    bool m_gantryPowerTarget = false;
+    int m_gantryPowerTimer = 0;
+    static constexpr int GANTRY_POWER_DELAY_MS = 150;
+
+    /// @brief 龙门耦合/解耦命令延迟仿真
+    bool m_gantryCouplingCmdPending = false;
+    bool m_gantryCouplingTarget = false;
+    int m_gantryCouplingTimer = 0;
+    static constexpr int GANTRY_COUPLING_DELAY_MS = 100;
 
     // ========== 内部方法 ==========
 
@@ -239,7 +355,7 @@ private:
             }
         }
 
-        // 急停生效：所有轴强制掉电 + 停止
+        // 急停生效：所有轴强制掉电 + 停止 + 解除龙门联动
         if (m_emergencyStoppedReg) {
             for (auto& [id, axis] : m_axes) {
                 if (axis.feedback.state != AxisState::Disabled) {
@@ -248,6 +364,197 @@ private:
                 axis.enable_timer_ms = 0;
                 axis.stop_requested = false;
             }
+
+            // 主动解除龙门联动（急停具有最高优先级）
+            m_gantryFeedback.isCoupled = false;
+            m_gantryFeedback.errorCode = 0;  // 无错误
+
+            // 取消所有待处理的龙门命令
+            m_gantryPowerCmdPending = false;
+            m_gantryPowerTimer = 0;
+            m_gantryCouplingCmdPending = false;
+            m_gantryCouplingTimer = 0;
+
+            // 解除测试注入锁定（急停覆盖一切）
+            m_gantryFeedbackLocked = false;
+        }
+    }
+
+    /// @brief 刷新龙门物理状态快照（每个 tick 从 X1/X2 聚合）
+    void refreshGantryPhysicalState() {
+        const auto& x1 = m_axes.at(AxisId::X1).feedback;
+        const auto& x2 = m_axes.at(AxisId::X2).feedback;
+
+        m_gantryPhysical.x1Enabled = (x1.state != AxisState::Disabled
+                                   && x1.state != AxisState::Unknown);
+        m_gantryPhysical.x2Enabled = (x2.state != AxisState::Disabled
+                                   && x2.state != AxisState::Unknown);
+
+        m_gantryPhysical.x1Stationary = (x1.state == AxisState::Idle);
+        m_gantryPhysical.x2Stationary = (x2.state == AxisState::Idle);
+
+        m_gantryPhysical.x1HasAlarm = (x1.state == AxisState::Error)
+                                   || x1.posLimit || x1.negLimit;
+        m_gantryPhysical.x2HasAlarm = (x2.state == AxisState::Error)
+                                   || x2.posLimit || x2.negLimit;
+
+        m_gantryPhysical.positionDelta = std::abs(x1.absPos - x2.absPos);
+
+        m_gantryPhysical.emergencyStopActive = m_emergencyStoppedReg;
+    }
+
+    /// @brief 龙门联动前置条件检查
+    /// @return 0=通过, 1=位置超差, 2=X1未使能, 3=X2未使能, 4=X1未静止, 5=X2未静止, 999=其他错误
+    int checkCouplingConditions() const {
+        // 1. X1 使能检查
+        if (!m_gantryPhysical.x1Enabled) return 2; // X1NotEnabled
+
+        // 2. X2 使能检查
+        if (!m_gantryPhysical.x2Enabled) return 3; // X2NotEnabled
+
+        // 3. X1 静止检查
+        if (!m_gantryPhysical.x1Stationary) return 4; // X1NotStationary
+
+        // 4. X2 静止检查
+        if (!m_gantryPhysical.x2Stationary) return 5; // X2NotStationary
+
+        // 5. 位置差检查
+        if (m_gantryPhysical.positionDelta >= GANTRY_MAX_POSITION_DELTA)
+            return 1; // PositionToleranceExceeded
+
+        // 6. 报警检查
+        if (m_gantryPhysical.x1HasAlarm || m_gantryPhysical.x2HasAlarm)
+            return 999; // UnknownError
+
+        // 7. 急停检查
+        if (m_gantryPhysical.emergencyStopActive) return 999;
+
+        return 0;
+    }
+
+    /// @brief 龙门状态机 — 每个 tick 周期推进（扫描周期模型）
+    void tickGantry(int ms) {
+        // 测试注入模式：跳过自动刷新，保护测试注入的数据
+        if (m_gantryFeedbackLocked) return;
+
+        // 步骤 1：电机使能状态机（可能修改 X1/X2 状态）
+        tickGantryPower(ms);
+
+        // 步骤 2：刷新龙门物理状态快照（必须在 power 之后，确保读取最新 X1/X2 状态）
+        refreshGantryPhysicalState();
+
+        // 步骤 3：耦合/解耦状态机
+        tickGantryCoupling(ms);
+
+        // 步骤 4：联动建立后持续监测
+        tickGantryCoupledMonitoring(ms);
+
+        // 步骤 5：同步刷新 GantryFeedback.enable
+        m_gantryFeedback.enable = m_gantryPhysical.x1Enabled
+                               && m_gantryPhysical.x2Enabled;
+    }
+
+    /// @brief 龙门电机使能状态机
+    void tickGantryPower(int ms) {
+        if (!m_gantryPowerCmdPending) return;
+
+        m_gantryPowerTimer += ms;
+        if (m_gantryPowerTimer >= GANTRY_POWER_DELAY_MS) {
+            m_gantryPowerCmdPending = false;
+            m_gantryPowerTimer = 0;
+
+            // GANTRY_POWER_DELAY_MS 已提供延迟，直接设置目标状态（无需二次延迟）
+            auto& x1 = m_axes.at(AxisId::X1);
+            auto& x2 = m_axes.at(AxisId::X2);
+            if (m_gantryPowerTarget) {
+                // 使能：急停激活时拒绝
+                if (!m_emergencyStoppedReg) {
+                    if (x1.feedback.state == AxisState::Disabled) {
+                        x1.feedback.state = AxisState::Idle;
+                    }
+                    if (x2.feedback.state == AxisState::Disabled) {
+                        x2.feedback.state = AxisState::Idle;
+                    }
+                }
+            } else {
+                // 掉电：无条件
+                x1.feedback.state = AxisState::Disabled;
+                x2.feedback.state = AxisState::Disabled;
+            }
+        }
+    }
+
+    /// @brief 龙门耦合/解耦状态机（含条件检查与拒绝逻辑）
+    void tickGantryCoupling(int ms) {
+        if (!m_gantryCouplingCmdPending) return;
+
+        m_gantryCouplingTimer += ms;
+
+        if (m_gantryCouplingTarget) {
+            // ========== 联动请求 ==========
+            if (m_gantryCouplingTimer < GANTRY_COUPLING_DELAY_MS) return;
+
+            int errorCode = checkCouplingConditions();
+            if (errorCode != 0) {
+                // 条件不满足 → 拒绝联动，写入错误码
+                m_gantryFeedback.errorCode = errorCode;
+                m_gantryFeedback.isCoupled = false;
+                m_gantryCouplingCmdPending = false;
+                m_gantryCouplingTimer = 0;
+                return;
+            }
+
+            // 所有条件满足 → 联动成功
+            m_gantryFeedback.isCoupled = true;
+            m_gantryFeedback.errorCode = 0;
+            m_gantryCouplingCmdPending = false;
+            m_gantryCouplingTimer = 0;
+
+        } else {
+            // ========== 解耦请求（无条件通过） ==========
+            if (m_gantryCouplingTimer >= GANTRY_COUPLING_DELAY_MS) {
+                m_gantryFeedback.isCoupled = false;
+                m_gantryFeedback.errorCode = 0;
+                m_gantryCouplingCmdPending = false;
+                m_gantryCouplingTimer = 0;
+            }
+        }
+    }
+
+    /// @brief 联动持续监测（联动建立后每个 tick 检查）
+    void tickGantryCoupledMonitoring(int /*ms*/) {
+        if (!m_gantryFeedback.isCoupled) return;
+
+        bool shouldDecouple = false;
+        int errorCode = 0;
+
+        // 1. 轴报警检查（限位触发/Error状态，优先级最高）
+        if (m_gantryPhysical.x1HasAlarm || m_gantryPhysical.x2HasAlarm) {
+            shouldDecouple = true;
+            errorCode = 999;
+        }
+
+        // 2. 超差检查（联动建立后阈值放宽至 0.5mm）
+        if (!shouldDecouple && m_gantryPhysical.positionDelta >= GANTRY_COUPLED_POSITION_DELTA_ALARM) {
+            shouldDecouple = true;
+            errorCode = 1; // PositionToleranceExceeded
+        }
+
+        // 3. 掉电检查
+        if (!shouldDecouple && (!m_gantryPhysical.x1Enabled || !m_gantryPhysical.x2Enabled)) {
+            shouldDecouple = true;
+            errorCode = m_gantryPhysical.x1Enabled ? 3 : 2;
+        }
+
+        // 4. 急停检查
+        if (!shouldDecouple && m_gantryPhysical.emergencyStopActive) {
+            shouldDecouple = true;
+            errorCode = 999;
+        }
+
+        if (shouldDecouple) {
+            m_gantryFeedback.isCoupled = false;
+            m_gantryFeedback.errorCode = errorCode;
         }
     }
 
@@ -268,6 +575,7 @@ private:
         auto& axis = m_axes.at(id);
         if (cmd.active && axis.feedback.state == AxisState::Disabled) {
             axis.enable_timer_ms = 0;
+            // 进入 Unknown 过渡态，由 updateStateTransitions 在 ENABLE_DELAY_MS 后置为 Idle
             axis.feedback.state = AxisState::Unknown;
         } else if (!cmd.active) {
             axis.feedback.state = AxisState::Disabled;
@@ -275,8 +583,15 @@ private:
     }
 
     void processCommand(AxisId id, const JogCommand& cmd) {
-        auto& axis = m_axes.at(id);
+        // 急停激活时，忽略所有运动命令
         if (m_emergencyStoppedReg) return;
+
+        // 联动 ON 时，不允许 X1/X2 独立点动
+        if (m_gantryFeedback.isCoupled && (id == AxisId::X1 || id == AxisId::X2)) {
+            return;
+        }
+
+        auto& axis = m_axes.at(id);
         if (cmd.active) {
             if (axis.feedback.state == AxisState::Idle) {
                 axis.feedback.state = AxisState::Jogging;
@@ -290,8 +605,15 @@ private:
     }
 
     void processCommand(AxisId id, const MoveCommand& cmd) {
-        auto& axis = m_axes.at(id);
+        // 急停激活时，忽略所有运动命令
         if (m_emergencyStoppedReg) return;
+
+        // 联动 ON 时，不允许 X1/X2 独立定位
+        if (m_gantryFeedback.isCoupled && (id == AxisId::X1 || id == AxisId::X2)) {
+            return;
+        }
+
+        auto& axis = m_axes.at(id);
         if (axis.feedback.state == AxisState::Idle) {
             axis.feedback.state = (cmd.type == MoveType::Absolute) ?
                                    AxisState::MovingAbsolute : AxisState::MovingRelative;
@@ -326,12 +648,14 @@ private:
         m_axes.at(id).move_velocity = std::abs(cmd.velocity);
     }
 
-    void processCommand(AxisId id, const GantryCouplingCommand& /*cmd*/) {
+    void processCommand(AxisId id, const GantryCouplingCommand& cmd) {
         (void)id;
+        onGantryCommand(cmd);
     }
 
-    void processCommand(AxisId id, const GantryPowerCommand& /*cmd*/) {
+    void processCommand(AxisId id, const GantryPowerCommand& cmd) {
         (void)id;
+        onGantryCommand(cmd);
     }
 
     // ========== 运动控制辅助 ==========

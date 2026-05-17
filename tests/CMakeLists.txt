@@ -2,9 +2,8 @@ include(GoogleTest)
 
 add_executable(unit_tests
 
-
-    # infrastructure/test_fake_plc.cpp
-    # infrastructure/test_system_integration.cpp
+    infrastructure/test_system_integration.cpp
+    infrastructure/test_fake_plc.cpp
 
     application/policy/test_auto_rel_move_orchestrator.cpp
     application/policy/test_auto_abs_move_orchestrator.cpp

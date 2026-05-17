@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <variant>
 #include "domain/entity/Axis.h"
 #include "domain/entity/SystemContext.h"
 #include "infrastructure/FakePLC.h"
@@ -12,11 +13,11 @@
 #include <cmath>
 
 // ============================================================================
-// 端到端系统集成测试（分组感知版本 v2 — 适配 SystemManager/SystemContext 重构）
+// 端到端系统集成测试（分组感知版本 v3 — 适配 pollFeedback 统一反馈）
 //
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  架构变更：SystemManager 内部持有 SystemContext               ║
-// ║  SystemContext 默认构造即包含 6 个轴 + GantryGroup             ║
+// ║  架构变更：使用 ISystemDriver::pollFeedback() 替代手动      ║
+// ║  tickA/tickB/syncA/syncB 泵送                              ║
 // ║                                                              ║
 // ║  SystemManager                                               ║
 // ║  ├── "Machine_A" → SystemContext_A (driver → plcA)          ║
@@ -74,36 +75,17 @@ protected:
         plcB.setLimits(AxisId::X2, 1000.0, -1000.0);
     }
 
-    // 辅助：将 PLC 反馈同步回 Axis 实例（使用 tryGetAxis）
-    void syncA(AxisId id) {
-        Axis* a = nullptr;
-        ContextRejection r;
-        if (ctxA->tryGetAxis(id, a, r) && a) {
-            a->applyFeedback(plcA.getFeedback(id));
-        }
-    }
-
-    void syncB(AxisId id) {
-        Axis* a = nullptr;
-        ContextRejection r;
-        if (ctxB->tryGetAxis(id, a, r) && a) {
-            a->applyFeedback(plcB.getFeedback(id));
-        }
-    }
-
-    // 辅助：推进 A 组物理引擎并同步
-    void tickA(AxisId id, int tickCount, int tickMs = 10) {
+    // 辅助：推进 A 组物理引擎并同步（替换原 tickA 手动泵送）
+    void tickA(int tickCount) {
         for (int i = 0; i < tickCount; ++i) {
-            plcA.tick(tickMs);
-            syncA(id);
+            driverA.pollFeedback(*ctxA);
         }
     }
 
-    // 辅助：推进 B 组物理引擎并同步
-    void tickB(AxisId id, int tickCount, int tickMs = 10) {
+    // 辅助：推进 B 组物理引擎并同步（替换原 tickB 手动泵送）
+    void tickB(int tickCount) {
         for (int i = 0; i < tickCount; ++i) {
-            plcB.tick(tickMs);
-            syncB(id);
+            driverB.pollFeedback(*ctxB);
         }
     }
 
@@ -129,14 +111,14 @@ protected:
 TEST_F(SystemIntegrationTest, ShouldCompleteAbsoluteMoveEndToEnd) {
     plcA.forceState(AxisId::Y, AxisState::Disabled);
     plcA.setSimulatedMoveVelocity(AxisId::Y, 50.0);
-    syncA(AxisId::Y);
+    driverA.pollFeedback(*ctxA);
 
     double targetPos = 100.0;
 
     // Enable → Idle
     auto enableResult = enableUc.execute(manager, GROUP_A, AxisId::Y, true);
     ASSERT_TRUE(std::holds_alternative<std::monostate>(enableResult));
-    tickA(AxisId::Y, 20, 10); // 200ms > 150ms enable delay
+    tickA(20); // 200ms > 150ms enable delay
 
     // MoveAbsolute → MovingAbsolute
     auto moveResult = moveAbsUc.execute(manager, GROUP_A, AxisId::Y, targetPos);
@@ -149,8 +131,7 @@ TEST_F(SystemIntegrationTest, ShouldCompleteAbsoluteMoveEndToEnd) {
     ASSERT_NE(axis, nullptr);
 
     while (ticks < MAX_TICKS) {
-        plcA.tick(10);
-        syncA(AxisId::Y);
+        driverA.pollFeedback(*ctxA);
         if (axis->state() == AxisState::Idle) break;
         ticks++;
     }
@@ -167,12 +148,12 @@ TEST_F(SystemIntegrationTest, ShouldCompleteAbsoluteMoveEndToEnd) {
 TEST_F(SystemIntegrationTest, ShouldCompleteRelativeMoveEndToEnd) {
     plcA.forceState(AxisId::Y, AxisState::Disabled);
     plcA.setSimulatedMoveVelocity(AxisId::Y, 50.0);
-    syncA(AxisId::Y);
+    driverA.pollFeedback(*ctxA);
 
     // Enable
     auto enableResult = enableUc.execute(manager, GROUP_A, AxisId::Y, true);
     ASSERT_TRUE(std::holds_alternative<std::monostate>(enableResult));
-    tickA(AxisId::Y, 20, 10);
+    tickA(20);
 
     Axis* axis = getAxisA(AxisId::Y);
     ASSERT_NE(axis, nullptr);
@@ -183,8 +164,7 @@ TEST_F(SystemIntegrationTest, ShouldCompleteRelativeMoveEndToEnd) {
 
     int ticks = 0;
     while (ticks < 500) {
-        plcA.tick(10);
-        syncA(AxisId::Y);
+        driverA.pollFeedback(*ctxA);
         if (axis->state() == AxisState::Idle) break;
         ticks++;
     }
@@ -197,8 +177,7 @@ TEST_F(SystemIntegrationTest, ShouldCompleteRelativeMoveEndToEnd) {
 
     ticks = 0;
     while (ticks < 500) {
-        plcA.tick(10);
-        syncA(AxisId::Y);
+        driverA.pollFeedback(*ctxA);
         if (axis->state() == AxisState::Idle) break;
         ticks++;
     }
@@ -212,12 +191,12 @@ TEST_F(SystemIntegrationTest, ShouldCompleteRelativeMoveEndToEnd) {
 TEST_F(SystemIntegrationTest, ShouldRejectMoveWhenTargetExceedsLimit) {
     plcA.forceState(AxisId::Y, AxisState::Disabled);
     plcA.setLimits(AxisId::Y, 80.0, -80.0);
-    syncA(AxisId::Y);
+    driverA.pollFeedback(*ctxA);
 
     // Enable
     auto enableResult = enableUc.execute(manager, GROUP_A, AxisId::Y, true);
     ASSERT_TRUE(std::holds_alternative<std::monostate>(enableResult));
-    tickA(AxisId::Y, 20, 10);
+    tickA(20);
 
     Axis* axis = getAxisA(AxisId::Y);
     ASSERT_NE(axis, nullptr);
@@ -245,12 +224,12 @@ TEST_F(SystemIntegrationTest, ShouldDetectMidMoveError) {
     plcA.forceState(AxisId::Y, AxisState::Disabled);
     plcA.setSimulatedMoveVelocity(AxisId::Y, 20.0);
     plcA.setLimits(AxisId::Y, 200.0, -200.0);
-    syncA(AxisId::Y);
+    driverA.pollFeedback(*ctxA);
 
     // Enable
     ASSERT_TRUE(std::holds_alternative<std::monostate>(
         enableUc.execute(manager, GROUP_A, AxisId::Y, true)));
-    tickA(AxisId::Y, 20, 10);
+    tickA(20);
 
     Axis* axis = getAxisA(AxisId::Y);
     ASSERT_NE(axis, nullptr);
@@ -259,14 +238,13 @@ TEST_F(SystemIntegrationTest, ShouldDetectMidMoveError) {
     ASSERT_TRUE(std::holds_alternative<std::monostate>(
         moveAbsUc.execute(manager, GROUP_A, AxisId::Y, 150.0)));
 
-    // 推进一小段确认运动开始
-    plcA.tick(200);
-    syncA(AxisId::Y);
+    // 推进一小段确认运动开始（200ms）
+    tickA(20);
     ASSERT_EQ(axis->state(), AxisState::MovingAbsolute);
 
     // 注入硬件错误
     plcA.forceState(AxisId::Y, AxisState::Error);
-    syncA(AxisId::Y);
+    driverA.pollFeedback(*ctxA);
 
     EXPECT_EQ(axis->state(), AxisState::Error);
 }
@@ -278,12 +256,12 @@ TEST_F(SystemIntegrationTest, ShouldRejectOperationsAtPositiveLimit) {
     plcA.forceState(AxisId::Y, AxisState::Disabled);
     plcA.setSimulatedMoveVelocity(AxisId::Y, 50.0);
     plcA.setLimits(AxisId::Y, 50.0, -1000.0);
-    syncA(AxisId::Y);
+    driverA.pollFeedback(*ctxA);
 
     // Enable
     ASSERT_TRUE(std::holds_alternative<std::monostate>(
         enableUc.execute(manager, GROUP_A, AxisId::Y, true)));
-    tickA(AxisId::Y, 20, 10);
+    tickA(20);
 
     Axis* axis = getAxisA(AxisId::Y);
     ASSERT_NE(axis, nullptr);
@@ -294,8 +272,7 @@ TEST_F(SystemIntegrationTest, ShouldRejectOperationsAtPositiveLimit) {
 
     int ticks = 0;
     while (ticks < 500) {
-        plcA.tick(10);
-        syncA(AxisId::Y);
+        driverA.pollFeedback(*ctxA);
         if (axis->state() == AxisState::Idle) break;
         ticks++;
     }
@@ -323,20 +300,19 @@ TEST_F(SystemIntegrationTest, ShouldRejectOperationsAtPositiveLimit) {
 TEST_F(SystemIntegrationTest, ShouldStopMidMove) {
     plcA.forceState(AxisId::Y, AxisState::Disabled);
     plcA.setSimulatedMoveVelocity(AxisId::Y, 20.0);
-    syncA(AxisId::Y);
+    driverA.pollFeedback(*ctxA);
 
     // Enable
     ASSERT_TRUE(std::holds_alternative<std::monostate>(
         enableUc.execute(manager, GROUP_A, AxisId::Y, true)));
-    tickA(AxisId::Y, 20, 10);
+    tickA(20);
 
     // 开始运动（目标很远）
     ASSERT_TRUE(std::holds_alternative<std::monostate>(
         moveAbsUc.execute(manager, GROUP_A, AxisId::Y, 500.0)));
 
-    // 推进一小段
-    plcA.tick(500);
-    syncA(AxisId::Y);
+    // 推进一小段（500ms）
+    tickA(50);
 
     Axis* axis = getAxisA(AxisId::Y);
     ASSERT_NE(axis, nullptr);
@@ -348,14 +324,12 @@ TEST_F(SystemIntegrationTest, ShouldStopMidMove) {
     auto stopResult = stopUc.execute(manager, GROUP_A, AxisId::Y);
     EXPECT_TRUE(std::holds_alternative<std::monostate>(stopResult));
 
-    // 等待停止生效
-    plcA.tick(20);
-    syncA(AxisId::Y);
+    // 等待停止生效（20ms）
+    tickA(2);
 
     // 位置不应再变化（或已停止）
     double posAfterStop = axis->currentAbsolutePosition();
-    plcA.tick(100);
-    syncA(AxisId::Y);
+    tickA(10);
 
     EXPECT_NEAR(axis->currentAbsolutePosition(), posAfterStop, 0.01)
         << "Position should not change after stop!";
@@ -368,30 +342,31 @@ TEST_F(SystemIntegrationTest, ShouldIsolateGroupAFromGroupB) {
     // A 组 Y 轴使能
     plcA.forceState(AxisId::Y, AxisState::Disabled);
     plcA.setSimulatedMoveVelocity(AxisId::Y, 50.0);
-    syncA(AxisId::Y);
+    driverA.pollFeedback(*ctxA);
 
     ASSERT_TRUE(std::holds_alternative<std::monostate>(
         enableUc.execute(manager, GROUP_A, AxisId::Y, true)));
-    tickA(AxisId::Y, 20, 10);
+    tickA(20);
 
-    // B 组先解耦龙门，使 X1 可独立操作（SystemContext 默认耦合）
-    ctxB->setCoupledState(false);
+    // B 组先解耦龙门，使 X1 可独立操作
+    // 通过 GantryCouplingController 注入解耦反馈，使状态机从 NotSynchronized → Decoupled
+    ctxB->gantryCouplingController().applyFeedback(GantryFeedback{false, false, 0});
 
     // B 组 X1 轴使能（独立）
     plcB.forceState(AxisId::X1, AxisState::Disabled);
     plcB.setSimulatedMoveVelocity(AxisId::X1, 50.0);
-    syncB(AxisId::X1);
+    driverB.pollFeedback(*ctxB);
 
     ASSERT_TRUE(std::holds_alternative<std::monostate>(
         enableUc.execute(manager, GROUP_B, AxisId::X1, true)));
-    tickB(AxisId::X1, 20, 10);
+    tickB(20);
 
     // A 组 Y 轴运动到 100
     ASSERT_TRUE(std::holds_alternative<std::monostate>(
         moveAbsUc.execute(manager, GROUP_A, AxisId::Y, 100.0)));
 
     // 推进 A 组 1000ms
-    tickA(AxisId::Y, 100, 10);
+    tickA(100);
 
     Axis* axisA_Y = getAxisA(AxisId::Y);
     Axis* axisB_X1 = getAxisB(AxisId::X1);
@@ -408,8 +383,8 @@ TEST_F(SystemIntegrationTest, ShouldIsolateGroupAFromGroupB) {
     EXPECT_NEAR(axisB_X1->currentAbsolutePosition(), 0.0, 0.001);
 
     // A 组继续运动到完成
-    tickA(AxisId::Y, 100, 10);
-    syncA(AxisId::Y);
+    tickA(100);
+    driverA.pollFeedback(*ctxA);
 
     EXPECT_EQ(axisA_Y->state(), AxisState::Idle);
     EXPECT_NEAR(axisA_Y->currentAbsolutePosition(), 100.0, 0.01);
@@ -435,11 +410,20 @@ TEST_F(SystemIntegrationTest, ShouldRejectWhenGroupNotFound) {
 // 改为测试龙门联动拦截：联动时 X1 被 tryGetAxis 拒绝。
 // ============================================================================
 TEST_F(SystemIntegrationTest, ShouldRejectPhysicalAxisWhenGantryCoupled) {
-    plcA.forceState(AxisId::Y, AxisState::Disabled);
-    syncA(AxisId::Y);
+    // 先同步龙门到 Coupled 状态（通过 PLC 反馈）
+    plcB.forceState(AxisId::X1, AxisState::Disabled);
+    plcB.forceState(AxisId::X2, AxisState::Disabled);
+    driverB.pollFeedback(*ctxB);  // ctxB 是 GROUP_B 的 context
+    // 同步 GantryCouplingController 到 Decoupled（绕过 NotSynchronized）
+    plcB.forceGantryFeedback(GantryFeedback{false, false, 0});
+    // 发起耦合请求（现在 Decoupled → CouplingRequested）
+    ctxB->gantryCouplingController().requestCouple(true);
+    // 模拟 PLC 确认耦合成功
+    plcB.forceGantryFeedback(GantryFeedback{true, true, 0});
+    driverB.pollFeedback(*ctxB);
 
-    // X1 在 ctxA 的龙门联动下被拦截（isGantryCoupled 默认为 true）
-    auto result = enableUc.execute(manager, GROUP_A, AxisId::X1, true);
+    // X1 在 ctxB 的龙门联动下被拦截
+    auto result = enableUc.execute(manager, GROUP_B, AxisId::X1, true);
     EXPECT_TRUE(std::holds_alternative<ContextRejection>(result));
     EXPECT_EQ(std::get<ContextRejection>(result), ContextRejection::PhysicalAxisLockedByGantry);
 }
@@ -449,7 +433,7 @@ TEST_F(SystemIntegrationTest, ShouldRejectPhysicalAxisWhenGantryCoupled) {
 // ============================================================================
 TEST_F(SystemIntegrationTest, ShouldRejectEnableWhenInErrorState) {
     plcA.forceState(AxisId::Y, AxisState::Error);
-    syncA(AxisId::Y);
+    driverA.pollFeedback(*ctxA);
 
     // 故障状态下使能应被拒绝
     auto r = enableUc.execute(manager, GROUP_A, AxisId::Y, true);
@@ -463,12 +447,12 @@ TEST_F(SystemIntegrationTest, ShouldRejectEnableWhenInErrorState) {
 TEST_F(SystemIntegrationTest, ShouldJogContinuouslyAndStop) {
     plcA.forceState(AxisId::Y, AxisState::Disabled);
     plcA.setSimulatedJogVelocity(AxisId::Y, 10.0);
-    syncA(AxisId::Y);
+    driverA.pollFeedback(*ctxA);
 
     // Enable
     ASSERT_TRUE(std::holds_alternative<std::monostate>(
         enableUc.execute(manager, GROUP_A, AxisId::Y, true)));
-    tickA(AxisId::Y, 20, 10);
+    tickA(20);
 
     Axis* axis = getAxisA(AxisId::Y);
     ASSERT_NE(axis, nullptr);
@@ -480,16 +464,15 @@ TEST_F(SystemIntegrationTest, ShouldJogContinuouslyAndStop) {
     auto jogResult = jogUc.execute(manager, GROUP_A, AxisId::Y, Direction::Forward);
     ASSERT_TRUE(std::holds_alternative<std::monostate>(jogResult));
 
-    // 推进 100ms（速度 10 → 位移 1.0）
-    tickA(AxisId::Y, 10, 10);
-    syncA(AxisId::Y);
+    // 推进 100ms（速度 10 → 位移 1.0），注意 tickA(10) 内部已做 10 次 pollFeedback
+    tickA(10);
 
     EXPECT_EQ(axis->state(), AxisState::Jogging);
     EXPECT_NEAR(axis->currentAbsolutePosition(), initialPos + 1.0, 0.001);
 
     // 停止点动
     jogUc.stop(manager, GROUP_A, AxisId::Y, Direction::Forward);
-    tickA(AxisId::Y, 10, 10);
+    tickA(10);
 
     EXPECT_EQ(axis->state(), AxisState::Idle);
 }
@@ -499,7 +482,7 @@ TEST_F(SystemIntegrationTest, ShouldJogContinuouslyAndStop) {
 // ============================================================================
 TEST_F(SystemIntegrationTest, ShouldRejectMoveWhenDisabled) {
     plcA.forceState(AxisId::Y, AxisState::Disabled);
-    syncA(AxisId::Y);
+    driverA.pollFeedback(*ctxA);
 
     auto moveResult = moveAbsUc.execute(manager, GROUP_A, AxisId::Y, 100.0);
     EXPECT_TRUE(std::holds_alternative<RejectionReason>(moveResult));
@@ -512,19 +495,18 @@ TEST_F(SystemIntegrationTest, ShouldRejectMoveWhenDisabled) {
 TEST_F(SystemIntegrationTest, ShouldRejectDisableWhileMoving) {
     plcA.forceState(AxisId::Y, AxisState::Disabled);
     plcA.setSimulatedMoveVelocity(AxisId::Y, 20.0);
-    syncA(AxisId::Y);
+    driverA.pollFeedback(*ctxA);
 
     // Enable
     ASSERT_TRUE(std::holds_alternative<std::monostate>(
         enableUc.execute(manager, GROUP_A, AxisId::Y, true)));
-    tickA(AxisId::Y, 20, 10);
+    tickA(20);
 
     // 开始慢速运动
     ASSERT_TRUE(std::holds_alternative<std::monostate>(
         moveAbsUc.execute(manager, GROUP_A, AxisId::Y, 500.0)));
 
-    plcA.tick(100);
-    syncA(AxisId::Y);
+    tickA(10);
 
     Axis* axis = getAxisA(AxisId::Y);
     ASSERT_NE(axis, nullptr);
