@@ -148,7 +148,7 @@ ViewModelError translate(const UseCaseError& err) {
             case GantryRejection::None:
                 return {"GANTRY_NONE", "龙门操作未知错误",
                         "",
-                        ErrorCategory::Inline};
+                        ErrorCategory::Silent};
             case GantryRejection::PositionToleranceExceeded:
                 return {"GANTRY_POS_TOLERANCE_EXCEEDED", "龙门联动位置超差",
                         "Position tolerance exceeded during gantry coupling",
@@ -193,7 +193,7 @@ ViewModelError translate(const UseCaseError& err) {
             case SafetyRejection::None:
                 return {"SAFETY_NONE", "安全域未知错误",
                         "",
-                        ErrorCategory::Modal};
+                        ErrorCategory::Silent};
             case SafetyRejection::SystemSafetyLocked:
                 return {"SAFETY_SYSTEM_LOCKED", "系统安全锁定中",
                         "System is in safety lock state (emergency stop active)",

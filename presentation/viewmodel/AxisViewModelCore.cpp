@@ -14,8 +14,13 @@
 #include "ErrorTranslator.h"
 #include "ViewModelError.h"
 
+#include "infrastructure/logger/Logger.h"
+#include "infrastructure/logger/TraceScope.h"
+#include "infrastructure/utils/CommandFormatter.h"
+
 #include <variant>
 #include <utility>
+#include <algorithm>
 
 // =============================================================================
 // 内部辅助：通过 SystemManager 定位目标轴
@@ -49,6 +54,35 @@ Axis* tryGetAxis(SystemManager& manager,
 }  // anonymous namespace
 
 // =============================================================================
+// TraceScope / 日志辅助方法
+// =============================================================================
+
+std::string AxisViewModelCore::generateTraceId()
+{
+    static std::atomic<uint64_t> counter{0};
+    auto now = std::chrono::steady_clock::now();
+    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        now.time_since_epoch()).count();
+    return std::to_string(ns) + "_" + std::to_string(++counter);
+}
+
+std::string AxisViewModelCore::axisIdToString(AxisId id)
+{
+    switch (id) {
+    case AxisId::X1: return "X1";
+    case AxisId::X2: return "X2";
+    case AxisId::Y:  return "Y";
+    case AxisId::Z:  return "Z";
+    default:         return "Unknown";
+    }
+}
+
+std::string AxisViewModelCore::logPrefix() const
+{
+    return m_groupName + "/" + axisIdToString(m_axisId);
+}
+
+// =============================================================================
 // 构造 / 析构
 // =============================================================================
 
@@ -67,6 +101,8 @@ AxisViewModelCore::AxisViewModelCore(SystemManager& manager,
     , m_absOrch(std::make_unique<AutoAbsMoveOrchestrator>(manager, groupName))
     , m_relOrch(std::make_unique<AutoRelMoveOrchestrator>(manager, groupName))
 {
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " ViewModel created");
 }
 
 AxisViewModelCore::~AxisViewModelCore() = default;
@@ -130,58 +166,106 @@ double AxisViewModelCore::negLimit() const
 }
 
 // =============================================================================
-// 2. 错误接口
+// 2. 错误接口（列表收集模式）
 // =============================================================================
 
 bool AxisViewModelCore::hasError() const
 {
-    return m_hasError;
+    return !m_errorHistory.empty();
 }
 
 ViewModelError AxisViewModelCore::lastError() const
 {
-    return m_lastError;
+    if (m_errorHistory.empty()) {
+        return {};
+    }
+    return m_errorHistory.back().error;
+}
+
+size_t AxisViewModelCore::errorCount() const
+{
+    return m_errorHistory.size();
+}
+
+std::vector<ViewModelError> AxisViewModelCore::allErrors() const
+{
+    std::vector<ViewModelError> result;
+    result.reserve(m_errorHistory.size());
+    for (const auto& entry : m_errorHistory) {
+        result.push_back(entry.error);
+    }
+    return result;
+}
+
+void AxisViewModelCore::acknowledgeError(size_t index)
+{
+    if (index < m_errorHistory.size()) {
+        LOG_DEBUG(LogLayer::UI, "AxisVM",
+            logPrefix() + " acknowledgeError index=" + std::to_string(index)
+            + " code=" + m_errorHistory[index].error.code);
+        m_errorHistory.erase(m_errorHistory.begin() + static_cast<ptrdiff_t>(index));
+    }
+}
+
+void AxisViewModelCore::clearAllErrors()
+{
+    if (!m_errorHistory.empty()) {
+        LOG_DEBUG(LogLayer::UI, "AxisVM",
+            logPrefix() + " clearAllErrors count=" + std::to_string(m_errorHistory.size()));
+        m_errorHistory.clear();
+    }
 }
 
 void AxisViewModelCore::clearError()
 {
-    m_hasError = false;
-    m_lastError = {};
+    clearAllErrors();
 }
 
-// =============================================================================
-// 内部辅助：执行 UseCase 并翻译错误
-// =============================================================================
-
-namespace {
-
-/**
- * @brief 执行一个返回 UseCaseError 的操作，并将错误翻译存储到 ViewModel
- * @return true = 成功（monostate），false = 有错误（已存入 vmError）
- */
-bool executeAndTranslate(UseCaseError result,
-                         ViewModelError& vmError,
-                         bool& hasError)
+void AxisViewModelCore::pushError(const ViewModelError& error, const std::string& source)
 {
-    if (std::holds_alternative<std::monostate>(result)) {
-        return true;  // 成功
-    }
-
-    vmError = translate(result);
-    hasError = true;
-    return false;
+    if (!error.isValid()) return;
+    m_errorHistory.push_back({
+        .error = error,
+        .timestamp = std::chrono::steady_clock::now(),
+        .source = source
+    });
+    LOG_WARN(LogLayer::UI, "AxisVM",
+        logPrefix() + " error from " + source + ": " + error.code
+        + " - " + error.debugMessage);
 }
 
-}  // anonymous namespace
-
 // =============================================================================
-// 3. 控制指令
+// 3. 控制指令（带 TraceScope + 日志 + 错误保护）
 // =============================================================================
 
 void AxisViewModelCore::enable(bool active)
 {
-    auto result = m_enableUc->execute(m_manager, m_groupName, m_axisId, active);
-    executeAndTranslate(result, m_lastError, m_hasError);
+    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
+
+    if (!active) {
+        // disable: 直接执行，不检查/覆盖错误
+        m_enableUc->execute(m_manager, m_groupName, m_axisId, false);
+        LOG_INFO(LogLayer::UI, "AxisVM",
+            logPrefix() + " disable requested");
+        return;
+    }
+
+    // enable: 正常收集错误
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " enable requested");
+
+    auto result = m_enableUc->execute(m_manager, m_groupName, m_axisId, true);
+    if (!std::holds_alternative<std::monostate>(result)) {
+        auto vmError = translate(result);
+        if (vmError.isValid()) {
+            pushError(vmError, "EnableUC");
+            LOG_ERROR(LogLayer::UI, "AxisVM",
+                logPrefix() + " enable failed: " + vmError.code);
+        }
+    } else {
+        LOG_DEBUG(LogLayer::UI, "AxisVM",
+            logPrefix() + " enable accepted");
+    }
 }
 
 void AxisViewModelCore::disable()
@@ -191,29 +275,79 @@ void AxisViewModelCore::disable()
 
 void AxisViewModelCore::jog(Direction dir)
 {
+    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
+
+    const char* dirStr = (dir == Direction::Forward) ? "Forward" : "Backward";
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " jog " + dirStr + " pressed");
+
     m_jogOrch->startJog(m_axisId, dir);
+
+    if (m_jogOrch->hasError()) {
+        auto vmError = translate(m_jogOrch->lastError());
+        LOG_WARN(LogLayer::UI, "AxisVM",
+            logPrefix() + " jog " + dirStr + " rejected at start: " + vmError.code);
+    }
 }
 
 void AxisViewModelCore::jogStop(Direction dir)
 {
+    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
+
+    const char* dirStr = (dir == Direction::Forward) ? "Forward" : "Backward";
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " jog " + dirStr + " released");
+
     m_jogOrch->stopJog(m_axisId, dir);
 }
 
 void AxisViewModelCore::moveAbsolute(double targetPos)
 {
+    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
+
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " moveAbsolute target=" + std::to_string(targetPos));
+
     m_absOrch->startAbs(m_axisId, targetPos);
+
+    if (m_absOrch->hasError()) {
+        auto vmError = translate(m_absOrch->lastError());
+        LOG_WARN(LogLayer::UI, "AxisVM",
+            logPrefix() + " moveAbsolute rejected at start: " + vmError.code);
+    }
 }
 
 void AxisViewModelCore::moveRelative(double distance)
 {
+    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
+
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " moveRelative distance=" + std::to_string(distance));
+
     m_relOrch->startRel(m_axisId, distance);
+
+    if (m_relOrch->hasError()) {
+        auto vmError = translate(m_relOrch->lastError());
+        LOG_WARN(LogLayer::UI, "AxisVM",
+            logPrefix() + " moveRelative rejected at start: " + vmError.code);
+    }
 }
 
 void AxisViewModelCore::stop()
 {
+    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
+
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " stop pressed (may interrupt active motion)");
+
     // 1. 下发停止命令到硬件（通过 UseCase）
     auto result = m_stopUc->execute(m_manager, m_groupName, m_axisId);
-    executeAndTranslate(result, m_lastError, m_hasError);
+    if (!std::holds_alternative<std::monostate>(result)) {
+        auto vmError = translate(result);
+        pushError(vmError, "StopUC");
+        LOG_ERROR(LogLayer::UI, "AxisVM",
+            logPrefix() + " stop command failed: " + vmError.code);
+    }
 
     // 2. 中断正在进行的点动编排器
     //    注：Abs/Rel 编排器无显式 stop() 入口，
@@ -221,53 +355,144 @@ void AxisViewModelCore::stop()
     if (m_jogOrch->currentStep() != JogOrchestrator::Step::Done &&
         m_jogOrch->currentStep() != JogOrchestrator::Step::Error &&
         m_jogOrch->currentStep() != JogOrchestrator::Step::Idle) {
-        // 通过 stopJog 触发编排器内部 IssuingStop → WaitingForIdle → EnsuringDisabled 流程
-        // 任一方向均可触发停止（编排器会校验 Direction 匹配）
         m_jogOrch->stopJog(m_axisId, Direction::Forward);
+        LOG_DEBUG(LogLayer::UI, "AxisVM",
+            logPrefix() + " jog orchestrator interrupted by stop");
     }
 }
 
 void AxisViewModelCore::setJogVelocity(double v)
 {
     auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
-    if (axis) {
-        axis->setJogVelocity(v);
+    if (!axis) {
+        LOG_WARN(LogLayer::UI, "AxisVM",
+            logPrefix() + " setJogVelocity(" + std::to_string(v)
+            + ") failed: axis not found");
+        return;
+    }
+
+    if (!axis->setJogVelocity(v)) {
+        auto vmError = translate(UseCaseError{axis->lastRejection()});
+        pushError(vmError, "SetJogVel");
+        LOG_WARN(LogLayer::UI, "AxisVM",
+            logPrefix() + " setJogVelocity(" + std::to_string(v)
+            + ") rejected: " + vmError.code);
+    } else {
+        LOG_DEBUG(LogLayer::UI, "AxisVM",
+            logPrefix() + " jogVelocity set to " + std::to_string(v));
     }
 }
 
 void AxisViewModelCore::setMoveVelocity(double v)
 {
     auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
-    if (axis) {
-        axis->setMoveVelocity(v);
+    if (!axis) {
+        LOG_WARN(LogLayer::UI, "AxisVM",
+            logPrefix() + " setMoveVelocity(" + std::to_string(v)
+            + ") failed: axis not found");
+        return;
+    }
+
+    if (!axis->setMoveVelocity(v)) {
+        auto vmError = translate(UseCaseError{axis->lastRejection()});
+        pushError(vmError, "SetMoveVel");
+        LOG_WARN(LogLayer::UI, "AxisVM",
+            logPrefix() + " setMoveVelocity(" + std::to_string(v)
+            + ") rejected: " + vmError.code);
+    } else {
+        LOG_DEBUG(LogLayer::UI, "AxisVM",
+            logPrefix() + " moveVelocity set to " + std::to_string(v));
     }
 }
 
 // =============================================================================
-// 4. 零位操作
+// 4. 零位操作（带错误保护 + 日志）
 // =============================================================================
 
 void AxisViewModelCore::zeroAbsolutePosition()
 {
+    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " zeroAbsolutePosition requested");
+
     auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
-    if (axis) {
-        axis->zeroAbsolutePosition();
+    if (!axis) {
+        auto error = ViewModelError{
+            "CTX_AXIS_NOT_REGISTERED",
+            "轴未注册，无法执行零位操作",
+            logPrefix() + " not found in system context",
+            ErrorCategory::Modal
+        };
+        pushError(error, "ZeroAbsOp");
+        return;
+    }
+
+    if (!axis->zeroAbsolutePosition()) {
+        auto vmError = translate(UseCaseError{axis->lastRejection()});
+        pushError(vmError, "ZeroAbsOp");
+        LOG_WARN(LogLayer::UI, "AxisVM",
+            logPrefix() + " zeroAbsolutePosition rejected: " + vmError.code);
+    } else {
+        LOG_DEBUG(LogLayer::UI, "AxisVM",
+            logPrefix() + " zeroAbsolutePosition accepted, pending command queued");
     }
 }
 
 void AxisViewModelCore::setRelativeZero()
 {
+    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " setRelativeZero requested");
+
     auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
-    if (axis) {
-        axis->setRelativeZero();
+    if (!axis) {
+        auto error = ViewModelError{
+            "CTX_AXIS_NOT_REGISTERED",
+            "轴未注册，无法设置相对零位",
+            logPrefix() + " not found in system context",
+            ErrorCategory::Modal
+        };
+        pushError(error, "SetRelZero");
+        return;
+    }
+
+    if (!axis->setRelativeZero()) {
+        auto vmError = translate(UseCaseError{axis->lastRejection()});
+        pushError(vmError, "SetRelZero");
+        LOG_WARN(LogLayer::UI, "AxisVM",
+            logPrefix() + " setRelativeZero rejected: " + vmError.code);
+    } else {
+        LOG_DEBUG(LogLayer::UI, "AxisVM",
+            logPrefix() + " setRelativeZero accepted, pending command queued");
     }
 }
 
 void AxisViewModelCore::clearRelativeZero()
 {
+    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " clearRelativeZero requested");
+
     auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
-    if (axis) {
-        axis->clearRelativeZero();
+    if (!axis) {
+        auto error = ViewModelError{
+            "CTX_AXIS_NOT_REGISTERED",
+            "轴未注册，无法清除相对零位",
+            logPrefix() + " not found in system context",
+            ErrorCategory::Modal
+        };
+        pushError(error, "ClearRelZero");
+        return;
+    }
+
+    if (!axis->clearRelativeZero()) {
+        auto vmError = translate(UseCaseError{axis->lastRejection()});
+        pushError(vmError, "ClearRelZero");
+        LOG_WARN(LogLayer::UI, "AxisVM",
+            logPrefix() + " clearRelativeZero rejected: " + vmError.code);
+    } else {
+        LOG_DEBUG(LogLayer::UI, "AxisVM",
+            logPrefix() + " clearRelativeZero accepted, pending command queued");
     }
 }
 
@@ -277,54 +502,82 @@ void AxisViewModelCore::clearRelativeZero()
 
 void AxisViewModelCore::tick()
 {
-    // 驱动所有编排器状态机
+    // Step 1: 驱动所有编排器状态机
     m_jogOrch->tick();
     m_absOrch->tick();
     m_relOrch->tick();
 
-    // 收集并翻译各编排器的错误
-    // 优先级：Jog > Abs > Rel（最后出错者覆盖）
-    if (m_jogOrch->hasError()) {
-        m_lastError = translate(m_jogOrch->lastError());
-        m_hasError = true;
-    }
-    if (m_absOrch->hasError()) {
-        m_lastError = translate(m_absOrch->lastError());
-        m_hasError = true;
-    }
-    if (m_relOrch->hasError()) {
-        m_lastError = translate(m_relOrch->lastError());
-        m_hasError = true;
+    // Step 2: 收集错误（追加模式，不再覆盖）
+    collectOrchError(*m_jogOrch, "JogOrch");
+    collectOrchError(*m_absOrch, "AbsOrch");
+    collectOrchError(*m_relOrch, "RelOrch");
+
+    // Step 3: 消费零位/速度类 pending command
+    consumePendingCommands();
+
+    // Step 4: 日志摘要（每 100 帧输出一次）
+    LOG_TRACE_EVERY_N(100, LogLayer::UI, "AxisVM",
+        logPrefix()
+        + " tick: state=" + std::to_string(static_cast<int>(state()))
+        + " errors=" + std::to_string(m_errorHistory.size()));
+}
+
+void AxisViewModelCore::consumePendingCommands()
+{
+    auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
+    if (!axis) {
+        return;
     }
 
-    // 发送零位/速度类命令的 pending command（此类操作没有独立的 Orchestrator，
-    // 命令暂存在 Axis::pending_intent 中，需在此处消费并发送到 driver。
-    // 运动类命令（Jog/Move/Stop）由各 Orchestrator 负责发送，此处不再重复处理）
-    auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
-    if (axis) {
-        SystemContext* group = nullptr;
-        ContextRejection mgrReason = ContextRejection::None;
-        if (m_manager.tryGetGroup(m_groupName, group, mgrReason) && group) {
-            if (auto* drv = group->driver()) {
-                const AxisCommand& cmd = axis->getPendingCommand();
-                // 仅零位/速度类命令由此处发送
-                bool isZeroOrVelocity =
-                    std::holds_alternative<ZeroAbsoluteCommand>(cmd) ||
-                    std::holds_alternative<SetRelativeZeroCommand>(cmd) ||
-                    std::holds_alternative<ClearRelativeZeroCommand>(cmd) ||
-                    std::holds_alternative<SetJogVelocityCommand>(cmd) ||
-                    std::holds_alternative<SetMoveVelocityCommand>(cmd);
-                if (isZeroOrVelocity) {
-                    auto commResult = drv->send(AxisCommandWithId{m_axisId, cmd});
-                    if (!commResult.ok()) {
-                        m_lastError = ViewModelError{"ZERO_CMD_FAILED",
-                                                     "Zero/Velocity command delivery failed",
-                                                     "Zero/Velocity command delivery failed",
-                                                     ErrorCategory::Modal};
-                        m_hasError = true;
-                    }
-                }
-            }
-        }
+    if (!axis->hasPendingCommand()) {
+        return;
+    }
+
+    const AxisCommand& cmd = axis->getPendingCommand();
+    bool isZeroOrVelocity =
+        std::holds_alternative<ZeroAbsoluteCommand>(cmd) ||
+        std::holds_alternative<SetRelativeZeroCommand>(cmd) ||
+        std::holds_alternative<ClearRelativeZeroCommand>(cmd) ||
+        std::holds_alternative<SetJogVelocityCommand>(cmd) ||
+        std::holds_alternative<SetMoveVelocityCommand>(cmd);
+
+    if (!isZeroOrVelocity) {
+        return;  // 运动类命令由 Orchestrator 处理
+    }
+
+    // 获取 driver
+    SystemContext* group = nullptr;
+    ContextRejection mgrReason = ContextRejection::None;
+    if (!m_manager.tryGetGroup(m_groupName, group, mgrReason) || !group) {
+        LOG_ERROR(LogLayer::UI, "AxisVM",
+            logPrefix() + " cannot send command: group not found");
+        return;
+    }
+
+    auto* drv = group->driver();
+    if (!drv) {
+        LOG_ERROR(LogLayer::UI, "AxisVM",
+            logPrefix() + " cannot send command: driver not ready");
+        return;
+    }
+
+    // 使用 CommandFormatter 记录下发的命令详情
+    LOG_DEBUG(LogLayer::UI, "AxisVM",
+        logPrefix() + " sending: " + utils::format(cmd));
+
+    auto commResult = drv->send(AxisCommandWithId{m_axisId, cmd});
+    if (!commResult.ok()) {
+        auto vmError = ViewModelError{
+            "ZERO_CMD_FAILED",
+            "零位/速度命令下发失败",
+            commResult.diagnostic,
+            ErrorCategory::Modal
+        };
+        pushError(vmError, "CmdDelivery");
+        LOG_ERROR(LogLayer::UI, "AxisVM",
+            logPrefix() + " command delivery failed: " + commResult.diagnostic);
+    } else {
+        LOG_TRACE(LogLayer::UI, "AxisVM",
+            logPrefix() + " command delivered successfully");
     }
 }

@@ -316,3 +316,137 @@ TEST_F(ErrorTranslatorTest, SafetyRejection_NotEmergencyStopped) {
     EXPECT_EQ(vmErr.code, "SAFETY_NOT_EMERGENCY_STOPPED");
     EXPECT_EQ(vmErr.category, ErrorCategory::Inline);
 }
+
+// ============================================================================
+// ⭐ 7. 参数化测试：验证所有 RejectionReason → code/category 映射
+// ============================================================================
+
+struct RejectionReasonParam {
+    RejectionReason reason;
+    std::string expectedCode;
+    ErrorCategory expectedCategory;
+};
+
+class RejectionReasonParamTest : public ::testing::TestWithParam<RejectionReasonParam> {};
+
+TEST_P(RejectionReasonParamTest, ShouldTranslateToCorrectCodeAndCategory) {
+    auto p = GetParam();
+    auto vmErr = translate(UseCaseError{p.reason});
+    EXPECT_EQ(vmErr.code, p.expectedCode);
+    EXPECT_EQ(vmErr.category, p.expectedCategory);
+}
+
+INSTANTIATE_TEST_SUITE_P(AllRejectionReasons,
+    RejectionReasonParamTest,
+    ::testing::Values(
+        RejectionReasonParam{RejectionReason::None, "AXIS_UNKNOWN_ERROR", ErrorCategory::Modal},
+        RejectionReasonParam{RejectionReason::UnknownError, "AXIS_UNKNOWN_ERROR", ErrorCategory::Modal},
+        RejectionReasonParam{RejectionReason::InvalidState, "AXIS_INVALID_STATE", ErrorCategory::Inline},
+        RejectionReasonParam{RejectionReason::AlreadyMoving, "AXIS_ALREADY_MOVING", ErrorCategory::Inline},
+        RejectionReasonParam{RejectionReason::TargetOutOfPositiveLimit, "AXIS_TARGET_OUT_OF_POS_LIMIT", ErrorCategory::Inline},
+        RejectionReasonParam{RejectionReason::TargetOutOfNegativeLimit, "AXIS_TARGET_OUT_OF_NEG_LIMIT", ErrorCategory::Inline},
+        RejectionReasonParam{RejectionReason::AtPositiveLimit, "AXIS_AT_POSITIVE_LIMIT", ErrorCategory::Inline},
+        RejectionReasonParam{RejectionReason::AtNegativeLimit, "AXIS_AT_NEGATIVE_LIMIT", ErrorCategory::Inline},
+        RejectionReasonParam{RejectionReason::InvalidArgument, "AXIS_INVALID_ARGUMENT", ErrorCategory::Inline}
+    )
+);
+
+// ============================================================================
+// ⭐ 8. 参数化测试：验证所有 ContextRejection → code/category 映射
+// ============================================================================
+
+struct ContextRejectionParam {
+    ContextRejection reason;
+    std::string expectedCode;
+    ErrorCategory expectedCategory;
+};
+
+class ContextRejectionParamTest : public ::testing::TestWithParam<ContextRejectionParam> {};
+
+TEST_P(ContextRejectionParamTest, ShouldTranslateToCorrectCodeAndCategory) {
+    auto p = GetParam();
+    auto vmErr = translate(UseCaseError{p.reason});
+    EXPECT_EQ(vmErr.code, p.expectedCode);
+    EXPECT_EQ(vmErr.category, p.expectedCategory);
+}
+
+INSTANTIATE_TEST_SUITE_P(AllContextRejections,
+    ContextRejectionParamTest,
+    ::testing::Values(
+        ContextRejectionParam{ContextRejection::None, "CTX_UNKNOWN_ERROR", ErrorCategory::Modal},
+        ContextRejectionParam{ContextRejection::GroupNotFound, "CTX_GROUP_NOT_FOUND", ErrorCategory::Modal},
+        ContextRejectionParam{ContextRejection::GroupAlreadyExists, "CTX_GROUP_ALREADY_EXISTS", ErrorCategory::Modal},
+        ContextRejectionParam{ContextRejection::GroupNameInvalid, "CTX_GROUP_NAME_INVALID", ErrorCategory::Modal},
+        ContextRejectionParam{ContextRejection::PhysicalAxisLockedByGantry, "CTX_PHYSICAL_AXIS_LOCKED", ErrorCategory::Inline},
+        ContextRejectionParam{ContextRejection::LogicalAxisUnavailableWhenDecoupled, "CTX_LOGICAL_AXIS_UNAVAILABLE", ErrorCategory::Inline},
+        ContextRejectionParam{ContextRejection::GantryNotSynchronized, "CTX_GANTRY_NOT_SYNCED", ErrorCategory::Modal},
+        ContextRejectionParam{ContextRejection::AxisNotRegistered, "CTX_AXIS_NOT_REGISTERED", ErrorCategory::Modal},
+        ContextRejectionParam{ContextRejection::SystemSafetyLocked, "CTX_SAFETY_LOCKED", ErrorCategory::Modal},
+        ContextRejectionParam{ContextRejection::DriverNotReady, "CTX_DRIVER_NOT_READY", ErrorCategory::Modal}
+    )
+);
+
+// ============================================================================
+// ⭐ 9. 参数化测试：验证所有 GantryRejection → code/category 映射
+// ============================================================================
+
+struct GantryRejectionParam {
+    GantryRejection reason;
+    std::string expectedCode;
+    ErrorCategory expectedCategory;
+};
+
+class GantryRejectionParamTest : public ::testing::TestWithParam<GantryRejectionParam> {};
+
+TEST_P(GantryRejectionParamTest, ShouldTranslateToCorrectCodeAndCategory) {
+    auto p = GetParam();
+    auto vmErr = translate(UseCaseError{p.reason});
+    EXPECT_EQ(vmErr.code, p.expectedCode);
+    EXPECT_EQ(vmErr.category, p.expectedCategory);
+}
+
+INSTANTIATE_TEST_SUITE_P(AllGantryRejections,
+    GantryRejectionParamTest,
+    ::testing::Values(
+        GantryRejectionParam{GantryRejection::None, "GANTRY_NONE", ErrorCategory::Silent},
+        GantryRejectionParam{GantryRejection::UnknownError, "GANTRY_UNKNOWN", ErrorCategory::Modal},
+        GantryRejectionParam{GantryRejection::PositionToleranceExceeded, "GANTRY_POS_TOLERANCE_EXCEEDED", ErrorCategory::Modal},
+        GantryRejectionParam{GantryRejection::X1NotEnabled, "GANTRY_X1_NOT_ENABLED", ErrorCategory::Inline},
+        GantryRejectionParam{GantryRejection::X2NotEnabled, "GANTRY_X2_NOT_ENABLED", ErrorCategory::Inline},
+        GantryRejectionParam{GantryRejection::X1NotStationary, "GANTRY_X1_NOT_STATIONARY", ErrorCategory::Inline},
+        GantryRejectionParam{GantryRejection::X2NotStationary, "GANTRY_X2_NOT_STATIONARY", ErrorCategory::Inline},
+        GantryRejectionParam{GantryRejection::StateConflict, "GANTRY_STATE_CONFLICT", ErrorCategory::Inline},
+        GantryRejectionParam{GantryRejection::NotSynchronized, "GANTRY_NOT_SYNCED", ErrorCategory::Modal}
+    )
+);
+
+// ============================================================================
+// ⭐ 10. 参数化测试：验证所有 SafetyRejection → code/category 映射
+// ============================================================================
+
+struct SafetyRejectionParam {
+    SafetyRejection reason;
+    std::string expectedCode;
+    ErrorCategory expectedCategory;
+};
+
+class SafetyRejectionParamTest : public ::testing::TestWithParam<SafetyRejectionParam> {};
+
+TEST_P(SafetyRejectionParamTest, ShouldTranslateToCorrectCodeAndCategory) {
+    auto p = GetParam();
+    auto vmErr = translate(UseCaseError{p.reason});
+    EXPECT_EQ(vmErr.code, p.expectedCode);
+    EXPECT_EQ(vmErr.category, p.expectedCategory);
+}
+
+INSTANTIATE_TEST_SUITE_P(AllSafetyRejections,
+    SafetyRejectionParamTest,
+    ::testing::Values(
+        SafetyRejectionParam{SafetyRejection::None, "SAFETY_NONE", ErrorCategory::Silent},
+        SafetyRejectionParam{SafetyRejection::SystemSafetyLocked, "SAFETY_SYSTEM_LOCKED", ErrorCategory::Modal},
+        SafetyRejectionParam{SafetyRejection::AlreadyInState, "SAFETY_ALREADY_IN_STATE", ErrorCategory::Silent},
+        SafetyRejectionParam{SafetyRejection::InvalidStateTransition, "SAFETY_INVALID_TRANSITION", ErrorCategory::Modal},
+        SafetyRejectionParam{SafetyRejection::NotSynchronized, "SAFETY_NOT_SYNCED", ErrorCategory::Modal},
+        SafetyRejectionParam{SafetyRejection::NotEmergencyStopped, "SAFETY_NOT_EMERGENCY_STOPPED", ErrorCategory::Inline}
+    )
+);

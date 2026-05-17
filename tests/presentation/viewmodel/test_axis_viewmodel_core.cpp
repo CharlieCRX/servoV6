@@ -418,3 +418,104 @@ TEST_F(AxisViewModelCoreTest, ShouldReportIsEnabledCorrectly) {
     ASSERT_TRUE(waitUntil([this]() { return vm->state() == AxisState::Disabled; }));
     EXPECT_FALSE(vm->isEnabled());
 }
+
+// =========================================================
+// ⭐ 测试 14：错误列表收集模式 — 追加而非覆盖
+//   验证：多次操作产生的错误会累积在列表中
+// =========================================================
+TEST_F(AxisViewModelCoreTest, ShouldAccumulateErrorsWithoutOverwriting) {
+    // 初始无错误
+    EXPECT_FALSE(vm->hasError());
+    EXPECT_EQ(vm->errorCount(), 0u);
+
+    // 在 Disabled 状态执行零位操作（产生 Modal 错误）
+    vm->zeroAbsolutePosition();
+    ASSERT_TRUE(vm->hasError());
+    EXPECT_EQ(vm->errorCount(), 1u);
+    auto firstErr = vm->lastError();
+    // 轴存在但处于 Disabled 状态，zeroAbsolutePosition() 被 Axis 层拒绝
+    EXPECT_EQ(firstErr.code, "AXIS_INVALID_STATE");
+
+    // 执行另一个零位操作（产生第二个错误，应追加而非覆盖第一个）
+    vm->setRelativeZero();
+    EXPECT_GE(vm->errorCount(), 2u);
+}
+
+// =========================================================
+// ⭐ 测试 15：allErrors() 返回完整快照
+// =========================================================
+TEST_F(AxisViewModelCoreTest, AllErrorsShouldReturnFullSnapshot) {
+    EXPECT_EQ(vm->allErrors().size(), 0u);
+
+    vm->zeroAbsolutePosition();
+    ASSERT_GE(vm->errorCount(), 1u);
+
+    auto errors = vm->allErrors();
+    EXPECT_EQ(errors.size(), vm->errorCount());
+    // 轴存在但处于 Disabled 状态，被 Axis 层以 InvalidState 拒绝
+    EXPECT_EQ(errors[0].code, "AXIS_INVALID_STATE");
+}
+
+// =========================================================
+// ⭐ 测试 16：acknowledgeError 按索引移除单条错误
+// =========================================================
+TEST_F(AxisViewModelCoreTest, ShouldAcknowledgeErrorByIndex) {
+    vm->zeroAbsolutePosition();
+    ASSERT_GE(vm->errorCount(), 1u);
+
+    size_t before = vm->errorCount();
+    vm->acknowledgeError(0);  // 移除第一条
+    EXPECT_EQ(vm->errorCount(), before - 1);
+
+    // 再次确认：索引越界无副作用
+    vm->acknowledgeError(999);
+    EXPECT_EQ(vm->errorCount(), before - 1);
+}
+
+// =========================================================
+// ⭐ 测试 17：clearAllErrors 批量清除
+// =========================================================
+TEST_F(AxisViewModelCoreTest, ShouldClearAllErrors) {
+    vm->zeroAbsolutePosition();
+    vm->setRelativeZero();
+    ASSERT_GE(vm->errorCount(), 2u);
+
+    vm->clearAllErrors();
+    EXPECT_EQ(vm->errorCount(), 0u);
+    EXPECT_FALSE(vm->hasError());
+    EXPECT_FALSE(vm->lastError().isValid());
+}
+
+// =========================================================
+// ⭐ 测试 18：clearError() 兼容接口等价于 clearAllErrors
+// =========================================================
+TEST_F(AxisViewModelCoreTest, ClearErrorShouldBeEquivalentToClearAllErrors) {
+    vm->zeroAbsolutePosition();
+    ASSERT_TRUE(vm->hasError());
+
+    vm->clearError();
+    EXPECT_FALSE(vm->hasError());
+    EXPECT_EQ(vm->errorCount(), 0u);
+}
+
+// =========================================================
+// ⭐ 测试 19：enable(false) 不产生错误（disable 是安全操作）
+// =========================================================
+TEST_F(AxisViewModelCoreTest, DisableShouldNotProduceError) {
+    vm->enable(true);
+    ASSERT_TRUE(waitUntil([this]() { return vm->state() == AxisState::Idle; }));
+
+    vm->disable();
+    ASSERT_TRUE(waitUntil([this]() { return vm->state() == AxisState::Disabled; }));
+    EXPECT_FALSE(vm->hasError());
+}
+
+// =========================================================
+// ⭐ 测试 20：lastError() 空列表返回无效错误
+// =========================================================
+TEST_F(AxisViewModelCoreTest, LastErrorShouldReturnInvalidWhenEmpty) {
+    EXPECT_FALSE(vm->hasError());
+    auto err = vm->lastError();
+    EXPECT_FALSE(err.isValid());
+    EXPECT_TRUE(err.code.empty());
+}

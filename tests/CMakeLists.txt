@@ -4,7 +4,7 @@ add_executable(unit_tests
 
     presentation/viewmodel/test_axis_viewmodel_core.cpp
     presentation/viewmodel/test_error_translator.cpp
-
+ 
     infrastructure/test_system_integration.cpp
     infrastructure/test_fake_plc.cpp
 
@@ -43,11 +43,12 @@ target_link_libraries(unit_tests
         presentation
         GTest::gtest
         GTest::gtest_main
+        Qt6::Core
 )
 
 set_target_properties(unit_tests
     PROPERTIES
-        AUTOMOC OFF
+        AUTOMOC ON
         AUTORCC OFF
         AUTOUIC OFF
 )
