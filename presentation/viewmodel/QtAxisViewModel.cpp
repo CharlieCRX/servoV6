@@ -276,3 +276,17 @@ void QtAxisViewModel::tick() {
         emit errorCountChanged();
     }
 }
+
+// =============================================================================
+// 辅助方法（供周期性摘要使用）
+// =============================================================================
+
+QString QtAxisViewModel::fullName() const {
+    if (!m_core) return "N/A";
+    return QString::fromStdString(m_core->groupName() + "/" + AxisViewModelCore::axisIdToString(m_core->axisId()));
+}
+
+double QtAxisViewModel::position() const {
+    if (!m_core) return 0.0;
+    return m_core->absPos();
+}

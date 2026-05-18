@@ -81,6 +81,10 @@ public:
     Q_INVOKABLE void acknowledgeError(int index);
     Q_INVOKABLE void acknowledgeAllErrors();
 
+    // 辅助方法（供周期性摘要使用）
+    Q_INVOKABLE QString fullName() const;
+    Q_INVOKABLE double position() const;
+
     // 系统推进
     void tick();
 

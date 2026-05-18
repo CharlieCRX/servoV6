@@ -73,6 +73,8 @@ std::string AxisViewModelCore::axisIdToString(AxisId id)
     case AxisId::X2: return "X2";
     case AxisId::Y:  return "Y";
     case AxisId::Z:  return "Z";
+    case AxisId::R:  return "R";
+    case AxisId::X:  return "X";
     default:         return "Unknown";
     }
 }

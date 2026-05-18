@@ -15,6 +15,26 @@
 #include "presentation/viewmodel/AxisViewModelCore.h"
 #include "presentation/viewmodel/QtAxisViewModel.h"
 #include "infrastructure/logger/Logger.h"
+#include <sstream>
+#include <iomanip>
+
+// 辅助：将单个轴的摘要格式化为紧凑字符串
+// 输出如 "Y: pos=+0041.4 Standstill"
+static std::string formatAxisSummary(QtAxisViewModel& vm)
+{
+    std::string full = vm.fullName().toStdString();
+    // 从 "Machine_A/Y" 提取轴短名 "Y"
+    auto slash = full.rfind('/');
+    std::string shortName = (slash != std::string::npos) ? full.substr(slash + 1) : full;
+
+    std::ostringstream oss;
+    oss << shortName << ": pos=" << std::fixed << std::setprecision(1) << std::showpos
+        << vm.position() << std::noshowpos
+        << " " << vm.stateText().toStdString();
+    if (vm.errorCount() > 0)
+        oss << " errs=" << vm.errorCount();
+    return oss.str();
+}
 
 int main(int argc, char *argv[])
 {
@@ -72,17 +92,26 @@ int main(int argc, char *argv[])
     // ============================
     // 3. 初始化物理世界默认状态
     // ============================
-    plcA.forceState(AxisId::Y, AxisState::Disabled);
-    plcA.setSimulatedJogVelocity(AxisId::Y, 20.0);
-    plcA.setSimulatedMoveVelocity(AxisId::Y, 50.0);
-    plcA.setLimits(AxisId::Y, 1000.0, -1000.0);
-
-    plcB.forceState(AxisId::X1, AxisState::Disabled);
-    plcB.forceState(AxisId::X2, AxisState::Disabled);
-    plcB.setSimulatedJogVelocity(AxisId::X1, 20.0);
-    plcB.setSimulatedMoveVelocity(AxisId::X1, 50.0);
-    plcB.setLimits(AxisId::X1, 1000.0, -1000.0);
-    plcB.setLimits(AxisId::X2, 1000.0, -1000.0);
+    // --- Group A (Machine_A): 6 轴初始状态 ---
+    constexpr double DEFAULT_JOG_VEL  = 20.0;
+    constexpr double DEFAULT_MOVE_VEL = 50.0;
+    constexpr double DEFAULT_LIMIT_POS = 1000.0;
+    constexpr double DEFAULT_LIMIT_NEG = -1000.0;
+    constexpr std::array<AxisId, 6> ALL_AXES = {
+        AxisId::X, AxisId::X1, AxisId::X2, AxisId::Y, AxisId::Z, AxisId::R
+    };
+    for (auto id : ALL_AXES) {
+        plcA.forceState(id, AxisState::Disabled);
+        plcA.setSimulatedJogVelocity(id, DEFAULT_JOG_VEL);
+        plcA.setSimulatedMoveVelocity(id, DEFAULT_MOVE_VEL);
+        plcA.setLimits(id, DEFAULT_LIMIT_POS, DEFAULT_LIMIT_NEG);
+    }
+    for (auto id : ALL_AXES) {
+        plcB.forceState(id, AxisState::Disabled);
+        plcB.setSimulatedJogVelocity(id, DEFAULT_JOG_VEL);
+        plcB.setSimulatedMoveVelocity(id, DEFAULT_MOVE_VEL);
+        plcB.setLimits(id, DEFAULT_LIMIT_POS, DEFAULT_LIMIT_NEG);
+    }
 
     // 首次同步（将 plc 默认状态注入 SystemContext）
     driverA.pollFeedback(*ctxA);
@@ -173,6 +202,28 @@ int main(int argc, char *argv[])
         }
     });
     systemClock.start(10);  // 10ms 物理心跳
+
+    // 7. 周期性状态摘要（每秒输出一次，按分组分行）
+    QTimer summaryClock;
+    QObject::connect(&summaryClock, &QTimer::timeout, [&]() {
+        LOG_SUMMARY(LogLayer::UI, "Telemetry",
+            "=== Machine_A === "
+            + formatAxisSummary(qtVM_A_Y) + "  "
+            + formatAxisSummary(qtVM_A_Z) + "  "
+            + formatAxisSummary(qtVM_A_R) + "  "
+            + formatAxisSummary(qtVM_A_X) + "  "
+            + formatAxisSummary(qtVM_A_X1) + "  "
+            + formatAxisSummary(qtVM_A_X2));
+        LOG_SUMMARY(LogLayer::UI, "Telemetry",
+            "=== Machine_B === "
+            + formatAxisSummary(qtVM_B_Y) + "  "
+            + formatAxisSummary(qtVM_B_Z) + "  "
+            + formatAxisSummary(qtVM_B_R) + "  "
+            + formatAxisSummary(qtVM_B_X) + "  "
+            + formatAxisSummary(qtVM_B_X1) + "  "
+            + formatAxisSummary(qtVM_B_X2));
+    });
+    summaryClock.start(1000);  // 1s 周期
 
     int result = app.exec();
 
