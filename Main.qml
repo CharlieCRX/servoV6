@@ -43,6 +43,13 @@ Window {
         return group_A_Y; // fallback
     }
 
+    // 根据当前分组动态绑定急停 ViewModel
+    property var currentEmergencyViewModel: {
+        if (currentGroup === "Machine_A") return emergencyVM_A;
+        if (currentGroup === "Machine_B") return emergencyVM_B;
+        return emergencyVM_A; // fallback
+    }
+
     // ===== 垂直布局：分组选择栏 + 三栏 + 底部错误栏 =====
     ColumnLayout {
         anchors.fill: parent
@@ -104,6 +111,7 @@ Window {
                 Layout.preferredWidth: isMobile ? 220 * Theme.scale : 300 * Theme.scale
                 Layout.fillHeight: true
                 viewModel: currentViewModel
+                emergencyViewModel: currentEmergencyViewModel
             }
         }
 

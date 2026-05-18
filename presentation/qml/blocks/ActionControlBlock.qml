@@ -5,17 +5,31 @@ import servoV6
 Rectangle {
     id: root
     property var viewModel: null
+    property var emergencyViewModel: null  // ← 新增：急停安全 ViewModel
 
     // 内部状态：0 = 点动模式 (Jog), 1 = 定位模式 (Position)
     property int currentMode: 0 
     // 定位模式下的子状态：true = 绝对, false = 相对
     property bool isAbsolute: true 
 
-    // 🌟 核心防呆升级 (P3)：使用 isEnabled 替代 state 硬编码比较
-    //    Disabled=1 或 Idle=2 时允许下发定位 → 等价于 isEnabled && state=Idle
-    //    但更安全的做法：仅当轴已使能且处于就绪状态时允许
-    property bool isReadyForPos: viewModel ? 
-        (viewModel.isEnabled && viewModel.state === 2) : false
+    // ── 系统锁定 = 安全锁定 + 轴本身不可用 ──
+    // 安全锁定：NotSynchronized / EmergencyStopping / EmergencyStopped / ReleasingEmergencyStop
+    // 轴本身不可用：未绑定 viewModel
+    property bool systemLocked: {
+        if (emergencyViewModel && emergencyViewModel.isSystemLocked) return true
+        return false
+    }
+
+    // 点动模式可用条件：非系统锁定 + viewModel 绑定
+    property bool jogEnabled: !systemLocked && viewModel !== null
+
+    // 定位模式就绪条件：
+    //   - 系统未锁定
+    //   - 无故障（避免在有未确认错误时下发新指令）
+    //   - 非运动中（state ≤ Idle，即 Disabled 或 Standstill）
+    //   单轴使用 policy 自动管理使能，不需要强制 isEnabled
+    property bool isReadyForPos: !systemLocked && viewModel ? 
+        (!viewModel.hasError && viewModel.state <= 2) : false
 
     color: "transparent"
 
@@ -24,35 +38,36 @@ Rectangle {
         spacing: 20 * Theme.scale
 
         // ==========================================
-        // 0. 使能/去使能按钮组（P3: 新增）
+        // 0. 紧急急停状态横幅（危险状态时显示）
         // ==========================================
-        RowLayout {
+        Rectangle {
             Layout.fillWidth: true
-            spacing: 10 * Theme.scale
+            height: emergencyViewModel && emergencyViewModel.safetyStateText !== "" ? 44 * Theme.scale : 0
+            visible: emergencyViewModel && emergencyViewModel.safetyStateText !== ""
+            color: "#D32F2F"  // 工业红色
+            radius: 4 * Theme.scale
 
-            IndustrialButton {
-                text: viewModel && viewModel.isEnabled ? "⚡ 已使能" : "⚡ 使能"
-                buttonSize: viewModel && viewModel.isEnabled ? 110 * Theme.scale : 110 * Theme.scale
-                baseColor: viewModel && viewModel.isEnabled ? Theme.colorIdle : Theme.panelBg
-                activeColor: Theme.colorIdle
-                isCircle: false
-                Layout.fillWidth: true
-                onClicked: {
-                    if (viewModel) viewModel.enable()
+            // 闪烁动画 — 仅在 EmergencyStopped 时闪烁
+            Rectangle {
+                anchors.fill: parent
+                color: "#D32F2F"
+                radius: 4 * Theme.scale
+                visible: emergencyViewModel && emergencyViewModel.isEmergencyStopped
+                SequentialAnimation on opacity {
+                    running: emergencyViewModel && emergencyViewModel.isEmergencyStopped
+                    loops: Animation.Infinite
+                    NumberAnimation { from: 1.0; to: 0.4; duration: 600 }
+                    NumberAnimation { from: 0.4; to: 1.0; duration: 600 }
                 }
             }
 
-            IndustrialButton {
-                text: "断电"
-                buttonSize: 110 * Theme.scale
-                baseColor: Theme.colorError
-                activeColor: "#FF8A80"
-                isCircle: false
-                Layout.fillWidth: true
-                enabled: viewModel && viewModel.isEnabled
-                onClicked: {
-                    if (viewModel) viewModel.disable()
-                }
+            Text {
+                anchors.centerIn: parent
+                text: emergencyViewModel ? emergencyViewModel.safetyStateText : ""
+                color: "#FFFFFF"
+                font.pixelSize: Theme.fontNormal
+                font.bold: true
+                font.family: "Monospace"
             }
         }
 
@@ -66,6 +81,7 @@ Rectangle {
             color: Theme.bgDark
             border.color: Theme.borderMain
             border.width: 1
+            opacity: systemLocked ? 0.4 : 1.0
 
             RowLayout {
                 anchors.fill: parent
@@ -86,6 +102,7 @@ Rectangle {
                     }
                     MouseArea {
                         anchors.fill: parent
+                        enabled: !systemLocked
                         onClicked: root.currentMode = 0
                     }
                 }
@@ -105,6 +122,7 @@ Rectangle {
                     }
                     MouseArea {
                         anchors.fill: parent
+                        enabled: !systemLocked
                         onClicked: root.currentMode = 1
                     }
                 }
@@ -117,6 +135,7 @@ Rectangle {
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            opacity: systemLocked ? 0.4 : 1.0
 
             // --- A. 点动控制面板 ---
             ColumnLayout {
@@ -126,8 +145,7 @@ Rectangle {
 
                 Item { Layout.fillHeight: true } // 顶部弹簧
                 
-                // 🌟 新增：点动速度设定
-                // 🌟 只读展示 + 设置按钮
+                // 点动速度设定
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
                     spacing: 10 * Theme.scale
@@ -140,26 +158,29 @@ Rectangle {
                     }
                     
                     IndustrialButton {
-                        text: "⚙️" // 设置图标
+                        text: "⚙️"
                         buttonSize: 30 * Theme.scale
                         isCircle: true
                         baseColor: Theme.panelBg
-                        onClicked: velocityPopup.open() // 👈 点击呼出全局弹窗
+                        enabled: root.jogEnabled
+                        onClicked: velocityPopup.open()
                     }
                 }
 
                 IndustrialButton {
                     text: "JOG +"
                     Layout.alignment: Qt.AlignHCenter
-                    onPressed: if(viewModel) viewModel.jogPositivePressed()
-                    onReleased: if(viewModel) viewModel.jogPositiveReleased()
+                    enabled: root.jogEnabled
+                    onPressed: if(viewModel && root.jogEnabled) viewModel.jogPositivePressed()
+                    onReleased: if(viewModel && root.jogEnabled) viewModel.jogPositiveReleased()
                 }
 
                 IndustrialButton {
                     text: "JOG -"
                     Layout.alignment: Qt.AlignHCenter
-                    onPressed: if(viewModel) viewModel.jogNegativePressed()
-                    onReleased: if(viewModel) viewModel.jogNegativeReleased()
+                    enabled: root.jogEnabled
+                    onPressed: if(viewModel && root.jogEnabled) viewModel.jogNegativePressed()
+                    onReleased: if(viewModel && root.jogEnabled) viewModel.jogNegativeReleased()
                 }
 
                 Item { Layout.fillHeight: true } // 底部弹簧
@@ -173,8 +194,7 @@ Rectangle {
 
                 Item { Layout.fillHeight: true }
                 
-                // 🌟 新增：定位速度设定
-                // 🌟 只读展示 + 设置按钮
+                // 定位速度设定
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
                     spacing: 10 * Theme.scale
@@ -191,7 +211,8 @@ Rectangle {
                         buttonSize: 30 * Theme.scale
                         isCircle: true
                         baseColor: Theme.panelBg
-                        onClicked: velocityPopup.open() // 👈 点击呼出同一个弹窗
+                        enabled: root.isReadyForPos
+                        onClicked: velocityPopup.open()
                     }
                 }
 
@@ -203,7 +224,7 @@ Rectangle {
                     RadioButton {
                         text: "绝对 (Abs)"
                         checked: root.isAbsolute
-                        enabled: root.isReadyForPos  // ✅ 只有 1 个 enabled 属性
+                        enabled: root.isReadyForPos
                         opacity: enabled ? 1.0 : 0.5 
                         onClicked: root.isAbsolute = true
                         contentItem: Text {
@@ -217,7 +238,7 @@ Rectangle {
                     RadioButton {
                         text: "相对 (Rel)"
                         checked: !root.isAbsolute
-                        enabled: root.isReadyForPos  // ✅ 只有 1 个 enabled 属性
+                        enabled: root.isReadyForPos
                         opacity: enabled ? 1.0 : 0.5 
                         onClicked: root.isAbsolute = false
                         contentItem: Text {
@@ -236,7 +257,7 @@ Rectangle {
                     Layout.preferredWidth: 140 * Theme.scale
                     text: "100.0"
                     
-                    enabled: root.isReadyForPos  // ✅ 只有 1 个 enabled 属性
+                    enabled: root.isReadyForPos
                     opacity: enabled ? 1.0 : 0.5 
                     
                     font.pixelSize: Theme.fontLarge
@@ -259,11 +280,12 @@ Rectangle {
                     isCircle: false
                     buttonSize: 140 * Theme.scale
                     
-                    enabled: root.isReadyForPos  // ✅ 只有 1 个 enabled 属性
+                    enabled: root.isReadyForPos
                     baseColor: root.isReadyForPos ? Theme.colorIdle : Theme.colorDisabled 
                     
                     Layout.alignment: Qt.AlignHCenter
                     onClicked: {
+                        if (!root.isReadyForPos) return
                         let target = parseFloat(targetInput.text)
                         if (!isNaN(target) && viewModel) {
                             if (root.isAbsolute) {
@@ -280,16 +302,69 @@ Rectangle {
         } // 结束 Item (中间控制面板)
 
         // ==========================================
-        // 3. 底部：全局急停 (STOP)
+        // 3. 底部：紧急急停按钮 (EMERGENCY STOP)
+        //
+        // 工业软件设计原则：
+        //   ✅ 红底白字、圆角少、面积大
+        //   ✅ "状态感" 比 "漂亮" 更重要
+        //   ✅ 急停后整个控制面板进入危险状态
+        //   ✅ 运动按钮全部灰掉
         // ==========================================
         IndustrialButton {
-            text: "急 停"
+            id: emergencyStopButton
             isCircle: false
             buttonSize: 140 * Theme.scale
-            baseColor: Theme.colorError
-            activeColor: "#FF8A80" // 按下时更亮的红色
             Layout.alignment: Qt.AlignHCenter
-            onClicked: if(viewModel) viewModel.stop()
+
+            // ── 文字由急停状态决定 ──
+            text: {
+                if (!emergencyViewModel) return "急 停"
+                if (emergencyViewModel.isNotSynchronized)    return "急 停"
+                if (emergencyViewModel.isEmergencyStopped)   return "解除急停"
+                if (emergencyViewModel.isTransitioning)      return emergencyViewModel.safetyStateText  // "急停处理中..." / "急停解除中..."
+                return "急 停"
+            }
+
+            // ── 颜色由急停状态决定 ──
+            // 工业惯例：急停按钮红色 #D32F2F，解除按钮橙红色 #FF5252
+            baseColor: {
+                if (!emergencyViewModel) return Theme.colorError
+                if (emergencyViewModel.isNotSynchronized)    return Theme.colorDisabled
+                if (emergencyViewModel.isEmergencyStopped)   return "#FF5252"   // 橙红色 — 表示急停锁定中，点击解除
+                if (emergencyViewModel.isTransitioning)      return Theme.colorDisabled
+                return Theme.colorError  // Running — 正常红色
+            }
+
+            activeColor: {
+                if (!emergencyViewModel) return "#FF8A80"
+                if (emergencyViewModel.isEmergencyStopped) return "#FF8A80"
+                return "#FF8A80"
+            }
+
+            // ── 可点击性 ──
+            // Running → 可以按急停
+            // EmergencyStopped → 可以解除急停
+            // 其他过渡态 → 不可点击
+            enabled: {
+                if (!emergencyViewModel) return false
+                if (emergencyViewModel.isNotSynchronized)    return false
+                if (emergencyViewModel.isTransitioning)      return false
+                return true  // Running 或 EmergencyStopped
+            }
+
+            onClicked: {
+                if (!emergencyViewModel) return
+
+                if (emergencyViewModel.isEmergencyStopped) {
+                    // 当前已急停 → 执行解除操作
+                    console.log("EmergencyStopButton: 解除急停 → releaseEmergencyStop()")
+                    emergencyViewModel.releaseEmergencyStop()
+                } else {
+                    // 当前 Running → 执行急停操作
+                    console.log("EmergencyStopButton: 触发急停 → triggerEmergencyStop()")
+                    emergencyViewModel.triggerEmergencyStop()
+                }
+            }
         }
     }
 

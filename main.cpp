@@ -14,6 +14,7 @@
 #include "infrastructure/FakeAxisDriver.h"
 #include "presentation/viewmodel/AxisViewModelCore.h"
 #include "presentation/viewmodel/QtAxisViewModel.h"
+#include "presentation/viewmodel/EmergencyStopViewModel.h"
 #include "infrastructure/logger/Logger.h"
 #include <sstream>
 #include <iomanip>
@@ -151,6 +152,11 @@ int main(int argc, char *argv[])
     QtAxisViewModel qtVM_B_X1(vmCore_B_X1.get());
     QtAxisViewModel qtVM_B_X2(vmCore_B_X2.get());
 
+    // ─────────────── 4b. 急停安全 ViewModel ───────────────
+    // 每个分组一个 EmergencyStopViewModel，在 tick loop 中读取紧急急停状态
+    EmergencyStopViewModel emergencyVM_A(manager, "Machine_A");
+    EmergencyStopViewModel emergencyVM_B(manager, "Machine_B");
+
     // ============================
     // 5. QML 引擎初始化与依赖注入
     // ============================
@@ -169,6 +175,10 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("group_B_X",  &qtVM_B_X);
     engine.rootContext()->setContextProperty("group_B_X1", &qtVM_B_X1);
     engine.rootContext()->setContextProperty("group_B_X2", &qtVM_B_X2);
+
+    // 急停安全 ViewModel
+    engine.rootContext()->setContextProperty("emergencyVM_A", &emergencyVM_A);
+    engine.rootContext()->setContextProperty("emergencyVM_B", &emergencyVM_B);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
         &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
@@ -190,8 +200,20 @@ int main(int argc, char *argv[])
             SystemContext* ctx = nullptr;
             ContextRejection r;
             if (manager.tryGetGroup(groupName, ctx, r) && ctx) {
-                if (auto* drv = ctx->driver()) {
-                    drv->pollFeedback(*ctx);  // ← 统一反馈通路
+                auto* drv = ctx->driver();
+                if (!drv) continue;
+
+                // 6a-1. 反馈注入（轴 + 龙门 + 急停）
+                drv->pollFeedback(*ctx);
+
+                // 6a-2. 消费 EmergencyStopController 产生的 pending command
+                auto& estopCtrl = ctx->emergencyStopController();
+                if (estopCtrl.hasPendingCommand()) {
+                    auto commResult = drv->send(estopCtrl.popPendingCommand());
+                    if (!commResult.ok()) {
+                        LOG_WARN(LogLayer::APP, "System",
+                            "[" + groupName + "] EmergencyStop command delivery failed: " + commResult.diagnostic);
+                    }
                 }
             }
         }
@@ -200,6 +222,10 @@ int main(int argc, char *argv[])
         for (auto* vm : allViewModels) {
             vm->tick();
         }
+
+        // 6c. 急停安全 ViewModel 推进（每帧同步急停控制器状态）
+        emergencyVM_A.tick();
+        emergencyVM_B.tick();
     });
     systemClock.start(10);  // 10ms 物理心跳
 
