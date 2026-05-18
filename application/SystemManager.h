@@ -2,6 +2,7 @@
 #include <string>
 #include <map>
 #include <memory>
+#include <vector>
 #include "domain/entity/SystemContext.h"
 
 class SystemManager {
@@ -54,6 +55,20 @@ public:
 
     void removeGroup(const std::string& name) {
         m_groups.erase(name);
+    }
+
+    /**
+     * @brief 获取所有已注册的分组名称列表
+     * @return 分组名称的只读列表
+     */
+    [[nodiscard]]
+    std::vector<std::string> groupNames() const {
+        std::vector<std::string> names;
+        names.reserve(m_groups.size());
+        for (const auto& [name, _] : m_groups) {
+            names.push_back(name);
+        }
+        return names;
     }
 
 private:

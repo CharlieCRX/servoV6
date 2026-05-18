@@ -50,6 +50,10 @@ public:
     QString errorCategory() const;
     int errorCount() const;
 
+    // ===== P0: 使能/去使能接口（新增） =====
+    Q_INVOKABLE void enable();
+    Q_INVOKABLE void disable();
+
     // 控制输入 (严格对齐已实现的 Core 方法)
     Q_INVOKABLE void jogPositivePressed();
     Q_INVOKABLE void jogPositiveReleased();

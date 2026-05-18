@@ -11,14 +11,50 @@ Rectangle {
     // 定位模式下的子状态：true = 绝对, false = 相对
     property bool isAbsolute: true 
 
-    // 🌟 核心防呆：动态判定当前是否允许下发定位指令 (1: Disabled, 2: Idle)
-    property bool isReadyForPos: viewModel ? (viewModel.state === 1 || viewModel.state === 2) : false
+    // 🌟 核心防呆升级 (P3)：使用 isEnabled 替代 state 硬编码比较
+    //    Disabled=1 或 Idle=2 时允许下发定位 → 等价于 isEnabled && state=Idle
+    //    但更安全的做法：仅当轴已使能且处于就绪状态时允许
+    property bool isReadyForPos: viewModel ? 
+        (viewModel.isEnabled && viewModel.state === 2) : false
 
     color: "transparent"
 
     ColumnLayout {
         anchors.fill: parent
         spacing: 20 * Theme.scale
+
+        // ==========================================
+        // 0. 使能/去使能按钮组（P3: 新增）
+        // ==========================================
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 10 * Theme.scale
+
+            IndustrialButton {
+                text: viewModel && viewModel.isEnabled ? "⚡ 已使能" : "⚡ 使能"
+                buttonSize: viewModel && viewModel.isEnabled ? 110 * Theme.scale : 110 * Theme.scale
+                baseColor: viewModel && viewModel.isEnabled ? Theme.colorIdle : Theme.panelBg
+                activeColor: Theme.colorIdle
+                isCircle: false
+                Layout.fillWidth: true
+                onClicked: {
+                    if (viewModel) viewModel.enable()
+                }
+            }
+
+            IndustrialButton {
+                text: "断电"
+                buttonSize: 110 * Theme.scale
+                baseColor: Theme.colorError
+                activeColor: "#FF8A80"
+                isCircle: false
+                Layout.fillWidth: true
+                enabled: viewModel && viewModel.isEnabled
+                onClicked: {
+                    if (viewModel) viewModel.disable()
+                }
+            }
+        }
 
         // ==========================================
         // 1. 顶部：模式切换器 (Mode Switcher)
