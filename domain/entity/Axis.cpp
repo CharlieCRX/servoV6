@@ -322,9 +322,8 @@ bool Axis::stop()
 
 bool Axis::zeroAbsolutePosition()
 {
-    // 只有在静止态 Idle 才允许修改基准
-    if (m_state == AxisState::Idle)
-    {
+    // 必须为 Idle 或 Disabled 状态才能执行绝对位置清零
+    if (m_state == AxisState::Idle || m_state == AxisState::Disabled) {
         m_pending_intent = ZeroAbsoluteCommand{};
         m_last_rejection = RejectionReason::None;
         return true;
@@ -334,13 +333,13 @@ bool Axis::zeroAbsolutePosition()
 }
 
 bool Axis::setRelativeZero() {
-    // 必须为 Idle 状态
-    if (m_state != AxisState::Idle) {
+    // 必须为 Idle 或 Disabled 状态才能执行，否则拒绝
+    if (m_state != AxisState::Idle && m_state != AxisState::Disabled) {
         m_last_rejection = RejectionReason::InvalidState;
         return false;
     }
 
-    // 核心逻辑：发起指令时，记录当前的绝对位置作为“期望基准”
+    // 核心逻辑：发起指令时，记录当前的绝对位置作为"期望基准"
     m_expected_zero_base = m_current_abs_pos;
 
     m_pending_intent = SetRelativeZeroCommand{};
@@ -350,8 +349,8 @@ bool Axis::setRelativeZero() {
 
 
 bool Axis::clearRelativeZero() {
-    // 必须为 Idle 状态
-    if (m_state != AxisState::Idle) {
+    // 必须为 Idle 或 Disabled 状态才能执行，否则拒绝
+    if (m_state != AxisState::Idle && m_state != AxisState::Disabled) {
         m_last_rejection = RejectionReason::InvalidState;
         return false;
     }
