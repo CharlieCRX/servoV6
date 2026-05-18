@@ -170,6 +170,12 @@ public:
             checkHardwareLimits(axis);
 
             axis.feedback.relPos = axis.feedback.absPos - axis.feedback.relZeroAbsPos;
+
+            LOG_TRACE_EVERY_N(50, LogLayer::HAL, "PLC",
+                "relPos update: axis=" + axisIdToString(id)
+                + " abs=" + std::to_string(axis.feedback.absPos)
+                + " base=" + std::to_string(axis.feedback.relZeroAbsPos)
+                + " rel=" + std::to_string(axis.feedback.relPos));
         }
 
         // --- 龙门状态机（依赖最新的X1/X2物理状态 → 必须在轴推演之后执行） ---
@@ -564,15 +570,38 @@ private:
 
     void processCommand(AxisId id, const StopCommand&) {
         auto& axis = m_axes.at(id);
-        handleStop(axis);
+
+        LOG_DEBUG(LogLayer::HAL, "PLC",
+            "process: axis=" + axisIdToString(id)
+            + " cmd=Stop"
+            + " state=" + std::to_string(static_cast<int>(axis.feedback.state)));
+
+        if (axis.feedback.state == AxisState::Jogging ||
+            axis.feedback.state == AxisState::MovingAbsolute ||
+            axis.feedback.state == AxisState::MovingRelative) {
+            handleStop(axis);
+        } else {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "Stop ignored: axis=" + axisIdToString(id)
+                + " not in motion, state=" + std::to_string(static_cast<int>(axis.feedback.state)));
+        }
     }
 
     void processCommand(AxisId id, const EnableCommand& cmd) {
+        auto& axis = m_axes.at(id);
+
+        LOG_DEBUG(LogLayer::HAL, "PLC",
+            "process: axis=" + axisIdToString(id)
+            + " cmd=EnableCommand(active=" + (cmd.active ? "true" : "false") + ")"
+            + " state=" + std::to_string(static_cast<int>(axis.feedback.state)));
+
         // 急停激活时，忽略一切使能命令（模拟真实 PLC AND NOT 设备急停 逻辑）
         if (m_emergencyStoppedReg) {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "Enable REJECTED: axis=" + axisIdToString(id)
+                + " EMERGENCY STOP ACTIVE — ignoring Enable");
             return;
         }
-        auto& axis = m_axes.at(id);
         if (cmd.active && axis.feedback.state == AxisState::Disabled) {
             axis.enable_timer_ms = 0;
             // 进入 Unknown 过渡态，由 updateStateTransitions 在 ENABLE_DELAY_MS 后置为 Idle
@@ -583,19 +612,39 @@ private:
     }
 
     void processCommand(AxisId id, const JogCommand& cmd) {
-        // 急停激活时，忽略所有运动命令
-        if (m_emergencyStoppedReg) return;
+        auto& axis = m_axes.at(id);
 
-        // 联动 ON 时，不允许 X1/X2 独立点动
-        if (m_gantryFeedback.isCoupled && (id == AxisId::X1 || id == AxisId::X2)) {
+        LOG_DEBUG(LogLayer::HAL, "PLC",
+            "process: axis=" + axisIdToString(id)
+            + " cmd=JogCommand(dir=" + (cmd.dir == Direction::Forward ? "Forward" : "Backward")
+            + ", active=" + (cmd.active ? "true" : "false") + ")"
+            + " state=" + std::to_string(static_cast<int>(axis.feedback.state)));
+
+        // 急停激活时，忽略所有运动命令
+        if (m_emergencyStoppedReg) {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "Jog REJECTED: axis=" + axisIdToString(id)
+                + " EMERGENCY STOP ACTIVE");
             return;
         }
 
-        auto& axis = m_axes.at(id);
+        // 联动 ON 时，不允许 X1/X2 独立点动
+        if (m_gantryFeedback.isCoupled && (id == AxisId::X1 || id == AxisId::X2)) {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "Jog REJECTED: axis=" + axisIdToString(id)
+                + " GANTRY COUPLED");
+            return;
+        }
+
         if (cmd.active) {
             if (axis.feedback.state == AxisState::Idle) {
                 axis.feedback.state = AxisState::Jogging;
                 axis.jog_dir = cmd.dir;
+            } else {
+                LOG_WARN(LogLayer::HAL, "PLC",
+                    "Jog REJECTED: axis=" + axisIdToString(id)
+                    + " state=" + std::to_string(static_cast<int>(axis.feedback.state))
+                    + " (requires Idle)");
             }
         } else {
             if (axis.feedback.state == AxisState::Jogging) {
@@ -605,15 +654,31 @@ private:
     }
 
     void processCommand(AxisId id, const MoveCommand& cmd) {
-        // 急停激活时，忽略所有运动命令
-        if (m_emergencyStoppedReg) return;
+        auto& axis = m_axes.at(id);
 
-        // 联动 ON 时，不允许 X1/X2 独立定位
-        if (m_gantryFeedback.isCoupled && (id == AxisId::X1 || id == AxisId::X2)) {
+        std::string typeStr = (cmd.type == MoveType::Absolute) ? "Absolute" : "Relative";
+        LOG_DEBUG(LogLayer::HAL, "PLC",
+            "process: axis=" + axisIdToString(id)
+            + " cmd=MoveCommand(type=" + typeStr
+            + ", target=" + std::to_string(cmd.target) + ")"
+            + " state=" + std::to_string(static_cast<int>(axis.feedback.state)));
+
+        // 急停激活时，忽略所有运动命令
+        if (m_emergencyStoppedReg) {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "Move REJECTED: axis=" + axisIdToString(id)
+                + " EMERGENCY STOP ACTIVE");
             return;
         }
 
-        auto& axis = m_axes.at(id);
+        // 联动 ON 时，不允许 X1/X2 独立定位
+        if (m_gantryFeedback.isCoupled && (id == AxisId::X1 || id == AxisId::X2)) {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "Move REJECTED: axis=" + axisIdToString(id)
+                + " GANTRY COUPLED");
+            return;
+        }
+
         if (axis.feedback.state == AxisState::Idle) {
             axis.feedback.state = (cmd.type == MoveType::Absolute) ?
                                    AxisState::MovingAbsolute : AxisState::MovingRelative;
@@ -622,45 +687,117 @@ private:
             } else {
                 axis.target_pos = axis.feedback.absPos + cmd.target;
             }
+        } else {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "Move REJECTED: axis=" + axisIdToString(id)
+                + " state=" + std::to_string(static_cast<int>(axis.feedback.state))
+                + " (requires Idle)");
         }
     }
 
     void processCommand(AxisId id, const ZeroAbsoluteCommand&) {
         auto& axis = m_axes.at(id);
+
+        LOG_DEBUG(LogLayer::HAL, "PLC",
+            "process: axis=" + axisIdToString(id)
+            + " cmd=ZeroAbsolute"
+            + " state=" + std::to_string(static_cast<int>(axis.feedback.state))
+            + " absPos=" + std::to_string(axis.feedback.absPos));
+
         if (axis.feedback.state == AxisState::Idle || 
-            axis.feedback.state == AxisState::Disabled)
+            axis.feedback.state == AxisState::Disabled) {
+            double oldAbs = axis.feedback.absPos;
             axis.feedback.absPos = 0.0;
+            LOG_DEBUG(LogLayer::HAL, "PLC",
+                "ZeroAbsolute executed: axis=" + axisIdToString(id)
+                + " abs " + std::to_string(oldAbs) + " → 0.0");
+        } else {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "ZeroAbsolute REJECTED: axis=" + axisIdToString(id)
+                + " state=" + std::to_string(static_cast<int>(axis.feedback.state))
+                + " (requires Idle or Disabled)");
+        }
     }
     
     void processCommand(AxisId id, const SetRelativeZeroCommand&) {
         auto& axis = m_axes.at(id);
+
+        LOG_DEBUG(LogLayer::HAL, "PLC",
+            "process: axis=" + axisIdToString(id)
+            + " cmd=SetRelativeZero"
+            + " state=" + std::to_string(static_cast<int>(axis.feedback.state))
+            + " absPos=" + std::to_string(axis.feedback.absPos)
+            + " currentBase=" + std::to_string(axis.feedback.relZeroAbsPos));
+
         if (axis.feedback.state == AxisState::Idle ||
-            axis.feedback.state == AxisState::Disabled)
+            axis.feedback.state == AxisState::Disabled) {
+            double oldBase = axis.feedback.relZeroAbsPos;
             axis.feedback.relZeroAbsPos = axis.feedback.absPos;
+            LOG_DEBUG(LogLayer::HAL, "PLC",
+                "SetRelativeZero executed: axis=" + axisIdToString(id)
+                + " base " + std::to_string(oldBase) + " → " + std::to_string(axis.feedback.relZeroAbsPos));
+        } else {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "SetRelativeZero REJECTED: axis=" + axisIdToString(id)
+                + " state=" + std::to_string(static_cast<int>(axis.feedback.state))
+                + " (requires Idle or Disabled)");
+        }
     }
     
     void processCommand(AxisId id, const ClearRelativeZeroCommand&) {
         auto& axis = m_axes.at(id);
+
+        LOG_DEBUG(LogLayer::HAL, "PLC",
+            "process: axis=" + axisIdToString(id)
+            + " cmd=ClearRelativeZero"
+            + " state=" + std::to_string(static_cast<int>(axis.feedback.state))
+            + " absPos=" + std::to_string(axis.feedback.absPos)
+            + " currentBase=" + std::to_string(axis.feedback.relZeroAbsPos));
+
         if (axis.feedback.state == AxisState::Idle ||
-            axis.feedback.state == AxisState::Disabled)
+            axis.feedback.state == AxisState::Disabled) {
+            double oldBase = axis.feedback.relZeroAbsPos;
             axis.feedback.relZeroAbsPos = 0.0;
+            LOG_DEBUG(LogLayer::HAL, "PLC",
+                "ClearRelativeZero executed: axis=" + axisIdToString(id)
+                + " base " + std::to_string(oldBase) + " → 0.0");
+        } else {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "ClearRelativeZero REJECTED: axis=" + axisIdToString(id)
+                + " state=" + std::to_string(static_cast<int>(axis.feedback.state))
+                + " (requires Idle or Disabled)");
+        }
     }
 
     void processCommand(AxisId id, const SetJogVelocityCommand& cmd) {
-        m_axes.at(id).jog_velocity = std::abs(cmd.velocity);
+        auto& axis = m_axes.at(id);
+        LOG_DEBUG(LogLayer::HAL, "PLC",
+            "process: axis=" + axisIdToString(id)
+            + " cmd=SetJogVelocityCommand(velocity=" + std::to_string(cmd.velocity) + ")"
+            + " state=" + std::to_string(static_cast<int>(axis.feedback.state)));
+        axis.jog_velocity = std::abs(cmd.velocity);
     }
 
     void processCommand(AxisId id, const SetMoveVelocityCommand& cmd) {
-        m_axes.at(id).move_velocity = std::abs(cmd.velocity);
+        auto& axis = m_axes.at(id);
+        LOG_DEBUG(LogLayer::HAL, "PLC",
+            "process: axis=" + axisIdToString(id)
+            + " cmd=SetMoveVelocityCommand(velocity=" + std::to_string(cmd.velocity) + ")"
+            + " state=" + std::to_string(static_cast<int>(axis.feedback.state)));
+        axis.move_velocity = std::abs(cmd.velocity);
     }
 
     void processCommand(AxisId id, const GantryCouplingCommand& cmd) {
         (void)id;
+        LOG_DEBUG(LogLayer::HAL, "PLC",
+            std::string("process: cmd=GantryCouplingCommand(couple=") + (cmd.enableCoupling ? "true" : "false") + ")");
         onGantryCommand(cmd);
     }
 
     void processCommand(AxisId id, const GantryPowerCommand& cmd) {
         (void)id;
+        LOG_DEBUG(LogLayer::HAL, "PLC",
+            std::string("process: cmd=GantryPowerCommand(enable=") + (cmd.enable ? "true" : "false") + ")");
         onGantryCommand(cmd);
     }
 
