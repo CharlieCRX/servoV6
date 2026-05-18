@@ -26,10 +26,17 @@ Window {
     // 根据当前选择动态绑定 ViewModel
     property var currentViewModel: {
         if (currentGroup === "Machine_A") {
-            if (currentAxis === "Y") return group_A_Y;
-            if (currentAxis === "Z") return group_A_Z;
-            if (currentAxis === "R") return group_A_R;
+            if (currentAxis === "Y")  return group_A_Y;
+            if (currentAxis === "Z")  return group_A_Z;
+            if (currentAxis === "R")  return group_A_R;
+            if (currentAxis === "X")  return group_A_X;
+            if (currentAxis === "X1") return group_A_X1;
+            if (currentAxis === "X2") return group_A_X2;
         } else if (currentGroup === "Machine_B") {
+            if (currentAxis === "Y")  return group_B_Y;
+            if (currentAxis === "Z")  return group_B_Z;
+            if (currentAxis === "R")  return group_B_R;
+            if (currentAxis === "X")  return group_B_X;
             if (currentAxis === "X1") return group_B_X1;
             if (currentAxis === "X2") return group_B_X2;
         }

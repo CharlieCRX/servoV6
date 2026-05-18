@@ -89,14 +89,21 @@ int main(int argc, char *argv[])
     driverB.pollFeedback(*ctxB);
 
     // ============================
-    // 4. ViewModels（按 分组+轴 维度）
+    // 4. ViewModels（按 分组+轴 维度，两组各含6轴）
     // ============================
-    // Machine_A 的轴
+    // Machine_A 的全部轴
     auto vmCore_A_Y  = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::Y);
     auto vmCore_A_Z  = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::Z);
     auto vmCore_A_R  = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::R);
+    auto vmCore_A_X  = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::X);
+    auto vmCore_A_X1 = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::X1);
+    auto vmCore_A_X2 = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::X2);
 
-    // Machine_B 的轴
+    // Machine_B 的全部轴
+    auto vmCore_B_Y  = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::Y);
+    auto vmCore_B_Z  = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::Z);
+    auto vmCore_B_R  = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::R);
+    auto vmCore_B_X  = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::X);
     auto vmCore_B_X1 = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::X1);
     auto vmCore_B_X2 = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::X2);
 
@@ -104,6 +111,14 @@ int main(int argc, char *argv[])
     QtAxisViewModel qtVM_A_Y(vmCore_A_Y.get());
     QtAxisViewModel qtVM_A_Z(vmCore_A_Z.get());
     QtAxisViewModel qtVM_A_R(vmCore_A_R.get());
+    QtAxisViewModel qtVM_A_X(vmCore_A_X.get());
+    QtAxisViewModel qtVM_A_X1(vmCore_A_X1.get());
+    QtAxisViewModel qtVM_A_X2(vmCore_A_X2.get());
+
+    QtAxisViewModel qtVM_B_Y(vmCore_B_Y.get());
+    QtAxisViewModel qtVM_B_Z(vmCore_B_Z.get());
+    QtAxisViewModel qtVM_B_R(vmCore_B_R.get());
+    QtAxisViewModel qtVM_B_X(vmCore_B_X.get());
     QtAxisViewModel qtVM_B_X1(vmCore_B_X1.get());
     QtAxisViewModel qtVM_B_X2(vmCore_B_X2.get());
 
@@ -115,6 +130,14 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("group_A_Y",  &qtVM_A_Y);
     engine.rootContext()->setContextProperty("group_A_Z",  &qtVM_A_Z);
     engine.rootContext()->setContextProperty("group_A_R",  &qtVM_A_R);
+    engine.rootContext()->setContextProperty("group_A_X",  &qtVM_A_X);
+    engine.rootContext()->setContextProperty("group_A_X1", &qtVM_A_X1);
+    engine.rootContext()->setContextProperty("group_A_X2", &qtVM_A_X2);
+
+    engine.rootContext()->setContextProperty("group_B_Y",  &qtVM_B_Y);
+    engine.rootContext()->setContextProperty("group_B_Z",  &qtVM_B_Z);
+    engine.rootContext()->setContextProperty("group_B_R",  &qtVM_B_R);
+    engine.rootContext()->setContextProperty("group_B_X",  &qtVM_B_X);
     engine.rootContext()->setContextProperty("group_B_X1", &qtVM_B_X1);
     engine.rootContext()->setContextProperty("group_B_X2", &qtVM_B_X2);
 
@@ -127,8 +150,8 @@ int main(int argc, char *argv[])
     // 6. 全局 Tick Loop（统一 pollFeedback）
     // ============================
     std::vector<QtAxisViewModel*> allViewModels = {
-        &qtVM_A_Y, &qtVM_A_Z, &qtVM_A_R,
-        &qtVM_B_X1, &qtVM_B_X2
+        &qtVM_A_Y, &qtVM_A_Z, &qtVM_A_R, &qtVM_A_X, &qtVM_A_X1, &qtVM_A_X2,
+        &qtVM_B_Y, &qtVM_B_Z, &qtVM_B_R, &qtVM_B_X, &qtVM_B_X1, &qtVM_B_X2
     };
 
     QTimer systemClock;
