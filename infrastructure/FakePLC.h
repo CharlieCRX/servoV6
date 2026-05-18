@@ -627,17 +627,23 @@ private:
 
     void processCommand(AxisId id, const ZeroAbsoluteCommand&) {
         auto& axis = m_axes.at(id);
-        if (axis.feedback.state == AxisState::Idle) axis.feedback.absPos = 0.0;
+        if (axis.feedback.state == AxisState::Idle || 
+            axis.feedback.state == AxisState::Disabled)
+            axis.feedback.absPos = 0.0;
     }
-
+    
     void processCommand(AxisId id, const SetRelativeZeroCommand&) {
         auto& axis = m_axes.at(id);
-        if (axis.feedback.state == AxisState::Idle) axis.feedback.relZeroAbsPos = axis.feedback.absPos;
+        if (axis.feedback.state == AxisState::Idle ||
+            axis.feedback.state == AxisState::Disabled)
+            axis.feedback.relZeroAbsPos = axis.feedback.absPos;
     }
-
+    
     void processCommand(AxisId id, const ClearRelativeZeroCommand&) {
         auto& axis = m_axes.at(id);
-        if (axis.feedback.state == AxisState::Idle) axis.feedback.relZeroAbsPos = 0.0;
+        if (axis.feedback.state == AxisState::Idle ||
+            axis.feedback.state == AxisState::Disabled)
+            axis.feedback.relZeroAbsPos = 0.0;
     }
 
     void processCommand(AxisId id, const SetJogVelocityCommand& cmd) {
