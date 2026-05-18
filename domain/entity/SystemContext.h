@@ -29,7 +29,7 @@ public:
     }
 
     /**
-     * @brief Try-Get 模式获取轴对象
+     * @brief Try-Get 模式获取轴对象（控制操作入口）
      * @param id 目标轴ID
      * @param outAxis [输出参数] 成功则指向轴对象，失败为 nullptr
      * @param reason [输出参数] 失败时的具体拒绝原因
@@ -41,6 +41,9 @@ public:
      *   Layer 2 — 龙门语义：Coupled → PhysicalAxisLockedByGantry / Decoupled → LogicalAxisUnavailableWhenDecoupled
      *   Layer 3 — 容器查找：AxisNotRegistered
      *   Layer 4 — 通过：None
+     *
+     * 注意：此方法受 Layer 0 安全锁定拦截，用于控制操作（使能/运动）；
+     *       纯遥测读取请使用 tryReadAxis()，它绕过安全锁定仅保留龙门语义。
      */
     bool tryGetAxis(AxisId id, Axis*& outAxis, ContextRejection& reason) {
         // ==========================================
@@ -53,6 +56,52 @@ public:
             return false;
         }
 
+        return tryGetAxisInternal(id, outAxis, reason);
+    }
+
+    /**
+     * @brief Try-Read 模式读取轴对象（遥测读取入口）
+     *
+     * 与 tryGetAxis() 的唯一区别：不经过 Layer 0 安全锁定拦截。
+     * 急停/同步期间，位置与状态遥测仍然可读，但控制操作被拒绝。
+     *
+     * 拦截优先级：
+     *   Layer 1 — 龙门同步：NotSynchronized → GantryNotSynchronized
+     *   Layer 2 — 龙门语义：Coupled → PhysicalAxisLockedByGantry / Decoupled → LogicalAxisUnavailableWhenDecoupled
+     *   Layer 3 — 容器查找：AxisNotRegistered
+     *   Layer 4 — 通过：None
+     */
+    bool tryReadAxis(AxisId id, Axis*& outAxis, ContextRejection& reason) {
+        return tryGetAxisInternal(id, outAxis, reason);
+    }
+
+    // --- 龙门控制的基础接口 ---
+    GantryCouplingController& gantryCouplingController() { return *m_gantryCouplingController; }
+    GantryPowerController& gantryPowerController() { return *m_gantryPowerController; }
+
+    // --- 安全急停接口 ---
+    /**
+     * @brief 急停控制器引用
+     *
+     * 暴露给外部用于：
+     *   1. 查询 isSystemLocked() — 在 UseCase 中快速判断
+     *   2. 调用 requestEmergencyStop() / requestReleaseEmergencyStop() — 产生急停/解除意图
+     *   3. 调用 applyFeedback(plcEmergencyStopped) — 注入 PLC 反馈，驱动状态机
+     *   4. hasPendingCommand() / popPendingCommand() — 从 SystemManager 消费命令
+     */
+    EmergencyStopController& emergencyStopController() { return m_emergencyStopController; }
+
+    void setDriver(ISystemDriver* driver) { m_driver = driver; }
+    ISystemDriver* driver() { return m_driver; }
+
+private:
+    /**
+     * @brief 内部共用方法：龙门同步 + 龙门语义 + 容器查找
+     *
+     * 被 tryGetAxis() 和 tryReadAxis() 共用。
+     * 不包含 Layer 0 安全锁定拦截（由 tryGetAxis 单独处理）。
+     */
+    bool tryGetAxisInternal(AxisId id, Axis*& outAxis, ContextRejection& reason) {
         // 仅龙门相关轴受联动状态约束，非龙门轴跳过
         if (id == AxisId::X || id == AxisId::X1 || id == AxisId::X2) {
             // A. 前置拦截：状态机尚未同步，物理真相未知 → 拒绝一切龙门轴访问
@@ -92,26 +141,6 @@ public:
         return true;
     }
 
-    // --- 龙门控制的基础接口 ---
-    GantryCouplingController& gantryCouplingController() { return *m_gantryCouplingController; }
-    GantryPowerController& gantryPowerController() { return *m_gantryPowerController; }
-
-    // --- 安全急停接口 ---
-    /**
-     * @brief 急停控制器引用
-     *
-     * 暴露给外部用于：
-     *   1. 查询 isSystemLocked() — 在 UseCase 中快速判断
-     *   2. 调用 requestEmergencyStop() / requestReleaseEmergencyStop() — 产生急停/解除意图
-     *   3. 调用 applyFeedback(plcEmergencyStopped) — 注入 PLC 反馈，驱动状态机
-     *   4. hasPendingCommand() / popPendingCommand() — 从 SystemManager 消费命令
-     */
-    EmergencyStopController& emergencyStopController() { return m_emergencyStopController; }
-
-    void setDriver(ISystemDriver* driver) { m_driver = driver; }
-    ISystemDriver* driver() { return m_driver; }
-
-private:
     std::unordered_map<AxisId, std::unique_ptr<Axis>> m_axes;
     std::unique_ptr<GantryCouplingController> m_gantryCouplingController;
     std::unique_ptr<GantryPowerController> m_gantryPowerController;

@@ -29,7 +29,8 @@
 namespace {
 
 /**
- * @brief 通过 SystemManager → SystemContext → Axis 定位目标轴
+ * @brief 通过 SystemManager → SystemContext → Axis 定位目标轴（控制操作入口）
+ *        受 Layer 0 安全锁定拦截。
  * @return Axis* 若成功，nullptr 若查找失败
  */
 Axis* tryGetAxis(SystemManager& manager,
@@ -45,6 +46,30 @@ Axis* tryGetAxis(SystemManager& manager,
     Axis* axis = nullptr;
     ContextRejection ctxReason = ContextRejection::None;
     if (!group->tryGetAxis(axisId, axis, ctxReason)) {
+        return nullptr;
+    }
+
+    return axis;
+}
+
+/**
+ * @brief 通过 SystemManager → SystemContext → Axis 定位目标轴（遥测读取入口）
+ *        绕过 Layer 0 安全锁定拦截，急停期间仍可读取位置与状态。
+ * @return Axis* 若成功，nullptr 若龙门语义/容器查找失败
+ */
+Axis* tryReadAxis(SystemManager& manager,
+                  const std::string& groupName,
+                  AxisId axisId)
+{
+    SystemContext* group = nullptr;
+    ContextRejection mgrReason = ContextRejection::None;
+    if (!manager.tryGetGroup(groupName, group, mgrReason)) {
+        return nullptr;
+    }
+
+    Axis* axis = nullptr;
+    ContextRejection ctxReason = ContextRejection::None;
+    if (!group->tryReadAxis(axisId, axis, ctxReason)) {
         return nullptr;
     }
 
@@ -115,21 +140,21 @@ AxisViewModelCore::~AxisViewModelCore() = default;
 
 AxisState AxisViewModelCore::state() const
 {
-    auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
+    auto* axis = tryReadAxis(m_manager, m_groupName, m_axisId);
     if (!axis) return AxisState::Unknown;
     return axis->state();
 }
 
 double AxisViewModelCore::absPos() const
 {
-    auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
+    auto* axis = tryReadAxis(m_manager, m_groupName, m_axisId);
     if (!axis) return 0.0;
     return axis->currentAbsolutePosition();
 }
 
 double AxisViewModelCore::relPos() const
 {
-    auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
+    auto* axis = tryReadAxis(m_manager, m_groupName, m_axisId);
     if (!axis) return 0.0;
     return axis->currentRelativePosition();
 }
@@ -141,28 +166,28 @@ bool AxisViewModelCore::isEnabled() const
 
 double AxisViewModelCore::jogVelocity() const
 {
-    auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
+    auto* axis = tryReadAxis(m_manager, m_groupName, m_axisId);
     if (!axis) return 0.0;
     return axis->getjogVelocity();
 }
 
 double AxisViewModelCore::moveVelocity() const
 {
-    auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
+    auto* axis = tryReadAxis(m_manager, m_groupName, m_axisId);
     if (!axis) return 0.0;
     return axis->getMoveVelocity();
 }
 
 double AxisViewModelCore::posLimit() const
 {
-    auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
+    auto* axis = tryReadAxis(m_manager, m_groupName, m_axisId);
     if (!axis) return 0.0;
     return axis->positiveSoftLimit();
 }
 
 double AxisViewModelCore::negLimit() const
 {
-    auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
+    auto* axis = tryReadAxis(m_manager, m_groupName, m_axisId);
     if (!axis) return 0.0;
     return axis->negativeSoftLimit();
 }

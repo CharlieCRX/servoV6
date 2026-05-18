@@ -85,6 +85,19 @@ public:
             return;
         }
 
+        // ★ Safety Lock Pre-check（Layer 0 前置于 tryGetAxis）
+        //     安全锁定时，无情中止当前编排流程，回到 Done，
+        //     避免进入 Error 状态导致急停解除后无法启动新运动。
+        if (group->emergencyStopController().isSystemLocked()) {
+            if (m_step != Step::Initial && m_step != Step::Done && m_step != Step::Error) {
+                LOG_INFO(LogLayer::APP, "AbsOrch",
+                         "[" + m_groupName + "][" + axisName(m_targetId) + "] Safety locked — aborting gracefully");
+                m_step = Step::Done;
+                m_lastError = std::monostate{};
+            }
+            return;
+        }
+
         // 第 1 层：轴获取与龙门校验（SystemContext）
         Axis* axis = nullptr;
         ContextRejection ctxReason = ContextRejection::None;
