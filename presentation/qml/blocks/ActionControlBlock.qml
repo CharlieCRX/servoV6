@@ -163,7 +163,7 @@ Rectangle {
                         isCircle: true
                         baseColor: Theme.panelBg
                         enabled: root.jogEnabled
-                        onClicked: velocityPopup.open()
+                        onClicked: jogVelocityPopup.open()
                     }
                 }
 
@@ -212,7 +212,7 @@ Rectangle {
                         isCircle: true
                         baseColor: Theme.panelBg
                         enabled: root.isReadyForPos
-                        onClicked: velocityPopup.open()
+                        onClicked: moveVelocityPopup.open()
                     }
                 }
 
@@ -368,8 +368,17 @@ Rectangle {
         }
     }
 
+    // Jog 模式下使用的点动速度弹窗
     VelocitySettingsPopup {
-        id: velocityPopup
+        id: jogVelocityPopup
         viewModel: root.viewModel
+        speedType: "jog"
+    }
+
+    // POS 模式下使用的定位速度弹窗
+    VelocitySettingsPopup {
+        id: moveVelocityPopup
+        viewModel: root.viewModel
+        speedType: "move"
     }
 }

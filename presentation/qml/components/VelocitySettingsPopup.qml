@@ -9,20 +9,30 @@ Popup {
     // 接收外部传入的 ViewModel
     property var viewModel: null
 
-    // 弹窗基础属性
-    modal: true // 开启模态（阻挡底层点击）
-    dim: true   // 开启背景变暗
-    anchors.centerIn: Overlay.overlay // 确保弹窗在整个屏幕的正中央，而不是父组件中央
+    // ⭐ 速度类型选择："jog" = 点动速度, "move" = 定位速度
+    property string speedType: "jog"
+
+    // 弹窗基本属性
+    modal: true
+    dim: true
+    anchors.centerIn: Overlay.overlay
     
     width: 380 * Theme.scale
-    height: 300 * Theme.scale
-    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside // 允许点击空白处关闭
+    height: 280 * Theme.scale
+    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-    // 🌟 核心逻辑：每次打开弹窗时，从底层读取最新速度填充到输入框
+    // 🌟 每次打开弹窗时，从底层读取最新速度填充到输入框
     onOpened: {
         if (viewModel) {
-            jogSpeedInput.text = viewModel.jogVelocity.toString()
-            moveSpeedInput.text = viewModel.moveVelocity.toString()
+            if (speedType === "jog") {
+                popupTitle.text = "⚙️ 点动速度设置"
+                speedInput.text = viewModel.jogVelocity.toString()
+                speedLabel.text = "点动速度 (Jog):"
+            } else {
+                popupTitle.text = "⚙️ 定位速度设置"
+                speedInput.text = viewModel.moveVelocity.toString()
+                speedLabel.text = "定位速度 (Pos):"
+            }
         }
     }
 
@@ -40,7 +50,8 @@ Popup {
         spacing: 20 * Theme.scale
 
         Text {
-            text: "⚙️ 轴运行速度设置"
+            id: popupTitle
+            text: "⚙️ 速度设置"
             color: Theme.textMain
             font.pixelSize: Theme.fontLarge
             font.bold: true
@@ -49,30 +60,18 @@ Popup {
 
         Item { Layout.fillHeight: true } // 弹簧
 
-        // 点动速度输入组
+        // 速度输入组
         RowLayout {
             Layout.alignment: Qt.AlignHCenter
             spacing: 15 * Theme.scale
-            Text { text: "点动速度 (Jog):"; color: Theme.textDim; font.pixelSize: Theme.fontNormal }
-            TextField {
-                id: jogSpeedInput
-                Layout.preferredWidth: 120 * Theme.scale
-                color: Theme.textMain
-                font.pixelSize: Theme.fontLarge
-                horizontalAlignment: TextInput.AlignHCenter
-                background: Rectangle { color: Theme.bgDark; border.color: Theme.borderMain; radius: 4 }
-                validator: DoubleValidator { bottom: 0.1; top: 1000.0 }
+            Text {
+                id: speedLabel
+                text: "速度:"
+                color: Theme.textDim
+                font.pixelSize: Theme.fontNormal
             }
-            Text { text: "mm/s"; color: Theme.textDim }
-        }
-
-        // 定位速度输入组
-        RowLayout {
-            Layout.alignment: Qt.AlignHCenter
-            spacing: 15 * Theme.scale
-            Text { text: "定位速度 (Pos):"; color: Theme.textDim; font.pixelSize: Theme.fontNormal }
             TextField {
-                id: moveSpeedInput
+                id: speedInput
                 Layout.preferredWidth: 120 * Theme.scale
                 color: Theme.textMain
                 font.pixelSize: Theme.fontLarge
@@ -96,20 +95,23 @@ Popup {
                 baseColor: "transparent"
                 border.color: Theme.borderMain
                 border.width: 1
-                onClicked: root.close() // 直接关闭，不保存
+                onClicked: root.close()
             }
 
             IndustrialButton {
                 Layout.fillWidth: true
                 text: "保 存"
-                baseColor: Theme.colorIdle // 绿色确认按钮
+                baseColor: Theme.colorIdle
                 onClicked: {
                     if (viewModel) {
-                        // 下发新速度到 C++
-                        viewModel.setJogVelocity(parseFloat(jogSpeedInput.text))
-                        viewModel.setMoveVelocity(parseFloat(moveSpeedInput.text))
+                        var value = parseFloat(speedInput.text)
+                        if (speedType === "jog") {
+                            viewModel.setJogVelocity(value)
+                        } else {
+                            viewModel.setMoveVelocity(value)
+                        }
                     }
-                    root.close() // 保存后关闭弹窗
+                    root.close()
                 }
             }
         }

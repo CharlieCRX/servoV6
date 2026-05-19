@@ -250,10 +250,12 @@ public:
 
     void setSimulatedMoveVelocity(AxisId id, double v) {
         m_axes.at(id).move_velocity = std::abs(v);
+        m_axes.at(id).feedback.getMoveVelocity = std::abs(v);
     }
 
     void setSimulatedJogVelocity(AxisId id, double v) {
         m_axes.at(id).jog_velocity = std::abs(v);
+        m_axes.at(id).feedback.getjogVelocity = std::abs(v);
     }
 
     void setLimits(AxisId id, double pos, double neg) {
@@ -776,6 +778,7 @@ private:
             + " cmd=SetJogVelocityCommand(velocity=" + std::to_string(cmd.velocity) + ")"
             + " state=" + std::to_string(static_cast<int>(axis.feedback.state)));
         axis.jog_velocity = std::abs(cmd.velocity);
+        axis.feedback.getjogVelocity = std::abs(cmd.velocity);
     }
 
     void processCommand(AxisId id, const SetMoveVelocityCommand& cmd) {
@@ -785,6 +788,7 @@ private:
             + " cmd=SetMoveVelocityCommand(velocity=" + std::to_string(cmd.velocity) + ")"
             + " state=" + std::to_string(static_cast<int>(axis.feedback.state)));
         axis.move_velocity = std::abs(cmd.velocity);
+        axis.feedback.getMoveVelocity = std::abs(cmd.velocity);
     }
 
     void processCommand(AxisId id, const GantryCouplingCommand& cmd) {
