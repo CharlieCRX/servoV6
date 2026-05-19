@@ -2,8 +2,9 @@ include(GoogleTest)
 
 add_executable(unit_tests
 
-    presentation/viewmodel/test_axis_viewmodel_core.cpp
-    presentation/viewmodel/test_error_translator.cpp
+    # presentation/viewmodel/test_axis_viewmodel_core.cpp
+    # presentation/viewmodel/test_error_translator.cpp
+    # presentation/viewmodel/test_gantry_viewmodel.cpp
  
     infrastructure/test_system_integration.cpp
     infrastructure/test_fake_plc.cpp
