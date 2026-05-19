@@ -9,10 +9,42 @@ Rectangle {
     // === 核心接口 ===
     property string currentAxisName: "Y" // 默认选中 Y 轴
     property var emergencyViewModel: null
+    property var gantryViewModel: null
     signal axisChanged(string axisName)  // 切换轴时发出的信号
 
     // 急停锁定状态
     readonly property bool locked: emergencyViewModel && emergencyViewModel.isSystemLocked
+
+    // ── 龙门耦合状态快捷属性（从 GantryViewModel 投影） ──
+    // isCoupled: 龙门已耦合（允许逻辑 X 轴运动）
+    readonly property bool isCoupled: {
+        if (!gantryViewModel) return false
+        return gantryViewModel.isCoupled || false
+    }
+    // isCouplingTransition: 耦合过渡中（orchestrator 忙碌 = 解耦/耦合进行中）
+    readonly property bool isCouplingTransition: {
+        if (!gantryViewModel) return false
+        return gantryViewModel.isOrchestratorBusy || false
+    }
+
+    // ── X 轴（逻辑龙门）的状态文字 ──
+    readonly property string gantryStatusText: {
+        if (!gantryViewModel || currentAxisName !== "X") return ""
+        if (isCouplingTransition) return "耦合中..."
+        if (isCoupled) return "耦合 · 控制中"
+        return "已解耦"
+    }
+
+    // ── X 轴状态指示灯颜色 ──
+    readonly property string gantryStatusColor: {
+        if (!gantryViewModel) return Theme.textDim
+        if (isCouplingTransition) return Theme.colorWarning
+        if (isCoupled) return Theme.colorIdle
+        return Theme.textDim
+    }
+
+    // ── X1/X2 物理轴是否可独立操作（仅当龙门已解耦时） ──
+    readonly property bool physicalAxesAvailable: !gantryViewModel || !gantryViewModel.isCoupled
 
     color: "transparent"
     border.color: Theme.borderMain
@@ -87,10 +119,17 @@ Rectangle {
                 AxisItemDelegate {
                     name: "X 轴 (龙门逻辑)"
                     isActive: root.currentAxisName === "X"
-                    statusText: isActive ? "控制中" : "待机"
+                    statusText: {
+                        if (root.currentAxisName === "X") {
+                            return root.gantryStatusText || "控制中"
+                        }
+                        return root.gantryStatusText || "待机"
+                    }
                     isDual: true
                     enabled: !root.locked
                     opacity: enabled ? 1.0 : 0.4
+                    // 龙门耦合状态指示色
+                    indicatorColor: root.gantryStatusColor
                     onClicked: {
                         root.currentAxisName = "X"
                         root.axisChanged("X")
@@ -104,9 +143,12 @@ Rectangle {
                     name: "X1 轴 (物理)"
                     isActive: root.currentAxisName === "X1"
                     statusText: isActive ? "控制中" : "待机"
+                    // 物理轴在龙门耦合时需要标记为"受龙门控制"
+                    subLabel: (!root.gantryViewModel || root.gantryViewModel.isCoupled) ? "↳ 龙门" : ""
                     enabled: !root.locked
                     opacity: enabled ? 1.0 : 0.4
                     onClicked: {
+                        // 仅当龙门已解耦或该轴独立可用时允许切换
                         root.currentAxisName = "X1"
                         root.axisChanged("X1")
                     }
@@ -117,6 +159,7 @@ Rectangle {
                     name: "X2 轴 (物理)"
                     isActive: root.currentAxisName === "X2"
                     statusText: isActive ? "控制中" : "待机"
+                    subLabel: (!root.gantryViewModel || root.gantryViewModel.isCoupled) ? "↳ 龙门" : ""
                     enabled: !root.locked
                     opacity: enabled ? 1.0 : 0.4
                     onClicked: {

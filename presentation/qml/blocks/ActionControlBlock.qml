@@ -5,7 +5,9 @@ import servoV6
 Rectangle {
     id: root
     property var viewModel: null
-    property var emergencyViewModel: null  // ← 新增：急停安全 ViewModel
+    property var emergencyViewModel: null  // 急停安全 ViewModel
+    property var gantryViewModel: null     // 龙门 ViewModel
+    property string currentAxis: ""        // 当前选中的轴名（用于龙门逻辑判断）
 
     // 内部状态：0 = 点动模式 (Jog), 1 = 定位模式 (Position)
     property int currentMode: 0 
@@ -20,18 +22,39 @@ Rectangle {
         return false
     }
 
-    // 点动模式可用条件：非系统锁定 + viewModel 绑定
-    property bool jogEnabled: !systemLocked && viewModel !== null
+    // ── 龙门操作锁定 ──
+    // 规则1：选中 X（逻辑龙门轴）但龙门未耦合 → 禁止操作（需先耦合）
+    // 规则2：选中 X1/X2（物理轴）但龙门已耦合 → 禁止操作（物理轴受龙门控制）
+    readonly property bool gantryOperationLocked: {
+        if (!gantryViewModel) return false
+        if (currentAxis === "X" && !gantryViewModel.isCoupled) return true   // 逻辑轴未耦合
+        if ((currentAxis === "X1" || currentAxis === "X2") && gantryViewModel.isCoupled) return true  // 物理轴受龙门控制
+        return false
+    }
+
+    // ── 龙门锁定提示文本 ──
+    readonly property string gantryLockReason: {
+        if (!gantryOperationLocked) return ""
+        if (currentAxis === "X" && gantryViewModel && !gantryViewModel.isCoupled)
+            return "龙门未耦合"
+        if ((currentAxis === "X1" || currentAxis === "X2") && gantryViewModel && gantryViewModel.isCoupled)
+            return "受龙门控制"
+        return ""
+    }
+
+    // 点动模式可用条件：非系统锁定 + viewModel 绑定 + 非龙门锁定
+    property bool jogEnabled: !systemLocked && viewModel !== null && !gantryOperationLocked
 
     // 定位模式就绪条件：
     //   - 系统未锁定
     //   - 无故障（避免在有未确认错误时下发新指令）
     //   - 非运动中（state ≤ Idle，即 Disabled 或 Standstill）
+    //   - 非龙门操作锁定
     //   单轴使用 policy 自动管理使能，不需要强制 isEnabled
-    property bool isReadyForPos: !systemLocked && viewModel ? 
+    property bool isReadyForPos: !systemLocked && !gantryOperationLocked && viewModel ? 
         (!viewModel.hasError && viewModel.state <= 2) : false
 
-    color: "transparent"
+        color: "transparent"
 
     ColumnLayout {
         anchors.fill: parent
@@ -64,6 +87,26 @@ Rectangle {
                 anchors.centerIn: parent
                 text: emergencyViewModel ? emergencyViewModel.safetyStateText : ""
                 color: "#FFFFFF"
+                font.pixelSize: Theme.fontSmall
+                font.bold: true
+                font.family: "Monospace"
+            }
+        }
+
+        // ==========================================
+        // 0.5 龙门操作锁定横幅（非急停但龙门锁定操作时显示）
+        // ==========================================
+        Rectangle {
+            Layout.fillWidth: true
+            height: root.gantryOperationLocked && !root.systemLocked ? 30 * Theme.scale : 0
+            visible: root.gantryOperationLocked && !root.systemLocked
+            color: "#5D4037"
+            radius: 4 * Theme.scale
+
+            Text {
+                anchors.centerIn: parent
+                text: "🔒 " + root.gantryLockReason
+                color: "#FFCC80"
                 font.pixelSize: Theme.fontSmall
                 font.bold: true
                 font.family: "Monospace"

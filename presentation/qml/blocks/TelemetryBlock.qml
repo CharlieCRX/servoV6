@@ -9,10 +9,25 @@ Rectangle {
     // === 核心接口：接收外部注入的 ViewModel ===
     property var viewModel: null
     property var emergencyViewModel: null
+    property var gantryViewModel: null
+    property string selectedAxis: ""
     property string groupName: ""
 
     // 急停锁定状态
     readonly property bool locked: emergencyViewModel && emergencyViewModel.isSystemLocked
+
+    // 龙门控制区是否可见（仅在选中 X 轴且有龙门 ViewModel 时显示）
+    readonly property bool gantryAreaVisible: selectedAxis === "X" && gantryViewModel !== null
+
+    // 龙门耦合状态快捷属性
+    readonly property bool gantryCoupled: {
+        if (!gantryViewModel) return false
+        return gantryViewModel.isCoupled || false
+    }
+    readonly property bool gantryCoupling: {
+        if (!gantryViewModel) return false
+        return gantryViewModel.isOrchestratorBusy || false
+    }
 
     // 分组切换信号
     signal groupChanged(string newGroup)
@@ -119,6 +134,75 @@ Rectangle {
             }
 
             Item { Layout.fillWidth: true }
+        }
+
+        // ===== 1.5 龙门耦合控制区（仅在选中 X 轴时显示） =====
+        Rectangle {
+            Layout.fillWidth: true
+            height: root.gantryAreaVisible ? 44 * Theme.scale : 0
+            visible: root.gantryAreaVisible
+            color: root.gantryCoupled ? "#1F2F1F" : "#1F1F2F"
+            radius: 8 * Theme.scale
+            border.color: root.gantryCoupled ? Theme.colorIdle : Theme.borderMain
+            border.width: 1
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: 6 * Theme.scale
+                spacing: 8 * Theme.scale
+
+                // 左侧：耦合状态指示灯 + 文本
+                Rectangle {
+                    width: 12 * Theme.scale
+                    height: 12 * Theme.scale
+                    radius: width / 2
+                    color: {
+                        if (root.gantryCoupling) return Theme.colorWarning
+                        if (root.gantryCoupled) return Theme.colorIdle
+                        return Theme.colorDisabled
+                    }
+                    border.color: Qt.lighter(color, 1.5)
+                    border.width: 1
+                    // 耦合过渡中闪烁
+                    SequentialAnimation on opacity {
+                        running: root.gantryCoupling
+                        loops: Animation.Infinite
+                        NumberAnimation { from: 1.0; to: 0.3; duration: 400 }
+                        NumberAnimation { from: 0.3; to: 1.0; duration: 400 }
+                    }
+                }
+
+                Text {
+                    text: {
+                        if (root.gantryCoupling) return "耦合中..."
+                        if (root.gantryCoupled) return "龙门已耦合"
+                        return "龙门已解耦"
+                    }
+                    color: root.gantryCoupled ? Theme.colorIdle : Theme.textDim
+                    font.pixelSize: Theme.fontSmall
+                    font.bold: true
+                    Layout.fillWidth: true
+                }
+
+                // 右侧：耦合 / 解耦按钮
+                IndustrialButton {
+                    text: root.gantryCoupled ? "解耦" : "耦合"
+                    buttonSize: 60 * Theme.scale
+                    baseColor: root.locked ? Theme.colorDisabled : (root.gantryCoupled ? "#5D4037" : "#2E7D32")
+                    enabled: !root.locked && !root.gantryCoupling
+                    opacity: enabled ? 1.0 : 0.4
+                    border.color: root.gantryCoupled ? "#795548" : "#4CAF50"
+                    border.width: 1
+                    onClicked: {
+                        if (!root.gantryViewModel) return
+                        if (root.gantryCoupled) {
+                            root.gantryViewModel.stopCouplingAndDisable()
+                        } else {
+                            root.gantryViewModel.startCoupling()
+                        }
+                    }
+                }
+            }
         }
 
         // ===== 2. 使能状态 + 运动状态行 =====

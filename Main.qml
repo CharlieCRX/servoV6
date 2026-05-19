@@ -50,6 +50,13 @@ Window {
         return emergencyVM_A; // fallback
     }
 
+    // 根据当前分组动态绑定龙门 ViewModel
+    property var currentGantryViewModel: {
+        if (currentGroup === "Machine_A") return gantryVM_A;
+        if (currentGroup === "Machine_B") return gantryVM_B;
+        return gantryVM_A; // fallback
+    }
+
     // ===== 垂直布局：分组选择栏 + 三栏 + 底部错误栏 =====
     ColumnLayout {
         anchors.fill: parent
@@ -67,6 +74,7 @@ Window {
                 Layout.preferredWidth: isMobile ? 180 * Theme.scale : 260 * Theme.scale
                 Layout.fillHeight: true
                 emergencyViewModel: currentEmergencyViewModel
+                gantryViewModel: currentGantryViewModel
                 onAxisChanged: (axisName) => {
                     currentAxis = axisName;
                     console.log("切换到组:", currentGroup, ", 轴:", axisName);
@@ -79,6 +87,8 @@ Window {
                 Layout.fillHeight: true
                 viewModel: currentViewModel
                 emergencyViewModel: currentEmergencyViewModel
+                gantryViewModel: currentGantryViewModel
+                selectedAxis: currentAxis
                 groupName: currentGroup
                 onGroupChanged: (newGroup) => {
                     currentGroup = newGroup;
@@ -91,6 +101,8 @@ Window {
                 Layout.fillHeight: true
                 viewModel: currentViewModel
                 emergencyViewModel: currentEmergencyViewModel
+                gantryViewModel: currentGantryViewModel
+                currentAxis: currentAxis
             }
         }
 

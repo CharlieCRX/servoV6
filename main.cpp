@@ -15,6 +15,7 @@
 #include "presentation/viewmodel/AxisViewModelCore.h"
 #include "presentation/viewmodel/QtAxisViewModel.h"
 #include "presentation/viewmodel/EmergencyStopViewModel.h"
+#include "presentation/viewmodel/GantryViewModel.h"
 #include "infrastructure/logger/Logger.h"
 #include <sstream>
 #include <iomanip>
@@ -158,6 +159,11 @@ int main(int argc, char *argv[])
     EmergencyStopViewModel emergencyVM_A(manager, "Machine_A");
     EmergencyStopViewModel emergencyVM_B(manager, "Machine_B");
 
+    // ─────────────── 4c. 龙门 ViewModel ───────────────
+    // 每个分组一个 GantryViewModel，桥接 Domain 龙门控制器状态到 QML
+    GantryViewModel gantryVM_A(manager, "Machine_A");
+    GantryViewModel gantryVM_B(manager, "Machine_B");
+
     // ============================
     // 5. QML 引擎初始化与依赖注入
     // ============================
@@ -180,6 +186,10 @@ int main(int argc, char *argv[])
     // 急停安全 ViewModel
     engine.rootContext()->setContextProperty("emergencyVM_A", &emergencyVM_A);
     engine.rootContext()->setContextProperty("emergencyVM_B", &emergencyVM_B);
+
+    // 龙门 ViewModel
+    engine.rootContext()->setContextProperty("gantryVM_A", &gantryVM_A);
+    engine.rootContext()->setContextProperty("gantryVM_B", &gantryVM_B);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
         &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
@@ -227,6 +237,10 @@ int main(int argc, char *argv[])
         // 6c. 急停安全 ViewModel 推进（每帧同步急停控制器状态）
         emergencyVM_A.tick();
         emergencyVM_B.tick();
+
+        // 6d. 龙门 ViewModel 推进（每帧推进 Orchestrator + 刷新状态投影）
+        gantryVM_A.tick();
+        gantryVM_B.tick();
     });
     systemClock.start(10);  // 10ms 物理心跳
 
