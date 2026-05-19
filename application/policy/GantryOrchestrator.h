@@ -39,6 +39,8 @@ public:
         WaitingCoupled,       // 等待 PLC 反馈联动完成
         Decoupling,           // 下发解耦指令
         WaitingDecoupled,     // 等待 PLC 反馈解耦完成
+        Disabling,            // 下发龙门电机掉电命令
+        WaitingDisabled,      // 等待掉电完成
         Done,
         Error
     };
@@ -62,6 +64,30 @@ public:
 
     void startDecoupling() {
         m_step = Step::Decoupling;
+    }
+
+    /**
+     * @brief 一键解除联动并关闭使能（startCoupling 的逆操作）
+     *
+     * 流程：Decoupling → WaitingDecoupled → Disabling → WaitingDisabled → Done
+     *
+     * 对应 UI「联动使能按钮」在已联动状态下的反向操作。
+     */
+    void stopCouplingAndDisable() {
+        m_step = Step::Decoupling;
+        m_disableAfterDecouple = true;
+    }
+
+    /**
+     * @brief 使能并解除联动（保持电机使能，仅断联动）
+     *
+     * 流程：EnsuringEnabled → WaitingEnabled → Decoupling → WaitingDecoupled → Done
+     *
+     * 对应 UI「解除联动按钮」在已联动状态下的操作（密码验证后）。
+     */
+    void enableAndDecouple() {
+        m_step = Step::EnsuringEnabled;
+        m_decoupleAfterEnable = true;
     }
 
     // ========== 逐帧驱动 ==========
@@ -112,7 +138,12 @@ public:
 
         case Step::WaitingEnabled:
             if (power.isEnabled()) {
-                m_step = Step::Coupling;
+                if (m_decoupleAfterEnable) {
+                    m_decoupleAfterEnable = false;
+                    m_step = Step::Decoupling;
+                } else {
+                    m_step = Step::Coupling;
+                }
             }
             // 其他状态继续等待（Enabling 尚未完成）
             // 注意：即使 PLC 反馈 Disabled（使能失败），也继续等待，
@@ -176,6 +207,40 @@ public:
             // 因此仅依赖 isDecouplingRequested 变为 false 判断解耦完成，
             // 不需要检查 hasError()。
             if (!coupling.isDecouplingRequested()) {
+                if (m_disableAfterDecouple) {
+                    m_disableAfterDecouple = false;
+                    m_step = Step::Disabling;
+                } else {
+                    m_step = Step::Done;
+                }
+            }
+            break;
+
+        // ============================================================
+        // 掉电流程（stopCouplingAndDisable 后半段）
+        // ============================================================
+
+        case Step::Disabling: {
+            auto result = power.requestEnable(false);
+            if (result == GantryRejection::None) {
+                if (power.hasPendingCommand() && drv) {
+                    auto commResult = drv->send(power.popPendingCommand());
+                    if (!commResult.ok()) {
+                        m_step = Step::Error;
+                        m_lastError = commResult;
+                        return;
+                    }
+                }
+                m_step = Step::WaitingDisabled;
+            } else {
+                m_step = Step::Error;
+                m_lastError = result;
+            }
+            break;
+        }
+
+        case Step::WaitingDisabled:
+            if (!power.isEnabled()) {
                 m_step = Step::Done;
             }
             break;
@@ -203,4 +268,6 @@ private:
     std::string m_groupName;
     Step m_step;
     UseCaseError m_lastError = std::monostate{};
+    bool m_disableAfterDecouple = false;
+    bool m_decoupleAfterEnable = false;
 };

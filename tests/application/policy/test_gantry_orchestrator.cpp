@@ -245,3 +245,245 @@ TEST_F(GantryOrchestratorTest, tick_after_error_is_idempotent)
 
     EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Error);
 }
+
+// ============================================================
+// stopCouplingAndDisable 流程
+// ============================================================
+
+// 10. 完整 stopCouplingAndDisable 流程：
+//     Decoupling → WaitingDecoupled → Disabling → WaitingDisabled → Done
+//     从已联动+已使能状态出发，一键解除联动并关闭使能
+TEST_F(GantryOrchestratorTest, full_stop_coupling_and_disable_flow)
+{
+    // Given: 已联动成功（状态 B：使能 + 联动）
+    gantryPower->applyFeedback({ .enable = true });
+    orchestrator->startCoupling();
+    orchestrator->tick(); // -> WaitingEnabled
+    orchestrator->tick(); // -> Coupling
+    orchestrator->tick(); // -> WaitingCoupled
+    gantryCoupling->applyFeedback({ .isCoupled = true, .errorCode = 0 });
+    orchestrator->tick(); // -> Done
+    EXPECT_TRUE(orchestrator->isDone());
+    EXPECT_TRUE(gantryCoupling->isCoupled());
+    EXPECT_TRUE(gantryPower->isEnabled());
+
+    // When: 启动一键解除联动+去使能
+    orchestrator->stopCouplingAndDisable();
+
+    // Step 1: Decoupling -> 下发解耦命令 -> WaitingDecoupled
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingDecoupled);
+    EXPECT_TRUE(gantryCoupling->isDecouplingRequested());
+
+    // Step 2: PLC 反馈解耦成功 -> 进入 Disabling（因为有 m_disableAfterDecouple 标记）
+    gantryCoupling->applyFeedback({ .isCoupled = false, .errorCode = 0 });
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Disabling);
+
+    // Step 3: Disabling -> 下发掉电命令 -> WaitingDisabled
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingDisabled);
+    EXPECT_FALSE(gantryPower->hasPendingCommand());
+
+    // Step 4: PLC 反馈掉电成功 -> Done
+    gantryPower->applyFeedback({ .enable = false });
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Done);
+    EXPECT_TRUE(orchestrator->isDone());
+    EXPECT_FALSE(gantryCoupling->isCoupled());
+    EXPECT_FALSE(gantryPower->isEnabled());
+}
+
+// 11. stopCouplingAndDisable：电机已掉电时解耦后跳过掉电等待
+//     场景：电机已被外部掉电，但联动仍保持，解耦完成后电机已经 Disabled，
+//           应直接进入 Done
+TEST_F(GantryOrchestratorTest, stop_coupling_and_disable_power_already_off)
+{
+    // Given: 已联动成功（状态 B：使能 + 联动）
+    gantryPower->applyFeedback({ .enable = true });
+    orchestrator->startCoupling();
+    orchestrator->tick(); // -> WaitingEnabled
+    orchestrator->tick(); // -> Coupling
+    orchestrator->tick(); // -> WaitingCoupled
+    gantryCoupling->applyFeedback({ .isCoupled = true, .errorCode = 0 });
+    orchestrator->tick(); // -> Done
+    EXPECT_TRUE(orchestrator->isDone());
+    EXPECT_TRUE(gantryPower->isEnabled());
+
+    // 外部掉电（模拟急停等情况）
+    gantryPower->applyFeedback({ .enable = false });
+    EXPECT_FALSE(gantryPower->isEnabled());
+
+    // When: 启动一键解除联动+去使能
+    orchestrator->stopCouplingAndDisable();
+    orchestrator->tick(); // -> WaitingDecoupled
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingDecoupled);
+
+    // PLC 反馈解耦成功 -> 进入 Disabling
+    gantryCoupling->applyFeedback({ .isCoupled = false, .errorCode = 0 });
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Disabling);
+
+    // Disabling -> requestEnable(false) 幂等（已 Disabled）-> WaitingDisabled
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingDisabled);
+
+    // 电机已经 Disabled -> Done
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Done);
+    EXPECT_FALSE(gantryPower->isEnabled());
+    EXPECT_FALSE(gantryCoupling->isCoupled());
+}
+
+// ============================================================
+// enableAndDecouple 流程
+// ============================================================
+
+// 12. 完整 enableAndDecouple 流程（从解耦+掉电状态出发）：
+//     EnsuringEnabled → WaitingEnabled → Decoupling → WaitingDecoupled → Done
+//     从状态 D 出发，已解耦状态下 requestCouple(false) 幂等，不产生 pending command，
+//     因此 Decoupling → WaitingDecoupled 一步完成，直接进入 Done。
+TEST_F(GantryOrchestratorTest, full_enable_and_decouple_flow_from_disabled)
+{
+    // Given: 电机掉电，解耦状态（状态 A 或 D）
+    EXPECT_FALSE(gantryPower->isEnabled());
+    EXPECT_FALSE(gantryCoupling->isCoupled());
+
+    // When: 启动 enableAndDecouple
+    orchestrator->enableAndDecouple();
+
+    // Step 1: EnsuringEnabled -> 下发使能命令 -> WaitingEnabled
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingEnabled);
+    EXPECT_FALSE(gantryPower->hasPendingCommand());
+
+    // Step 2: PLC 反馈使能成功 -> 进入 Decoupling（因为有 m_decoupleAfterEnable 标记）
+    gantryPower->applyFeedback({ .enable = true });
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Decoupling);
+    EXPECT_TRUE(gantryPower->isEnabled());
+
+    // Step 3: Decoupling -> requestCouple(false) 幂等（已解耦），无 pending command
+    //         -> WaitingDecoupled
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingDecoupled);
+
+    // Step 4: WaitingDecoupled -> isDecouplingRequested() 为 false -> Done
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Done);
+    EXPECT_TRUE(orchestrator->isDone());
+    EXPECT_TRUE(gantryPower->isEnabled());
+    EXPECT_FALSE(gantryCoupling->isCoupled());
+}
+
+// 13. enableAndDecouple：电机已使能时跳过使能等待直接解耦
+//     对应状态 B → C：已联动+使能，执行使能并解耦（幂等使能，直接进入解耦）
+TEST_F(GantryOrchestratorTest, enable_and_decouple_skip_waiting_when_power_already_enabled)
+{
+    // Given: 电机已使能，已联动（状态 B）
+    gantryPower->applyFeedback({ .enable = true });
+    gantryCoupling->applyFeedback({ .isCoupled = true, .errorCode = 0 });
+    EXPECT_TRUE(gantryPower->isEnabled());
+    EXPECT_TRUE(gantryCoupling->isCoupled());
+
+    // When: enableAndDecouple
+    orchestrator->enableAndDecouple();
+
+    // Step 1: EnsuringEnabled -> requestEnable(true) 幂等 -> WaitingEnabled
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingEnabled);
+
+    // Step 2: 电机已 Enabled -> 直接进入 Decoupling
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Decoupling);
+
+    // Step 3: Decoupling -> WaitingDecoupled
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingDecoupled);
+    EXPECT_TRUE(gantryCoupling->isDecouplingRequested());
+
+    // Step 4: PLC 反馈解耦成功 -> Done
+    gantryCoupling->applyFeedback({ .isCoupled = false, .errorCode = 0 });
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Done);
+    EXPECT_TRUE(gantryPower->isEnabled());
+    EXPECT_FALSE(gantryCoupling->isCoupled());
+}
+
+// 14. enableAndDecouple：电机使能过程中 PLC 拒绝使能（使能未成功）
+//     EnsuringEnabled → WaitingEnabled，但 PLC 反馈 enable=false → 持续等待
+TEST_F(GantryOrchestratorTest, enable_and_decouple_waits_when_plc_denies_enable)
+{
+    // Given: 电机掉电
+    EXPECT_FALSE(gantryPower->isEnabled());
+
+    // When: enableAndDecouple
+    orchestrator->enableAndDecouple();
+    orchestrator->tick(); // -> WaitingEnabled
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingEnabled);
+
+    // PLC 反馈电机未使能（enable=false）
+    gantryPower->applyFeedback({ .enable = false });
+    orchestrator->tick();
+
+    // 应该继续等待使能，不会进入 Decoupling
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingEnabled);
+    EXPECT_FALSE(orchestrator->isDone());
+    EXPECT_FALSE(orchestrator->hasError());
+}
+
+// 15. stopCouplingAndDisable：解耦过程中通讯错误 → Error
+TEST_F(GantryOrchestratorTest, stop_coupling_and_disable_comm_error_during_decoupling)
+{
+    // Given: 已联动成功
+    gantryPower->applyFeedback({ .enable = true });
+    orchestrator->startCoupling();
+    orchestrator->tick();
+    orchestrator->tick();
+    orchestrator->tick();
+    gantryCoupling->applyFeedback({ .isCoupled = true, .errorCode = 0 });
+    orchestrator->tick(); // -> Done
+    EXPECT_TRUE(orchestrator->isDone());
+
+    // 模拟通讯失败：断开驱动连接（保留 driver 引用，但 send 返回 Disconnected）
+    driver.disconnect();
+
+    // When: stopCouplingAndDisable
+    orchestrator->stopCouplingAndDisable();
+    orchestrator->tick(); // Decoupling -> 尝试 send -> Disconnected -> Error
+
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Error);
+    EXPECT_TRUE(orchestrator->hasError());
+}
+
+// 16. stopCouplingAndDisable：解耦完成后掉电时通讯错误 → Error
+TEST_F(GantryOrchestratorTest, stop_coupling_and_disable_comm_error_during_disabling)
+{
+    // Given: 已联动成功
+    gantryPower->applyFeedback({ .enable = true });
+    orchestrator->startCoupling();
+    orchestrator->tick();
+    orchestrator->tick();
+    orchestrator->tick();
+    gantryCoupling->applyFeedback({ .isCoupled = true, .errorCode = 0 });
+    orchestrator->tick(); // -> Done
+    EXPECT_TRUE(orchestrator->isDone());
+
+    // When: stopCouplingAndDisable
+    orchestrator->stopCouplingAndDisable();
+    orchestrator->tick(); // -> WaitingDecoupled
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingDecoupled);
+
+    // 解耦成功
+    gantryCoupling->applyFeedback({ .isCoupled = false, .errorCode = 0 });
+    orchestrator->tick(); // -> Disabling
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Disabling);
+
+    // 模拟通讯失败：断开驱动连接（保留 driver 引用，但 send 返回 Disconnected）
+    driver.disconnect();
+
+    // Disabling -> 尝试 send -> Disconnected -> Error
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Error);
+    EXPECT_TRUE(orchestrator->hasError());
+}
