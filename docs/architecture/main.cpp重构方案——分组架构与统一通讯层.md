@@ -119,7 +119,7 @@ moveAbsUc.execute(manager, "Machine_B", AxisId::X1, 100.0);
 │                  FakePLC_B                  ← 独立物理态         │
 │                                                                  │
 │  UseCases (无状态，值语义，通过 manager + groupName 寻址):        │
-│      EnableUseCase, MoveAbsoluteUseCase, JogAxisUseCase, …      │
+│      EnableUseCase, MoveAbsoluteUseCase, JogAxisUseCase, ...      │
 │                                                                  │
 │  ViewModels (按 分组+轴 维度实例化):                              │
 │      AxisViewModelCore vm_A_Y(mgr, "Machine_A", AxisId::Y)     │
@@ -157,7 +157,7 @@ moveAbsUc.execute(manager, "Machine_B", AxisId::X1, 100.0);
 | Orchestrator 适配 SystemManager | ✅ 已完成 | `JogOrchestrator(SystemManager&, groupName)`，不再直接注 Driver/UseCase |
 | FakeAxisDriver::pollFeedback() | ✅ 已完成 | 内部推进 FakePLC + 注入全部反馈到 SystemContext |
 | SystemManager 分组管理 | ✅ 已完成 | createGroup / tryGetGroup / removeGroup |
-| ContextRejection 枚举 | ✅ 已完成 | GroupAlreadyExists / GroupNotFound / GroupNameInvalid / … |
+| ContextRejection 枚举 | ✅ 已完成 | GroupAlreadyExists / GroupNotFound / GroupNameInvalid / ... |
 
 ---
 
@@ -214,7 +214,7 @@ EnableUseCase enableUc;       // ✅ 已支持
 MoveAbsoluteUseCase moveAbsUc;
 JogAxisUseCase jogUc;
 StopAxisUseCase stopUc;
-// …
+// ...
 
 // 5. 通过 manager + groupName 执行操作
 enableUc.execute(manager, "Machine_A", AxisId::Y, true);

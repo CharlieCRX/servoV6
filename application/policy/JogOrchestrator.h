@@ -162,7 +162,7 @@ public:
                 m_step = Step::IssuingJog;
                 break;
             }
-            // 其他状态（Unknown/Moving…）：保持等待
+            // 其他状态（Unknown/Moving...）：保持等待
             break;
 
         // ============================================================

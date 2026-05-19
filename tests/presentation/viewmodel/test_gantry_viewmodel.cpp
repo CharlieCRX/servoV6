@@ -306,7 +306,7 @@ TEST_F(GantryViewModelTest, OrchestratorStepTextShouldTrackStateTransitions) {
     QString idleText = vm.orchestratorStepText();
     EXPECT_FALSE(idleText.isEmpty());
 
-    // 启动联动后 stepText 应变化为步骤文本（如"正在使能龙门电机…"）
+    // 启动联动后 stepText 应变化为步骤文本（如"正在使能龙门电机..."）
     vm.startCoupling();
     vm.tick();
 

@@ -156,7 +156,7 @@ virtual void pollFeedback(SystemContext& ctx) = 0;
 │  ViewModelError (新增结构体)                                │
 │  ├─ code:        string  // "AXIS_AT_POSITIVE_LIMIT"      │
 │  ├─ userMessage: string  // "轴已到达正向限位"             │
-│  ├─ debugMessage:string  // "AxisId=X,pos=100.0,limit=…"  │
+│  ├─ debugMessage:string  // "AxisId=X,pos=100.0,limit=..."  │
 │  └─ category:    ErrorCategory  // Inline/Modal/Silent    │
 │                                                           │
 │  translate(UseCaseError) -> ViewModelError (新增函数)       │

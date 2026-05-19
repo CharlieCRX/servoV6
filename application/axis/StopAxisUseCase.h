@@ -42,7 +42,7 @@ public:
         Axis* axis = nullptr;
         ContextRejection ctxReason = ContextRejection::None;
         if (!group->tryGetAxis(axisId, axis, ctxReason)) {
-            return ctxReason;  // PhysicalAxisLockedByGantry / AxisNotRegistered / …
+            return ctxReason;  // PhysicalAxisLockedByGantry / AxisNotRegistered / ...
         }
 
         // ===== 阶段 2：执行停止（领域层不可拒绝） =====

@@ -4,7 +4,9 @@
 #include "domain/entity/SystemContext.h"
 #include "domain/gantry/GantryCouplingController.h"
 #include "domain/gantry/GantryPowerController.h"
+#include "domain/gantry/GantryRejection.h"
 #include "application/UseCaseError.h"
+#include "infrastructure/logger/Logger.h"
 #include <variant>
 #include <string>
 
@@ -97,6 +99,8 @@ public:
         SystemContext* group = nullptr;
         ContextRejection mgrReason = ContextRejection::None;
         if (!m_manager.tryGetGroup(m_groupName, group, mgrReason)) {
+            LOG_ERROR(LogLayer::APP, "GantryOrch",
+                m_groupName + " tick: can't get context, reason=" + std::to_string(static_cast<int>(mgrReason)));
             m_step = Step::Error;
             m_lastError = mgrReason;
             return;
@@ -106,8 +110,12 @@ public:
         GantryCouplingController& coupling = group->gantryCouplingController();
         ISystemDriver* drv = group->driver();
 
+        Step oldStep = m_step;
+
         switch (m_step) {
         case Step::Initial:
+            LOG_TRACE(LogLayer::APP, "GantryOrch",
+                m_groupName + " Initial: waiting for start command");
             break;
 
         // ============================================================
@@ -118,18 +126,28 @@ public:
             // 调用 GantryPowerController::requestEnable(true)
             // 内部已做幂等/冲突检查，不在此处重复
             auto result = power.requestEnable(true);
+            LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                m_groupName + " EnsuringEnabled: requestEnable(true) result=" + rejectionToString(result));
             if (result == GantryRejection::None) {
                 // 下发 GantryPowerCommand 到驱动
                 if (power.hasPendingCommand() && drv) {
                     auto commResult = drv->send(power.popPendingCommand());
+                    LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                        m_groupName + " EnsuringEnabled: send power command, ok=" + std::to_string(commResult.ok()));
                     if (!commResult.ok()) {
+                        LOG_WARN(LogLayer::APP, "GantryOrch",
+                            m_groupName + " EnsuringEnabled -> Error: comm failed");
                         m_step = Step::Error;
                         m_lastError = commResult;
                         return;
                     }
                 }
+                LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                    m_groupName + " EnsuringEnabled -> WaitingEnabled");
                 m_step = Step::WaitingEnabled;
             } else {
+                LOG_WARN(LogLayer::APP, "GantryOrch",
+                    m_groupName + " EnsuringEnabled -> Error: rejected " + rejectionToString(result));
                 m_step = Step::Error;
                 m_lastError = result;
             }
@@ -137,33 +155,47 @@ public:
         }
 
         case Step::WaitingEnabled:
+            LOG_TRACE(LogLayer::APP, "GantryOrch",
+                m_groupName + " WaitingEnabled: power.isEnabled=" + std::to_string(power.isEnabled())
+                + " decoupleAfterEnable=" + std::to_string(m_decoupleAfterEnable));
             if (power.isEnabled()) {
                 if (m_decoupleAfterEnable) {
                     m_decoupleAfterEnable = false;
+                    LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                        m_groupName + " WaitingEnabled -> Decoupling (enableAndDecouple flow)");
                     m_step = Step::Decoupling;
                 } else {
+                    LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                        m_groupName + " WaitingEnabled -> Coupling");
                     m_step = Step::Coupling;
                 }
             }
-            // 其他状态继续等待（Enabling 尚未完成）
-            // 注意：即使 PLC 反馈 Disabled（使能失败），也继续等待，
-            //       GantryPowerController::applyFeedback 会如实反映物理状态
             break;
 
         case Step::Coupling: {
             auto result = coupling.requestCouple(true);
+            LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                m_groupName + " Coupling: requestCouple(true) result=" + rejectionToString(result));
             if (result == GantryRejection::None) {
                 // 下发 GantryCouplingCommand 到驱动
                 if (coupling.hasPendingCommand() && drv) {
                     auto commResult = drv->send(coupling.popPendingCommand());
+                    LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                        m_groupName + " Coupling: send coupling command, ok=" + std::to_string(commResult.ok()));
                     if (!commResult.ok()) {
+                        LOG_WARN(LogLayer::APP, "GantryOrch",
+                            m_groupName + " Coupling -> Error: comm failed");
                         m_step = Step::Error;
                         m_lastError = commResult;
                         return;
                     }
                 }
+                LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                    m_groupName + " Coupling -> WaitingCoupled");
                 m_step = Step::WaitingCoupled;
             } else {
+                LOG_WARN(LogLayer::APP, "GantryOrch",
+                    m_groupName + " Coupling -> Error: rejected " + rejectionToString(result));
                 m_step = Step::Error;
                 m_lastError = result;
             }
@@ -171,9 +203,17 @@ public:
         }
 
         case Step::WaitingCoupled:
+            LOG_TRACE(LogLayer::APP, "GantryOrch",
+                m_groupName + " WaitingCoupled: isCoupled=" + std::to_string(coupling.isCoupled())
+                + " hasError=" + std::to_string(coupling.hasError()));
             if (coupling.isCoupled()) {
+                LOG_INFO(LogLayer::APP, "GantryOrch",
+                    m_groupName + " WaitingCoupled -> Done (coupling confirmed by PLC)");
                 m_step = Step::Done;
             } else if (coupling.hasError()) {
+                LOG_WARN(LogLayer::APP, "GantryOrch",
+                    m_groupName + " WaitingCoupled -> Error: "
+                    + rejectionToString(coupling.getLastError()));
                 m_step = Step::Error;
                 m_lastError = coupling.getLastError();
             }
@@ -185,17 +225,27 @@ public:
 
         case Step::Decoupling: {
             auto result = coupling.requestCouple(false);
+            LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                m_groupName + " Decoupling: requestCouple(false) result=" + rejectionToString(result));
             if (result == GantryRejection::None) {
                 if (coupling.hasPendingCommand() && drv) {
                     auto commResult = drv->send(coupling.popPendingCommand());
+                    LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                        m_groupName + " Decoupling: send decoupling command, ok=" + std::to_string(commResult.ok()));
                     if (!commResult.ok()) {
+                        LOG_WARN(LogLayer::APP, "GantryOrch",
+                            m_groupName + " Decoupling -> Error: comm failed");
                         m_step = Step::Error;
                         m_lastError = commResult;
                         return;
                     }
                 }
+                LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                    m_groupName + " Decoupling -> WaitingDecoupled");
                 m_step = Step::WaitingDecoupled;
             } else {
+                LOG_WARN(LogLayer::APP, "GantryOrch",
+                    m_groupName + " Decoupling -> Error: rejected " + rejectionToString(result));
                 m_step = Step::Error;
                 m_lastError = result;
             }
@@ -203,14 +253,21 @@ public:
         }
 
         case Step::WaitingDecoupled:
+            LOG_TRACE(LogLayer::APP, "GantryOrch",
+                m_groupName + " WaitingDecoupled: isDecouplingRequested="
+                + std::to_string(coupling.isDecouplingRequested()));
             // 解耦操作 PLC 不返回错误码（errorCode 始终为 None），
             // 因此仅依赖 isDecouplingRequested 变为 false 判断解耦完成，
             // 不需要检查 hasError()。
             if (!coupling.isDecouplingRequested()) {
                 if (m_disableAfterDecouple) {
                     m_disableAfterDecouple = false;
+                    LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                        m_groupName + " WaitingDecoupled -> Disabling (stopCouplingAndDisable flow)");
                     m_step = Step::Disabling;
                 } else {
+                    LOG_INFO(LogLayer::APP, "GantryOrch",
+                        m_groupName + " WaitingDecoupled -> Done (decoupling confirmed)");
                     m_step = Step::Done;
                 }
             }
@@ -222,17 +279,27 @@ public:
 
         case Step::Disabling: {
             auto result = power.requestEnable(false);
+            LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                m_groupName + " Disabling: requestEnable(false) result=" + rejectionToString(result));
             if (result == GantryRejection::None) {
                 if (power.hasPendingCommand() && drv) {
                     auto commResult = drv->send(power.popPendingCommand());
+                    LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                        m_groupName + " Disabling: send power disable command, ok=" + std::to_string(commResult.ok()));
                     if (!commResult.ok()) {
+                        LOG_WARN(LogLayer::APP, "GantryOrch",
+                            m_groupName + " Disabling -> Error: comm failed");
                         m_step = Step::Error;
                         m_lastError = commResult;
                         return;
                     }
                 }
+                LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                    m_groupName + " Disabling -> WaitingDisabled");
                 m_step = Step::WaitingDisabled;
             } else {
+                LOG_WARN(LogLayer::APP, "GantryOrch",
+                    m_groupName + " Disabling -> Error: rejected " + rejectionToString(result));
                 m_step = Step::Error;
                 m_lastError = result;
             }
@@ -240,14 +307,36 @@ public:
         }
 
         case Step::WaitingDisabled:
+            LOG_TRACE(LogLayer::APP, "GantryOrch",
+                m_groupName + " WaitingDisabled: power.isEnabled=" + std::to_string(power.isEnabled()));
             if (!power.isEnabled()) {
+                LOG_INFO(LogLayer::APP, "GantryOrch",
+                    m_groupName + " WaitingDisabled -> Done (power off confirmed)");
                 m_step = Step::Done;
             }
             break;
 
         case Step::Done:
-        case Step::Error:
+            // 终态：tick 不再执行有效逻辑
             break;
+
+        case Step::Error:
+            // 终态：tick 不再执行有效逻辑
+            break;
+        }
+
+        // 记录状态转换日志（当 step 变化且不是终态重复时）
+        if (oldStep != m_step) {
+            LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                m_groupName + " step transition: " + stepToString(oldStep)
+                + " -> " + stepToString(m_step));
+            if (m_step == Step::Done) {
+                LOG_INFO(LogLayer::APP, "GantryOrch",
+                    m_groupName + " Flow completed successfully");
+            } else if (m_step == Step::Error) {
+                LOG_ERROR(LogLayer::APP, "GantryOrch",
+                    m_groupName + " Flow ended with error");
+            }
         }
     }
 
@@ -262,6 +351,24 @@ public:
      * @return UseCaseError variant，包含 ContextRejection / GantryRejection
      */
     UseCaseError lastError() const { return m_lastError; }
+
+    /// @brief Step 枚举转字符串（日志辅助）
+    static std::string stepToString(Step s) {
+        switch (s) {
+            case Step::Initial:          return "Initial";
+            case Step::EnsuringEnabled:  return "EnsuringEnabled";
+            case Step::WaitingEnabled:   return "WaitingEnabled";
+            case Step::Coupling:         return "Coupling";
+            case Step::WaitingCoupled:   return "WaitingCoupled";
+            case Step::Decoupling:       return "Decoupling";
+            case Step::WaitingDecoupled: return "WaitingDecoupled";
+            case Step::Disabling:        return "Disabling";
+            case Step::WaitingDisabled:  return "WaitingDisabled";
+            case Step::Done:             return "Done";
+            case Step::Error:            return "Error";
+            default: return "Unknown(" + std::to_string(static_cast<int>(s)) + ")";
+        }
+    }
 
 private:
     SystemManager& m_manager;

@@ -4,6 +4,15 @@
 #include <QString>
 #include <memory>
 #include <optional>
+#include <string>
+#include <chrono>
+#include <vector>
+#include <cstdint>
+#include <atomic>
+
+#include "infrastructure/logger/Logger.h"
+#include "infrastructure/logger/TraceScope.h"
+#include "domain/gantry/GantryRejection.h"
 
 class SystemManager;
 class GantryOrchestrator;
@@ -114,6 +123,9 @@ private:
 
     /// @brief 推进当前 orchestrator（如果存在）
     void advanceOrchestrator();
+
+    /// @brief 生成 TraceScope 的唯一 traceId
+    static std::string generateTraceId();
 
     /// @brief 将 Orchestrator::Step 翻译为 UI 可读文本
     static QString stepToText(int step);

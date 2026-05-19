@@ -44,7 +44,7 @@ public:
         Axis* axis = nullptr;
         ContextRejection ctxReason = ContextRejection::None;
         if (!group->tryGetAxis(axisId, axis, ctxReason)) {
-            return ctxReason;  // PhysicalAxisLockedByGantry / AxisNotRegistered / …
+            return ctxReason;  // PhysicalAxisLockedByGantry / AxisNotRegistered / ...
         }
 
         // ===== 阶段 2：轴领域层状态判定 =====
@@ -52,7 +52,7 @@ public:
             LOG_WARN(LogLayer::APP, "MoveRelUC",
                      "MoveRelative rejected. Reason code: "
                          + std::to_string(static_cast<int>(axis->lastRejection())));
-            return axis->lastRejection();  // RejectionReason::InvalidState / TargetOutOf… / At…Limit
+            return axis->lastRejection();  // RejectionReason::InvalidState / TargetOutOf... / At...Limit
         }
 
         // ===== 阶段 3：若产生了待发送命令，通过统一命令总线包装下发 =====

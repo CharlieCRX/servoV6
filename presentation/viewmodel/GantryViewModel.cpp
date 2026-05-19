@@ -5,6 +5,8 @@
 #include "domain/gantry/GantryCouplingController.h"
 #include "domain/gantry/GantryPowerController.h"
 #include "infrastructure/ISystemDriver.h"
+#include "infrastructure/logger/Logger.h"
+#include "infrastructure/logger/TraceScope.h"
 
 GantryViewModel::GantryViewModel(SystemManager& manager, const std::string& groupName,
                                  QObject* parent)
@@ -12,9 +14,14 @@ GantryViewModel::GantryViewModel(SystemManager& manager, const std::string& grou
     , m_manager(manager)
     , m_groupName(groupName)
 {
+    LOG_INFO(LogLayer::UI, "GantryVM",
+        m_groupName + " GantryViewModel created");
 }
 
-GantryViewModel::~GantryViewModel() = default;
+GantryViewModel::~GantryViewModel() {
+    LOG_DEBUG(LogLayer::UI, "GantryVM",
+        m_groupName + " GantryViewModel destroyed");
+}
 
 // ========== 状态投影查询 ==========
 
@@ -47,66 +54,131 @@ QString GantryViewModel::orchestratorStepText() const {
 // ========== 操作入口（Q_INVOKABLE） ==========
 
 void GantryViewModel::startCoupling() {
+    TraceScope scope(m_groupName, "Gantry", generateTraceId());
+    LOG_INFO(LogLayer::UI, "GantryVM",
+        m_groupName + " startCoupling requested");
+
     // 释放已完成的 orchestrator
     if (m_orchestrator && m_orchestrator->isDone()) {
+        LOG_DEBUG(LogLayer::UI, "GantryVM",
+            m_groupName + " startCoupling: releasing previous completed orchestrator");
         m_orchestrator.reset();
     }
 
     // 如果 orchestrator 尚在运行，忽略重复触发
     if (m_orchestrator && !m_orchestrator->isDone() && !m_orchestrator->hasError()) {
+        LOG_DEBUG(LogLayer::UI, "GantryVM",
+            m_groupName + " startCoupling: orchestrator still running, ignored");
         return;
     }
 
     // 创建新的 orchestrator 并启动联动
     m_orchestrator = std::make_unique<GantryOrchestrator>(m_manager, m_groupName);
     m_orchestrator->startCoupling();
+    LOG_DEBUG(LogLayer::UI, "GantryVM",
+        m_groupName + " startCoupling: orchestrator created and started");
 }
 
 void GantryViewModel::stopCouplingAndDisable() {
+    TraceScope scope(m_groupName, "Gantry", generateTraceId());
+    LOG_INFO(LogLayer::UI, "GantryVM",
+        m_groupName + " stopCouplingAndDisable requested");
+
     // 释放已完成的 orchestrator
     if (m_orchestrator && m_orchestrator->isDone()) {
+        LOG_DEBUG(LogLayer::UI, "GantryVM",
+            m_groupName + " stopCouplingAndDisable: releasing previous completed orchestrator");
         m_orchestrator.reset();
     }
 
     if (m_orchestrator && !m_orchestrator->isDone() && !m_orchestrator->hasError()) {
+        LOG_DEBUG(LogLayer::UI, "GantryVM",
+            m_groupName + " stopCouplingAndDisable: orchestrator still running, ignored");
         return;
     }
 
     m_orchestrator = std::make_unique<GantryOrchestrator>(m_manager, m_groupName);
     m_orchestrator->stopCouplingAndDisable();
+    LOG_DEBUG(LogLayer::UI, "GantryVM",
+        m_groupName + " stopCouplingAndDisable: orchestrator created and started");
 }
 
 void GantryViewModel::enableAndDecouple() {
+    TraceScope scope(m_groupName, "Gantry", generateTraceId());
+    LOG_INFO(LogLayer::UI, "GantryVM",
+        m_groupName + " enableAndDecouple requested");
+
     if (m_orchestrator && m_orchestrator->isDone()) {
+        LOG_DEBUG(LogLayer::UI, "GantryVM",
+            m_groupName + " enableAndDecouple: releasing previous completed orchestrator");
         m_orchestrator.reset();
     }
 
     if (m_orchestrator && !m_orchestrator->isDone() && !m_orchestrator->hasError()) {
+        LOG_DEBUG(LogLayer::UI, "GantryVM",
+            m_groupName + " enableAndDecouple: orchestrator still running, ignored");
         return;
     }
 
     m_orchestrator = std::make_unique<GantryOrchestrator>(m_manager, m_groupName);
     m_orchestrator->enableAndDecouple();
+    LOG_DEBUG(LogLayer::UI, "GantryVM",
+        m_groupName + " enableAndDecouple: orchestrator created and started");
 }
 
 void GantryViewModel::enable() {
+    TraceScope scope(m_groupName, "Gantry", generateTraceId());
+    LOG_INFO(LogLayer::UI, "GantryVM",
+        m_groupName + " enable requested");
+
     auto* ctx = getContext();
-    if (!ctx) return;
+    if (!ctx) {
+        LOG_ERROR(LogLayer::UI, "GantryVM",
+            m_groupName + " enable failed: context not found");
+        return;
+    }
 
     auto& power = ctx->gantryPowerController();
-    power.requestEnable(true);
+    auto result = power.requestEnable(true);
+    if (result != GantryRejection::None) {
+        LOG_WARN(LogLayer::UI, "GantryVM",
+            m_groupName + " enable rejected: " + rejectionToString(result));
+    } else {
+        LOG_DEBUG(LogLayer::UI, "GantryVM",
+            m_groupName + " enable accepted, pending="
+            + std::to_string(power.hasPendingCommand()));
+    }
 }
 
 void GantryViewModel::disable() {
+    TraceScope scope(m_groupName, "Gantry", generateTraceId());
+    LOG_INFO(LogLayer::UI, "GantryVM",
+        m_groupName + " disable requested");
+
     auto* ctx = getContext();
-    if (!ctx) return;
+    if (!ctx) {
+        LOG_ERROR(LogLayer::UI, "GantryVM",
+            m_groupName + " disable failed: context not found");
+        return;
+    }
 
     auto& power = ctx->gantryPowerController();
-    power.requestEnable(false);
+    auto result = power.requestEnable(false);
+    if (result != GantryRejection::None) {
+        LOG_WARN(LogLayer::UI, "GantryVM",
+            m_groupName + " disable rejected: " + rejectionToString(result));
+    } else {
+        LOG_DEBUG(LogLayer::UI, "GantryVM",
+            m_groupName + " disable accepted, pending="
+            + std::to_string(power.hasPendingCommand()));
+    }
 }
 
 bool GantryViewModel::verifyPassword(const QString& password) const {
-    return password == QString::fromLatin1(PASSWORD);
+    bool ok = password == QString::fromLatin1(PASSWORD);
+    LOG_DEBUG(LogLayer::UI, "GantryVM",
+        m_groupName + " verifyPassword: " + (ok ? "OK" : "FAILED"));
+    return ok;
 }
 
 // ========== 逐帧驱动 ==========
@@ -115,6 +187,12 @@ void GantryViewModel::tick() {
     advanceOrchestrator();
     refreshGantryState();
     refreshOrchestratorState();
+
+    LOG_TRACE_EVERY_N(100, LogLayer::UI, "GantryVM",
+        m_groupName + " tick: enabled=" + std::to_string(m_cachedEnabled)
+        + " coupled=" + std::to_string(m_cachedCoupled)
+        + " sync=" + std::to_string(m_cachedSynchronized)
+        + " orchBusy=" + std::to_string(m_cachedOrchestratorBusy));
 }
 
 // ========== 私有方法 ==========
@@ -137,7 +215,11 @@ void GantryViewModel::refreshGantryState() {
         if (m_cachedCoupled) { m_cachedCoupled = false; changed = true; }
         if (m_cachedDecoupledAndEnabled) { m_cachedDecoupledAndEnabled = false; changed = true; }
         if (m_cachedSynchronized) { m_cachedSynchronized = false; changed = true; }
-        if (changed) emit gantryStateChanged();
+        if (changed) {
+            LOG_DEBUG(LogLayer::UI, "GantryVM",
+                m_groupName + " refreshGantryState: context lost, all states reset to false");
+            emit gantryStateChanged();
+        }
         return;
     }
 
@@ -152,10 +234,14 @@ void GantryViewModel::refreshGantryState() {
     bool changed = false;
 
     if (m_cachedEnabled != enabled) {
+        LOG_DEBUG(LogLayer::UI, "GantryVM",
+            m_groupName + " enabled: " + std::to_string(m_cachedEnabled) + " -> " + std::to_string(enabled));
         m_cachedEnabled = enabled;
         changed = true;
     }
     if (m_cachedCoupled != coupled) {
+        LOG_DEBUG(LogLayer::UI, "GantryVM",
+            m_groupName + " coupled: " + std::to_string(m_cachedCoupled) + " -> " + std::to_string(coupled));
         m_cachedCoupled = coupled;
         changed = true;
     }
@@ -164,6 +250,8 @@ void GantryViewModel::refreshGantryState() {
         changed = true;
     }
     if (m_cachedSynchronized != synchronized) {
+        LOG_DEBUG(LogLayer::UI, "GantryVM",
+            m_groupName + " synchronized: " + std::to_string(m_cachedSynchronized) + " -> " + std::to_string(synchronized));
         m_cachedSynchronized = synchronized;
         changed = true;
     }
@@ -193,10 +281,15 @@ void GantryViewModel::refreshOrchestratorState() {
 
     bool changed = false;
     if (m_cachedOrchestratorBusy != busy) {
+        LOG_DEBUG(LogLayer::UI, "GantryVM",
+            m_groupName + " orchBusy: " + std::to_string(m_cachedOrchestratorBusy) + " -> " + std::to_string(busy));
         m_cachedOrchestratorBusy = busy;
         changed = true;
     }
     if (m_cachedOrchestratorStepText != stepText) {
+        LOG_DEBUG(LogLayer::UI, "GantryVM",
+            m_groupName + " orchStep: " + m_cachedOrchestratorStepText.toStdString()
+            + " -> " + stepText.toStdString());
         m_cachedOrchestratorStepText = stepText;
         changed = true;
     }
@@ -210,7 +303,14 @@ void GantryViewModel::advanceOrchestrator() {
     if (!m_orchestrator) return;
 
     // 终态不再推进
-    if (m_orchestrator->isDone() || m_orchestrator->hasError()) {
+    if (m_orchestrator->isDone()) {
+        LOG_TRACE_EVERY_N(50, LogLayer::UI, "GantryVM",
+            m_groupName + " advanceOrchestrator: orchestrator done");
+        return;
+    }
+    if (m_orchestrator->hasError()) {
+        LOG_TRACE_EVERY_N(50, LogLayer::UI, "GantryVM",
+            m_groupName + " advanceOrchestrator: orchestrator has error, stopped");
         return;
     }
 
@@ -219,18 +319,27 @@ void GantryViewModel::advanceOrchestrator() {
 
 QString GantryViewModel::stepToText(int step) {
     switch (step) {
-        case -1:                          return QStringLiteral("就绪");
-        case static_cast<int>(GantryOrchestrator::Step::Initial):          return QStringLiteral("待命");
-        case static_cast<int>(GantryOrchestrator::Step::EnsuringEnabled):  return QStringLiteral("正在使能龙门电机…");
-        case static_cast<int>(GantryOrchestrator::Step::WaitingEnabled):   return QStringLiteral("等待电机使能完成…");
-        case static_cast<int>(GantryOrchestrator::Step::Coupling):         return QStringLiteral("正在建立联动…");
-        case static_cast<int>(GantryOrchestrator::Step::WaitingCoupled):   return QStringLiteral("等待联动确认…");
-        case static_cast<int>(GantryOrchestrator::Step::Decoupling):       return QStringLiteral("正在解除联动…");
-        case static_cast<int>(GantryOrchestrator::Step::WaitingDecoupled): return QStringLiteral("等待解耦确认…");
-        case static_cast<int>(GantryOrchestrator::Step::Disabling):        return QStringLiteral("正在关闭龙门电机…");
-        case static_cast<int>(GantryOrchestrator::Step::WaitingDisabled):  return QStringLiteral("等待电机掉电完成…");
-        case static_cast<int>(GantryOrchestrator::Step::Done):             return QStringLiteral("完成");
-        case static_cast<int>(GantryOrchestrator::Step::Error):            return QStringLiteral("出错");
-        default:                           return QStringLiteral("未知");
+        case -1:                          return QStringLiteral("Ready");
+        case static_cast<int>(GantryOrchestrator::Step::Initial):          return QStringLiteral("Standby");
+        case static_cast<int>(GantryOrchestrator::Step::EnsuringEnabled):  return QStringLiteral("Enabling gantry motors...");
+        case static_cast<int>(GantryOrchestrator::Step::WaitingEnabled):   return QStringLiteral("Waiting for motors enable...");
+        case static_cast<int>(GantryOrchestrator::Step::Coupling):         return QStringLiteral("Coupling...");
+        case static_cast<int>(GantryOrchestrator::Step::WaitingCoupled):   return QStringLiteral("Waiting for coupled confirmation...");
+        case static_cast<int>(GantryOrchestrator::Step::Decoupling):       return QStringLiteral("Decoupling...");
+        case static_cast<int>(GantryOrchestrator::Step::WaitingDecoupled): return QStringLiteral("Waiting for decoupled confirmation...");
+        case static_cast<int>(GantryOrchestrator::Step::Disabling):        return QStringLiteral("Disabling gantry motors...");
+        case static_cast<int>(GantryOrchestrator::Step::WaitingDisabled):  return QStringLiteral("Waiting for motors disable...");
+        case static_cast<int>(GantryOrchestrator::Step::Done):             return QStringLiteral("Done");
+        case static_cast<int>(GantryOrchestrator::Step::Error):            return QStringLiteral("Error");
+        default:                           return QStringLiteral("Unknown");
     }
+}
+
+/// @brief 生成 TraceScope 的唯一 traceId（基于纳秒时间戳 + 原子计数器）
+std::string GantryViewModel::generateTraceId() {
+    static std::atomic<uint64_t> counter{0};
+    auto now = std::chrono::steady_clock::now();
+    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        now.time_since_epoch()).count();
+    return "Gantry_" + std::to_string(ns) + "_" + std::to_string(++counter);
 }

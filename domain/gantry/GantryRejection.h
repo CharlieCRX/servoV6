@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 // 与 PLC 定义的联动拒绝原因（Gantry_Error_Code）保持一致，且扩展领域逻辑层的内部状态冲突等拦截原因
 enum class GantryRejection {
     None = 0,
@@ -15,3 +17,19 @@ enum class GantryRejection {
     NotSynchronized = 102,         // 状态机尚未与 PLC 物理状态同步，拒绝操作
     UnknownError = 999
 };
+
+/// @brief GantryRejection 转字符串（日志辅助）
+inline std::string rejectionToString(GantryRejection r) {
+    switch (r) {
+        case GantryRejection::None:                      return "None";
+        case GantryRejection::PositionToleranceExceeded:return "PositionToleranceExceeded";
+        case GantryRejection::X1NotEnabled:             return "X1NotEnabled";
+        case GantryRejection::X2NotEnabled:             return "X2NotEnabled";
+        case GantryRejection::X1NotStationary:          return "X1NotStationary";
+        case GantryRejection::X2NotStationary:          return "X2NotStationary";
+        case GantryRejection::StateConflict:             return "StateConflict";
+        case GantryRejection::NotSynchronized:           return "NotSynchronized";
+        case GantryRejection::UnknownError:              return "UnknownError";
+        default: return "Unknown(" + std::to_string(static_cast<int>(r)) + ")";
+    }
+}
