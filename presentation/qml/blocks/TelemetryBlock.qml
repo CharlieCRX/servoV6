@@ -44,10 +44,18 @@ Rectangle {
         }
     }
 
-    // --- UI 布局 (Flickable 包裹以适配小屏幕) ---
+
+    // --- 上部分：可滚动内容区 ---
     Flickable {
-        anchors.fill: parent
-        anchors.margins: 6 * Theme.scale
+        id: flickArea
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: limitBar.top
+        anchors.leftMargin: 6 * Theme.scale
+        anchors.rightMargin: 6 * Theme.scale
+        anchors.topMargin: 6 * Theme.scale
+        anchors.bottomMargin: 2 * Theme.scale
         contentWidth: width
         contentHeight: contentColumn.implicitHeight
         clip: true
@@ -291,67 +299,72 @@ Rectangle {
             }
         }
 
-        // ===== 6. 限位进度条 =====
-        ColumnLayout {
+        }  // end ColumnLayout
+    }  // end Flickable
+
+    // ===== 底部固定：限位进度条（真正紧贴底部边框）=====
+    ColumnLayout {
+        id: limitBar
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: 6 * Theme.scale
+        anchors.rightMargin: 6 * Theme.scale
+        anchors.bottomMargin: 3 * Theme.scale
+        spacing: 3 * Theme.scale
+
+        Rectangle {
+            id: trackBar
             Layout.fillWidth: true
-            Layout.topMargin: 8 * Theme.scale
-            spacing: 5 * Theme.scale
+            height: 8 * Theme.scale
+            radius: height / 2
+            color: Theme.bgDark
+            border.color: Theme.borderMain
+            border.width: 1
+
+            readonly property double safePos: viewModel ? viewModel.absPos : 0.0
+            readonly property double safePLim: (viewModel && viewModel.posLimit < 999999) ? viewModel.posLimit : 1000.0
+            readonly property double safeNLim: (viewModel && viewModel.negLimit > -999999) ? viewModel.negLimit : -1000.0
+
+            readonly property double progressRatio: {
+                let range = safePLim - safeNLim;
+                if (range <= 0) return 0.5;
+                return Math.max(0.0, Math.min(1.0, (safePos - safeNLim) / range));
+            }
 
             Rectangle {
-                id: trackBar
-                Layout.fillWidth: true
-                height: 8 * Theme.scale
-                radius: height / 2
-                color: Theme.bgDark
-                border.color: Theme.borderMain
-                border.width: 1
-
-                readonly property double safePos: viewModel ? viewModel.absPos : 0.0
-                readonly property double safePLim: (viewModel && viewModel.posLimit < 999999) ? viewModel.posLimit : 1000.0
-                readonly property double safeNLim: (viewModel && viewModel.negLimit > -999999) ? viewModel.negLimit : -1000.0
-
-                readonly property double progressRatio: {
-                    let range = safePLim - safeNLim;
-                    if (range <= 0) return 0.5;
-                    return Math.max(0.0, Math.min(1.0, (safePos - safeNLim) / range));
-                }
-
-                Rectangle {
-                    width: parent.width * parent.progressRatio
-                    height: parent.height
-                    radius: parent.radius
-                    color: Theme.colorMoving
-                    Behavior on width {
-                        NumberAnimation { duration: 100; easing.type: Easing.OutQuad }
-                    }
-                }
-
-                Rectangle {
-                    x: parent.width * parent.progressRatio - width / 2
-                    y: -4 * Theme.scale
-                    width: 4 * Theme.scale
-                    height: 16 * Theme.scale
-                    color: Theme.textMain
-                    radius: 2
+                width: parent.width * parent.progressRatio
+                height: parent.height
+                radius: parent.radius
+                color: Theme.colorMoving
+                Behavior on width {
+                    NumberAnimation { duration: 100; easing.type: Easing.OutQuad }
                 }
             }
 
-            RowLayout {
-                Layout.fillWidth: true
-                Text {
-                    text: viewModel && viewModel.negLimit > -999999 ? "负限位: " + viewModel.negLimit : "负限位: 未设"
-                    color: Theme.textDim
-                    font.pixelSize: Theme.fontSmall
-                }
-                Item { Layout.fillWidth: true }
-                Text {
-                    text: viewModel && viewModel.posLimit < 999999 ? "正限位: " + viewModel.posLimit : "正限位: 未设"
-                    color: Theme.textDim
-                    font.pixelSize: Theme.fontSmall
-                }
+            Rectangle {
+                x: parent.width * parent.progressRatio - width / 2
+                y: -4 * Theme.scale
+                width: 4 * Theme.scale
+                height: 16 * Theme.scale
+                color: Theme.textMain
+                radius: 2
             }
         }
 
-        }  // end ColumnLayout
-    }  // end Flickable
+        RowLayout {
+            Layout.fillWidth: true
+            Text {
+                text: viewModel && viewModel.negLimit > -999999 ? "负限位: " + viewModel.negLimit : "负限位: 未设"
+                color: Theme.textDim
+                font.pixelSize: Theme.fontSmall
+            }
+            Item { Layout.fillWidth: true }
+            Text {
+                text: viewModel && viewModel.posLimit < 999999 ? "正限位: " + viewModel.posLimit : "正限位: 未设"
+                color: Theme.textDim
+                font.pixelSize: Theme.fontSmall
+            }
+        }
+    }
 }

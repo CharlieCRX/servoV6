@@ -179,6 +179,9 @@ Rectangle {
                     onReleased: if(viewModel && root.jogEnabled) viewModel.jogPositiveReleased()
                 }
 
+                // JOG+ / JOG- 间隙
+                Item { Layout.preferredHeight: 8 * Theme.scale }
+
                 // JOG- 按钮
                 IndustrialButton {
                     text: "JOG -"

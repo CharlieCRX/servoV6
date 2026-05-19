@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 import servoV6
 
@@ -32,93 +33,98 @@ Rectangle {
             Layout.alignment: Qt.AlignHCenter
         }
 
-        // 2. 轴选择列表（6轴全覆盖）
-        ColumnLayout {
+        // 2. 轴选择列表（6轴全覆盖，可滑动）
+        ScrollView {
             Layout.fillWidth: true
-            spacing: 10 * Theme.scale
+            Layout.fillHeight: true
+            clip: true
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
-            // --- Y 轴 ---
-            AxisItemDelegate {
-                name: "Y 轴 (水平)"
-                isActive: root.currentAxisName === "Y"
-                statusText: isActive ? "控制中" : "待机"
-                enabled: !root.locked
-                opacity: enabled ? 1.0 : 0.4
-                onClicked: {
-                    root.currentAxisName = "Y"
-                    root.axisChanged("Y")
+            ColumnLayout {
+                width: parent.width
+                spacing: 10 * Theme.scale
+
+                // --- Y 轴 ---
+                AxisItemDelegate {
+                    name: "Y 轴 (水平)"
+                    isActive: root.currentAxisName === "Y"
+                    statusText: isActive ? "控制中" : "待机"
+                    enabled: !root.locked
+                    opacity: enabled ? 1.0 : 0.4
+                    onClicked: {
+                        root.currentAxisName = "Y"
+                        root.axisChanged("Y")
+                    }
                 }
-            }
 
-            // --- Z 轴 ---
-            AxisItemDelegate {
-                name: "Z 轴 (垂直)"
-                isActive: root.currentAxisName === "Z"
-                statusText: isActive ? "控制中" : "待机"
-                enabled: !root.locked
-                opacity: enabled ? 1.0 : 0.4
-                onClicked: {
-                    root.currentAxisName = "Z"
-                    root.axisChanged("Z")
+                // --- Z 轴 ---
+                AxisItemDelegate {
+                    name: "Z 轴 (垂直)"
+                    isActive: root.currentAxisName === "Z"
+                    statusText: isActive ? "控制中" : "待机"
+                    enabled: !root.locked
+                    opacity: enabled ? 1.0 : 0.4
+                    onClicked: {
+                        root.currentAxisName = "Z"
+                        root.axisChanged("Z")
+                    }
                 }
-            }
 
-            // --- R 轴 ---
-            AxisItemDelegate {
-                name: "R 轴 (旋转)"
-                isActive: root.currentAxisName === "R"
-                statusText: isActive ? "控制中" : "待机"
-                enabled: !root.locked
-                opacity: enabled ? 1.0 : 0.4
-                onClicked: {
-                    root.currentAxisName = "R"
-                    root.axisChanged("R")
+                // --- R 轴 ---
+                AxisItemDelegate {
+                    name: "R 轴 (旋转)"
+                    isActive: root.currentAxisName === "R"
+                    statusText: isActive ? "控制中" : "待机"
+                    enabled: !root.locked
+                    opacity: enabled ? 1.0 : 0.4
+                    onClicked: {
+                        root.currentAxisName = "R"
+                        root.axisChanged("R")
+                    }
                 }
-            }
 
-            // --- X 轴（逻辑龙门轴） ---
-            AxisItemDelegate {
-                name: "X 轴 (龙门逻辑)"
-                isActive: root.currentAxisName === "X"
-                statusText: isActive ? "控制中" : "待机"
-                isDual: true
-                enabled: !root.locked
-                opacity: enabled ? 1.0 : 0.4
-                onClicked: {
-                    root.currentAxisName = "X"
-                    root.axisChanged("X")
+                // --- X 轴（逻辑龙门轴） ---
+                AxisItemDelegate {
+                    name: "X 轴 (龙门逻辑)"
+                    isActive: root.currentAxisName === "X"
+                    statusText: isActive ? "控制中" : "待机"
+                    isDual: true
+                    enabled: !root.locked
+                    opacity: enabled ? 1.0 : 0.4
+                    onClicked: {
+                        root.currentAxisName = "X"
+                        root.axisChanged("X")
+                    }
                 }
-            }
 
-            Item { height: 10 * Theme.scale } // 分隔线
+                Item { height: 10 * Theme.scale } // 分隔线
 
-            // --- X1 轴（物理龙门轴1） ---
-            AxisItemDelegate {
-                name: "X1 轴 (物理)"
-                isActive: root.currentAxisName === "X1"
-                statusText: isActive ? "控制中" : "待机"
-                enabled: !root.locked
-                opacity: enabled ? 1.0 : 0.4
-                onClicked: {
-                    root.currentAxisName = "X1"
-                    root.axisChanged("X1")
+                // --- X1 轴（物理龙门轴1） ---
+                AxisItemDelegate {
+                    name: "X1 轴 (物理)"
+                    isActive: root.currentAxisName === "X1"
+                    statusText: isActive ? "控制中" : "待机"
+                    enabled: !root.locked
+                    opacity: enabled ? 1.0 : 0.4
+                    onClicked: {
+                        root.currentAxisName = "X1"
+                        root.axisChanged("X1")
+                    }
                 }
-            }
 
-            // --- X2 轴（物理龙门轴2） ---
-            AxisItemDelegate {
-                name: "X2 轴 (物理)"
-                isActive: root.currentAxisName === "X2"
-                statusText: isActive ? "控制中" : "待机"
-                enabled: !root.locked
-                opacity: enabled ? 1.0 : 0.4
-                onClicked: {
-                    root.currentAxisName = "X2"
-                    root.axisChanged("X2")
+                // --- X2 轴（物理龙门轴2） ---
+                AxisItemDelegate {
+                    name: "X2 轴 (物理)"
+                    isActive: root.currentAxisName === "X2"
+                    statusText: isActive ? "控制中" : "待机"
+                    enabled: !root.locked
+                    opacity: enabled ? 1.0 : 0.4
+                    onClicked: {
+                        root.currentAxisName = "X2"
+                        root.axisChanged("X2")
+                    }
                 }
-            }
-        }
-
-        Item { Layout.fillHeight: true } // 底部弹簧
-    }
+            } // end inner ColumnLayout
+        } // end ScrollView
+    } // end outer ColumnLayout
 }
