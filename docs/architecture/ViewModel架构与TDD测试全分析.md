@@ -29,7 +29,7 @@
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │  QML 呈现层                                                      │
-│  MainDashboard → AxisSelectorBlock / ActionControlBlock /        │
+│  MainDashboard -> AxisSelectorBlock / ActionControlBlock /        │
 │                  TelemetryBlock                                  │
 └──────────────────────────┬───────────────────────────────────────┘
                            │ Q_PROPERTY 绑定 / Q_INVOKABLE 调用
@@ -39,7 +39,7 @@
 │  ┌─────────────────────────────────────────────────────────────┐ │
 │  │  · 缓存节流 (Cache & Throttle)                              │ │
 │  │  · EPSILON 阈值比较 (0.001)                                 │ │
-│  │  · 纯转发：Q_INVOKABLE → AxisViewModelCore::xxx()          │ │
+│  │  · 纯转发：Q_INVOKABLE -> AxisViewModelCore::xxx()          │ │
 │  └───────────┬─────────────────────────────────────────────────┘ │
 └──────────────┼──────────────────────────────────────────────────┘
                │ 委托调用
@@ -77,16 +77,16 @@
 |------|------|------|------|
 | `AxisViewModelCore.h/.cpp` | Core | 纯 C++ 核心：状态投影 + 控制转发 + Tick 驱动 + 错误收集 | SystemManager, UseCases, Orchestrators, Axis |
 | `QtAxisViewModel.h/.cpp` | Qt Adapter | Qt 适配：Q_PROPERTY 映射 + Q_INVOKABLE 转发 + 信号发射 + 缓存节流 | AxisViewModelCore, QObject |
-| `ErrorTranslator.h/.cpp` | Translation | UseCaseError → ViewModelError 翻译函数 | UseCaseError, ViewModelError |
+| `ErrorTranslator.h/.cpp` | Translation | UseCaseError -> ViewModelError 翻译函数 | UseCaseError, ViewModelError |
 | `ViewModelError.h` | Data | 错误结构体定义 (code, userMessage, debugMessage, category) | (独立头文件) |
 
 ### 1.3 构建依赖
 
 ```
-presentation/  ──→  domain/ (Axis, SystemContext, AxisId...)
-             ──→  application/ (UseCases, Orchestrators)
-             ──→  infrastructure/ (ISystemDriver — 仅 CommunicationResult)
-             ──→  Qt6::Core (仅 QtAxisViewModel)
+presentation/  ──->  domain/ (Axis, SystemContext, AxisId...)
+             ──->  application/ (UseCases, Orchestrators)
+             ──->  infrastructure/ (ISystemDriver -- 仅 CommunicationResult)
+             ──->  Qt6::Core (仅 QtAxisViewModel)
 ```
 
 **关键约束：** `AxisViewModelCore` 不依赖 Qt，使得其核心逻辑可被任意 C++ 框架复用，且可直接通过 Google Test 验证（无需 Qt 运行时）。
@@ -181,7 +181,7 @@ void AxisViewModelCore::moveAbsolute(double targetPos) {
 **适用：** `jog()`, `jogStop()`, `moveAbsolute()`, `moveRelative()`  
 **特征：**
 - 编排器内部持有 `SystemManager&` + `groupName`
-- 自动处理多步流程（如 `Disabled → Enable → Move → Disable`）
+- 自动处理多步流程（如 `Disabled -> Enable -> Move -> Disable`）
 - 错误在 `tick()` 中通过 `hasError()` 收集
 
 #### 路径 C：直接 Axis 操作（无 UseCase/Orchestrator）
@@ -238,9 +238,9 @@ void AxisViewModelCore::tick() {
 
 **三步执行逻辑：**
 
-1. **状态推进** — 驱动所有 Orchestrator 内部状态机向前流转
-2. **错误收集** — 检查每个 Orchestrator 的 `hasError()`，翻译并覆盖存储
-3. **命令消费** — 零位/速度类命令在此处下发（运动类命令由 Orchestrator 负责）
+1. **状态推进** -- 驱动所有 Orchestrator 内部状态机向前流转
+2. **错误收集** -- 检查每个 Orchestrator 的 `hasError()`，翻译并覆盖存储
+3. **命令消费** -- 零位/速度类命令在此处下发（运动类命令由 Orchestrator 负责）
 
 **关键设计取舍：**
 
@@ -248,7 +248,7 @@ void AxisViewModelCore::tick() {
 |------|------|------|
 | 零位命令在 tick 中下发 | 而非在操作函数中直接下发 | 保持操作函数轻量，统一消费时机 |
 | 错误优先级策略 | 后发生的覆盖之前的 | 简单可预测，但可能丢失前序错误 |
-| Orchestrator 驱动顺序 | Jog → Abs → Rel | 固定顺序，避免不确定性 |
+| Orchestrator 驱动顺序 | Jog -> Abs -> Rel | 固定顺序，避免不确定性 |
 
 ### 2.5 stop() 的特殊处理
 
@@ -265,7 +265,7 @@ void AxisViewModelCore::stop() {
 }
 ```
 
-**特殊性：** `stop()` 是唯一需要**同时与 UseCase 和 Orchestrator 交互**的操作——既要直接停硬件，又要通知编排器状态回退。
+**特殊性：** `stop()` 是唯一需要**同时与 UseCase 和 Orchestrator 交互**的操作----既要直接停硬件，又要通知编排器状态回退。
 
 ---
 
@@ -297,24 +297,24 @@ class QtAxisViewModel : public QObject {
 void QtAxisViewModel::tick() {
     m_core->tick();
 
-    #1# — state ---
+    #1# -- state ---
     AxisState currentState = m_core->state();
     if (currentState != m_lastState) {
         m_lastState = currentState;
         emit stateChanged();
     }
 
-    #2# — absPos (带 EPSILON 阈值) ---
+    #2# -- absPos (带 EPSILON 阈值) ---
     double currentAbsPos = m_core->absPos();
     if (std::abs(currentAbsPos - m_lastAbsPos) > EPSILON) {  // ε = 0.001
         m_lastAbsPos = currentAbsPos;
         emit absPosChanged();
     }
 
-    #3# — relPos (带 EPSILON 阈值) ---
+    #3# -- relPos (带 EPSILON 阈值) ---
     ...
 
-    #4# — error (布尔变化检测) ---
+    #4# -- error (布尔变化检测) ---
     bool currentHasError = m_core->hasError();
     if (currentHasError != m_lastHasError) {
         m_lastHasError = currentHasError;
@@ -394,8 +394,8 @@ using UseCaseError = std::variant<
 
 ```cpp
 struct ViewModelError {
-    std::string code;         // "AXIS_AT_POSITIVE_LIMIT" — 机器可读
-    std::string userMessage;  // "轴已到达正向限位" — 用户可读（中文）
+    std::string code;         // "AXIS_AT_POSITIVE_LIMIT" -- 机器可读
+    std::string userMessage;  // "轴已到达正向限位" -- 用户可读（中文）
     std::string debugMessage; // 调试用详细诊断信息
     ErrorCategory category;   // Inline / Modal / Silent
 };
@@ -413,7 +413,7 @@ struct ViewModelError {
 
 `ErrorTranslator::translate()` 使用 `std::visit` + `if constexpr` 模式，编译器保证所有分支覆盖。
 
-#### ✅ **Axis 领域层 (RejectionReason) — 7 个分支**
+#### ✅ **Axis 领域层 (RejectionReason) -- 7 个分支**
 
 | 枚举值 | `code` | `category` |
 |--------|--------|-----------|
@@ -426,7 +426,7 @@ struct ViewModelError {
 | `RejectionReason::InvalidArgument` | `AXIS_INVALID_ARGUMENT` | Inline |
 | `RejectionReason::UnknownError / None` | `AXIS_UNKNOWN_ERROR` | Modal |
 
-#### ✅ **系统上下文层 (ContextRejection) — 10 个分支**
+#### ✅ **系统上下文层 (ContextRejection) -- 10 个分支**
 
 | 枚举值 | `code` | `category` |
 |--------|--------|-----------|
@@ -441,7 +441,7 @@ struct ViewModelError {
 | `ContextRejection::DriverNotReady` | `CTX_DRIVER_NOT_READY` | Modal |
 | `ContextRejection::None` | `CTX_UNKNOWN_ERROR` | Modal |
 
-#### ✅ **通讯层 (CommunicationResult) — 7 个分支**
+#### ✅ **通讯层 (CommunicationResult) -- 7 个分支**
 
 | 枚举值 | `code` | `category` | 备注 |
 |--------|--------|-----------|------|
@@ -453,7 +453,7 @@ struct ViewModelError {
 | `Disconnected` | `COMM_DISCONNECTED` | Modal | 严重连接问题 |
 | `Sent` (default) | `COMM_UNKNOWN` | Modal | 不应出现的分支 |
 
-#### ✅ **龙门联动层 (GantryRejection) — 8 个分支**
+#### ✅ **龙门联动层 (GantryRejection) -- 8 个分支**
 
 | 枚举值 | `code` | `category` |
 |--------|--------|-----------|
@@ -467,7 +467,7 @@ struct ViewModelError {
 | `GantryRejection::NotSynchronized` | `GANTRY_NOT_SYNCED` | Modal |
 | `GantryRejection::UnknownError` | `GANTRY_UNKNOWN` | Modal |
 
-#### ✅ **安全域急停层 (SafetyRejection) — 6 个分支**
+#### ✅ **安全域急停层 (SafetyRejection) -- 6 个分支**
 
 | 枚举值 | `code` | `category` |
 |--------|--------|-----------|
@@ -530,13 +530,13 @@ protected:
 **测试具（Fixture）Setup 流程：**
 
 ```
-1. createGroup("Machine_Test")        → 创建分组
-2. ctx->setDriver(&driver)             → 绑定驱动
-3. plc.forceState(Y, Disabled)         → 初始状态
-4. plc.setSimulatedMoveVelocity(Y, 25) → 速度预设
-5. driver.pollFeedback(*ctx)           → 硬件 → 领域同步
-6. vm = new AxisViewModelCore(mgr, ..) → 创建被测对象
-7. vm->setJogVelocity(20)             → 初始速度设置
+1. createGroup("Machine_Test")        -> 创建分组
+2. ctx->setDriver(&driver)             -> 绑定驱动
+3. plc.forceState(Y, Disabled)         -> 初始状态
+4. plc.setSimulatedMoveVelocity(Y, 25) -> 速度预设
+5. driver.pollFeedback(*ctx)           -> 硬件 -> 领域同步
+6. vm = new AxisViewModelCore(mgr, ..) -> 创建被测对象
+7. vm->setJogVelocity(20)             -> 初始速度设置
 ```
 
 ### 5.3 测试用例映射矩阵
@@ -545,17 +545,17 @@ protected:
 |---|---------|---------|---------|------|
 | 1 | `ShouldReflectInitialDisabledState` | 初始状态映射 | 断言 state=Disabled, absPos=0, no Error | 投影 |
 | 2 | `ShouldEnableAxisAndReflectState` | 使能生命周期 | waitUntil(state=Idle), assert no Error, 确认领域层一致 | 控制 |
-| 3 | `ShouldExecuteJogForwardLifecycle` | 正向点动全生命周期 | 使能→Jogging→位移>5mm→停止→Disabled→不漂移 | 编排 |
-| 4 | `ShouldExecuteJogBackwardLifecycle` | 反向点动全生命周期 | 正向→反向→位置回落>1mm | 编排 |
+| 3 | `ShouldExecuteJogForwardLifecycle` | 正向点动全生命周期 | 使能->Jogging->位移>5mm->停止->Disabled->不漂移 | 编排 |
+| 4 | `ShouldExecuteJogBackwardLifecycle` | 反向点动全生命周期 | 正向->反向->位置回落>1mm | 编排 |
 | 5 | `ShouldCompleteAbsoluteMoveEndToEnd` | 绝对定位全生命周期 | target=100, waitUntil(Disabled), 精度±0.01 | 编排 |
 | 6 | `ShouldCompleteRelativeMoveEndToEnd` | 相对定位全生命周期 | 两段定位 50+30=80, 精度±0.01 | 编排 |
 | 7 | `ShouldHaltImmediatelyWhenStopPressed` | 急停中断运动 | 运动中 stop, 位置截断<700, 停止后不漂移 | 干预 |
 | 8 | `ShouldRejectMoveWhenDisabled` | Disabled 状态可运动（编排器自动使能） | 验证 Orchestrator 自动完成全流程 | 编排 |
-| 9 | `ShouldReportAndClearErrors` | 错误接口 | hasError=false→clearError 幂等 | 错误 |
-| 10 | `ShouldHandleZeroOperations` | 零位操作 | setRelativeZero→relPos≈0→zeroAbsolute→absPos≈0→clearRelative | 操作 |
+| 9 | `ShouldReportAndClearErrors` | 错误接口 | hasError=false->clearError 幂等 | 错误 |
+| 10 | `ShouldHandleZeroOperations` | 零位操作 | setRelativeZero->relPos≈0->zeroAbsolute->absPos≈0->clearRelative | 操作 |
 | 11 | `ShouldReflectLimits` | 限位反射 | posLimit=1000, negLimit=-1000 | 投影 |
 | 12 | `ShouldSetAndReflectVelocity` | 速度设置 | setJogVelocity(50), setMoveVelocity(60) | 操作 |
-| 13 | `ShouldReportIsEnabledCorrectly` | isEnabled 属性 | Disabled=false, Idle=true, Disable→false | 投影 |
+| 13 | `ShouldReportIsEnabledCorrectly` | isEnabled 属性 | Disabled=false, Idle=true, Disable->false | 投影 |
 
 ### 5.4 关键测试模式分析
 
@@ -570,7 +570,7 @@ TEST_F(AxisViewModelCoreTest, ShouldExecuteJogForwardLifecycle) {
     vm->jog(Direction::Forward);
     ASSERT_TRUE(waitUntil([this]() { return vm->state() == AxisState::Jogging; }));
 
-    advanceTime(500);  // 500ms 点动 → 产生位移
+    advanceTime(500);  // 500ms 点动 -> 产生位移
     EXPECT_GT(vm->absPos(), startPos + 5.0);  // 位移验证
 
     vm->jogStop(Direction::Forward);
@@ -623,7 +623,7 @@ TEST_F(AxisViewModelCoreTest, ShouldReportAndClearErrors) {
 }
 ```
 
-**注意：** 错误接口的测试相对薄弱——缺少真正触发错误的场景（如跳转到 Inline/Modal 错误分支的验证）。
+**注意：** 错误接口的测试相对薄弱----缺少真正触发错误的场景（如跳转到 Inline/Modal 错误分支的验证）。
 
 ### 5.5 ErrorTranslator 测试分析（全覆盖验证）
 
@@ -673,18 +673,18 @@ TEST_F(ErrorTranslatorTest, RejectionReason_InvalidState) {
     ↓
 ④ JogOrchestrator::startJog(AxisId::Y, Forward)
     ↓
-⑤ (子状态机: EnsuringEnabled → IssuingStart → WaitingMotionStart → Jogging)
+⑤ (子状态机: EnsuringEnabled -> IssuingStart -> WaitingMotionStart -> Jogging)
     ↓
-⑥ FakeAxisDriver::send(JogCommand)  →  FakePLC 物理引擎
+⑥ FakeAxisDriver::send(JogCommand)  ->  FakePLC 物理引擎
     ↓
 ⑦ [tick() 循环中]
    AxisViewModelCore::tick()
-     → JogOrchestrator::tick()
-     → driver.pollFeedback(*ctx)  [由上层循环调用，不在 ViewModel 内部]
+     -> JogOrchestrator::tick()
+     -> driver.pollFeedback(*ctx)  [由上层循环调用，不在 ViewModel 内部]
     ↓
 ⑧ QtAxisViewModel::tick()
-     → 缓存比较: state 变化 → emit stateChanged()
-     → 缓存比较: absPos 差异 > 0.001 → emit absPosChanged()
+     -> 缓存比较: state 变化 -> emit stateChanged()
+     -> 缓存比较: absPos 差异 > 0.001 -> emit absPosChanged()
     ↓
 ⑨ QML 绑定自动更新 UI
 ```
@@ -697,7 +697,7 @@ TEST_F(ErrorTranslatorTest, RejectionReason_InvalidState) {
 ├─ [外部定时器回调]
 │
 ├─ 1. SystemManager::pollAll()           ← 不在 ViewModel 内，在上层管理
-│      └─ driver.pollFeedback(ctx)       ← 硬件→领域同步
+│      └─ driver.pollFeedback(ctx)       ← 硬件->领域同步
 │
 ├─ 2. AxisViewModelCore::tick()
 │      ├─ jogOrch->tick()                ← 点动状态机推进
@@ -708,9 +708,9 @@ TEST_F(ErrorTranslatorTest, RejectionReason_InvalidState) {
 │
 ├─ 3. QtAxisViewModel::tick()
 │      ├─ core->tick()                   ← 以上所有
-│      └─ 缓存比较 → emit signals
+│      └─ 缓存比较 -> emit signals
 │
-└─ 4. QML 引擎处理信号 → UI 更新
+└─ 4. QML 引擎处理信号 -> UI 更新
 ```
 
 ---
@@ -721,9 +721,9 @@ TEST_F(ErrorTranslatorTest, RejectionReason_InvalidState) {
 |---|------|---------|------|---------|
 | 1 | **Adapter（适配器）** | `QtAxisViewModel` 封装 `AxisViewModelCore` | 桥接纯 C++ 核心与 Qt 属性系统 | 内部持有 m_core 指针，Q_PROPERTY 读取 m_core 状态 |
 | 2 | **Mediator（中介者）** | `AxisViewModelCore` 作为中介 | 协调 UseCase、Orchestrator、ErrorTranslator 的交互 | 统一控制入口，tick() 驱动所有编排器 |
-| 3 | **Anti-Corruption Layer（防腐层）** | `ErrorTranslator` | 隔离领域层错误枚举与 UI 层 | UseCaseError variant → ViewModelError struct |
-| 4 | **Command（命令）** | 控制方法 → UseCase/Orchestrator | 将 UI 操作封装为命令对象 | 每个 UI 操作委托到对应的 Application 组件 |
-| 5 | **Observer（观察者）** | Qt 信号 → QML 绑定 | 状态变化自动通知 UI 更新 | Q_PROPERTY NOTIFY signals |
+| 3 | **Anti-Corruption Layer（防腐层）** | `ErrorTranslator` | 隔离领域层错误枚举与 UI 层 | UseCaseError variant -> ViewModelError struct |
+| 4 | **Command（命令）** | 控制方法 -> UseCase/Orchestrator | 将 UI 操作封装为命令对象 | 每个 UI 操作委托到对应的 Application 组件 |
+| 5 | **Observer（观察者）** | Qt 信号 -> QML 绑定 | 状态变化自动通知 UI 更新 | Q_PROPERTY NOTIFY signals |
 | 6 | **Strategy（策略）** | Jog / Abs / Rel Orchestrator | 不同运动策略可替换 | 三个 Orchestrator 各自封装完整流程 |
 | 7 | **Facade（外观）** | `AxisViewModelCore` | 为复杂子系统提供统一简化接口 | 10+ 控制方法隐藏内部 5 个 UseCase + 3 个 Orchestrator |
 | 8 | **State（状态）** | JogOrchestrator 内部状态机 | 编排多步骤操作 | Step 枚举 + tick() 驱动状态转换 |
@@ -752,18 +752,18 @@ TEST_F(ErrorTranslatorTest, RejectionReason_InvalidState) {
 ### 8.2 重构解决的关键问题
 
 1. **致命问题已解决：**
-   - ❌ UI 无法承载多组多轴 → ✅ `(SystemManager&, groupName, axisId)` 动态路由
-   - ❌ 错误处理链路断裂 → ✅ `ErrorTranslator` 全覆盖翻译
-   - ❌ stop() 签名错配 → ✅ `execute(manager, groupName, axisId)`
-   - ❌ tick() 签名错配 → ✅ 无参 `tick()` 内部解析
-   - ❌ 缺少 enable/disable → ✅ `enable(bool)`, `disable()`
-   - ❌ 缺少零位操作 → ✅ 三种零位操作完整实现
+   - ❌ UI 无法承载多组多轴 -> ✅ `(SystemManager&, groupName, axisId)` 动态路由
+   - ❌ 错误处理链路断裂 -> ✅ `ErrorTranslator` 全覆盖翻译
+   - ❌ stop() 签名错配 -> ✅ `execute(manager, groupName, axisId)`
+   - ❌ tick() 签名错配 -> ✅ 无参 `tick()` 内部解析
+   - ❌ 缺少 enable/disable -> ✅ `enable(bool)`, `disable()`
+   - ❌ 缺少零位操作 -> ✅ 三种零位操作完整实现
 
 2. **严重问题已改善：**
-   - ❌ 缺少位置查询接口 → ✅ 完整状态投影集
-   - ❌ 没有 SystemContext 支持 → ✅ 通过 manager 路由到 SystemContext
-   - ❌ Q_PROPERTY 暴露有限 → ✅ 新增错误属性
-   - ❌ hasError/errorMessage 死代码 → ✅ 完整错误子系统
+   - ❌ 缺少位置查询接口 -> ✅ 完整状态投影集
+   - ❌ 没有 SystemContext 支持 -> ✅ 通过 manager 路由到 SystemContext
+   - ❌ Q_PROPERTY 暴露有限 -> ✅ 新增错误属性
+   - ❌ hasError/errorMessage 死代码 -> ✅ 完整错误子系统
 
 ### 8.3 重构设计文档与实现的差异（实际实现与重构方案的偏差）
 
@@ -798,7 +798,7 @@ TEST_F(ErrorTranslatorTest, RejectionReason_InvalidState) {
 | # | 缺陷 | 位置 | 描述 |
 |---|------|------|------|
 | 5 | **QML 无 ErrorCategory 映射** | QtAxisViewModel.h | QML 拿到 `hasError` 后无法区分 Inline/Modal/Silent |
-| 6 | **缺少状态文本描述** | QtAxisViewModel.h | QML 需要自行编写 `state → text` 映射（如 `1 → "Disabled"`） |
+| 6 | **缺少状态文本描述** | QtAxisViewModel.h | QML 需要自行编写 `state -> text` 映射（如 `1 -> "Disabled"`） |
 | 7 | **velocity 无信号节流** | QtAxisViewModel::tick() | `jogVelocity`/`moveVelocity` 变化不会触发 `velocityChanged` |
 | 8 | **posLimit/negLimit 无变化检测** | QtAxisViewModel::tick() | 限位不会触发 `limitsChanged`（虽然通常不变） |
 | 9 | **错误接口测试薄弱** | test_axis_viewmodel_core.cpp | 测试 9 只验证了正常流程无错误，未验证错误产生路径 |

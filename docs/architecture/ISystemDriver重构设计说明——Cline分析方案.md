@@ -1,8 +1,8 @@
-# ISystemDriver 重构设计说明 — 基于当前代码库的完整分析方案
+# ISystemDriver 重构设计说明 -- 基于当前代码库的完整分析方案
 
 > 版本: v2.0  
 > 日期: 2026-05-15  
-> 范围: Command → Send → Poll → Feedback 闭环，从当前代码到生产可用  
+> 范围: Command -> Send -> Poll -> Feedback 闭环，从当前代码到生产可用  
 > 变更: v2.0 新增 §1.2 三层成功分析、§1.6 工业现场案例、CommunicationResult 设计
 
 ---
@@ -23,7 +23,7 @@
 
 ## 1. 当前架构的真实状况
 
-### 1.1 ISystemDriver — 当前真实代码
+### 1.1 ISystemDriver -- 当前真实代码
 
 ```cpp
 // infrastructure/ISystemDriver.h（当前真实代码）
@@ -36,7 +36,7 @@ public:
 
 **现状**: 只有一个 `send()`，无返回值。接口简洁，但存在一个关键表达能力缺陷：**`void` 返回值抹杀了"通讯是否成功"这一层信息**。
 
-### 1.2 send(void) 的深层问题 — 三层成功被混为一谈
+### 1.2 send(void) 的深层问题 -- 三层成功被混为一谈
 
 在工业控制系统中，一个命令从发出到执行完成，涉及三个截然不同的"成功"层级：
 
@@ -49,12 +49,12 @@ public:
 层级 2: PLC 接受并执行命令
   ├─ PLC 将命令写入内部执行队列，伺服驱动器开始响应
   ├─ 失败场景: PLC 逻辑拒绝（如轴不存在）、命令码无效、PLC 内部错误
-  └─ 知道者: PLC 状态寄存器 → 下一个 pollFeedback 周期才能知道
+  └─ 知道者: PLC 状态寄存器 -> 下一个 pollFeedback 周期才能知道
        
 层级 3: 物理动作完成
   ├─ 电机真正开始转动 / 使能真正上电 / 急停真正生效
   ├─ 失败场景: 伺服报警、堵转、过载、限位触发
-  └─ 知道者: Axis 状态寄存器 → 持续 pollFeedback 确认
+  └─ 知道者: Axis 状态寄存器 -> 持续 pollFeedback 确认
 ```
 
 **当前 `void send()` 的问题**: 它把层级 1 的信息完全丢弃了。
@@ -66,59 +66,59 @@ public:
 
 **注意**: 这不是说 `send()` 应该返回"PLC 执行成功/失败"（那是层级 2/3 的事），而是说 `send()` 应该返回"通讯帧是否成功送达"。
 
-### 1.3 当前的 Command 流（Send 方向）— 结构良好，通讯反馈缺失
+### 1.3 当前的 Command 流（Send 方向）-- 结构良好，通讯反馈缺失
 
 ```
 UI / ViewModel
     ↓
 UseCase::execute(manager, groupName, axisId, params)
-    ↓ 阶段 0: SystemManager::tryGetGroup()        → ContextRejection
-    ↓ 阶段 1: SystemContext::tryGetAxis()          → ContextRejection (含安全/龙门拦截)
-    ↓ 阶段 2: Axis::enable/moveAbsolute/jog/...   → RejectionReason (领域规则校验)
+    ↓ 阶段 0: SystemManager::tryGetGroup()        -> ContextRejection
+    ↓ 阶段 1: SystemContext::tryGetAxis()          -> ContextRejection (含安全/龙门拦截)
+    ↓ 阶段 2: Axis::enable/moveAbsolute/jog/...   -> RejectionReason (领域规则校验)
     ↓ 阶段 3: if (axis->hasPendingCommand())
               drv->send(AxisCommandWithId{axisId, cmd})
     ↓
-FakeAxisDriver::send() → std::visit → handle() → plc_.writeRegister()
+FakeAxisDriver::send() -> std::visit -> handle() -> plc_.writeRegister()
     ↓
 FakePLC 寄存器更新
 ```
 
 **这段链路的优点**:
 - 统一命令总线：`SystemCommand` variant 承载所有命令类型
-- 四层拦截：Manager → Context → Axis 领域 → Driver
+- 四层拦截：Manager -> Context -> Axis 领域 -> Driver
 - UseCase 无状态，可重复调用
 - 错误返回类型安全：`UseCaseError = variant<monostate, ContextRejection, RejectionReason, ...>`
 
 **当前链路的结构缺陷**:
-- `send()` 返回 `void` — 通讯是否成功无法表达，UseCase 无法根据通讯状态做决策
-- 没有 `pollFeedback()` — 层级 2/3 的状态无法回传
+- `send()` 返回 `void` -- 通讯是否成功无法表达，UseCase 无法根据通讯状态做决策
+- 没有 `pollFeedback()` -- 层级 2/3 的状态无法回传
 
-### 1.4 当前的 Feedback 流（Receive 方向）— 完全缺失
+### 1.4 当前的 Feedback 流（Receive 方向）-- 完全缺失
 
 ```
 生产环境:   ???  (不存在)
-测试环境:   FakePLC::tick() → syncA() → axis->applyFeedback(fb)
-                                      → ctx->emergencyStopController().applyFeedback(bool)
-                                      → ctx->gantryCouplingController().applyFeedback(fb)
+测试环境:   FakePLC::tick() -> syncA() -> axis->applyFeedback(fb)
+                                      -> ctx->emergencyStopController().applyFeedback(bool)
+                                      -> ctx->gantryCouplingController().applyFeedback(fb)
 ```
 
-**现状**: 测试中用手动 `syncA(id)` 泵送反馈，这是**正确的测试模式**。但生产环境没有任何对应的基础设施——没有一个**主动拉取 PLC 寄存器、解包、分发给各领域实体**的机制。
+**现状**: 测试中用手动 `syncA(id)` 泵送反馈，这是**正确的测试模式**。但生产环境没有任何对应的基础设施----没有一个**主动拉取 PLC 寄存器、解包、分发给各领域实体**的机制。
 
 ### 1.5 关键代码证据
 
-**Axis.h** — applyFeedback 是反馈的唯一入口：
+**Axis.h** -- applyFeedback 是反馈的唯一入口：
 ```cpp
 void applyFeedback(const AxisFeedback& feedback);
 ```
 
-**EmergencyStopController.h** — feedback-driven 状态机：
+**EmergencyStopController.h** -- feedback-driven 状态机：
 ```cpp
 /// @brief 接收 PLC 的"急停中"状态反馈，驱动本地状态机
 /// 这是所有 PLC Feedback 的单一入口
 void applyFeedback(bool plcEmergencyStopped);
 ```
 
-**test_system_integration.cpp** — 手动泵送模式（测试中正确，生产不可用）：
+**test_system_integration.cpp** -- 手动泵送模式（测试中正确，生产不可用）：
 ```cpp
 void syncA(AxisId id) {
     Axis* a = nullptr;
@@ -129,7 +129,7 @@ void syncA(AxisId id) {
 }
 ```
 
-**EnableUseCase.h** — `send()` 通讯结果丢失的关键点：
+**EnableUseCase.h** -- `send()` 通讯结果丢失的关键点：
 ```cpp
 // 阶段 2：轴领域层状态判定
 if (!axis->enable(active)) {
@@ -139,21 +139,21 @@ if (!axis->enable(active)) {
 if (axis->hasPendingCommand()) {
     if (auto* drv = group->driver()) {
         drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
-        // ← void send() → 通讯失败被静默吞没
+        // ← void send() -> 通讯失败被静默吞没
     }
 }
 return std::monostate{};  // ← UI 看到"成功"，但命令可能根本没发出去
 ```
 
-### 1.6 为什么"通讯成功"不能被忽略 — 来自工业现场的案例
+### 1.6 为什么"通讯成功"不能被忽略 -- 来自工业现场的案例
 
 **场景 A: Modbus 断线后发送使能命令**
 
 ```
 时间线:
   T0: 用户点击"使能"按钮
-  T1: EnableUseCase::execute() → axis->enable(true) → 领域规则通过
-  T2: drv->send(AxisCommandWithId{Y, EnableCommand}) → Modbus 写寄存器
+  T1: EnableUseCase::execute() -> axis->enable(true) -> 领域规则通过
+  T2: drv->send(AxisCommandWithId{Y, EnableCommand}) -> Modbus 写寄存器
   T3: 但此时网线松了！Socket write() 返回 -1
   T4: 当前: send() 返回 void，UseCase 得到 monostate（"成功"）
   T5: 用户看到 UI 显示"使能成功"
@@ -165,9 +165,9 @@ return std::monostate{};  // ← UI 看到"成功"，但命令可能根本没发
 
 ```
   T0: 上一段运动刚结束，PLC 处于 Busy 清理状态（持续 20ms）
-  T1: MoveAbsoluteUseCase::execute() → 目标校验通过
-  T2: drv->send(...) → Modbus 写寄存器
-  T3: PLC Busy → 返回 Exception Code 0x06 (Server Device Busy)
+  T1: MoveAbsoluteUseCase::execute() -> 目标校验通过
+  T2: drv->send(...) -> Modbus 写寄存器
+  T3: PLC Busy -> 返回 Exception Code 0x06 (Server Device Busy)
   T4: 当前: send() 静默吞下这个异常
   T5: 后续 pollFeedback 发现位置没变，但已经不知道是哪次 send 失败
 ```
@@ -178,17 +178,17 @@ return std::monostate{};  // ← UI 看到"成功"，但命令可能根本没发
 
 ## 2. 五个核心问题逐一定性
 
-### 问题 0: send(void) 无法表达通讯结果 — "命令到底发出去了没有？"
+### 问题 0: send(void) 无法表达通讯结果 -- "命令到底发出去了没有？"
 
 **严重程度**: 🔴 阻塞级
 
 **现状**: `send()` 返回 `void`。当 Modbus 断线、Socket 超时、CRC 错误、PLC Busy 时，调用者完全无法区分"命令没发出去"和"发出去了但物理状态没变"。
 
-**分析**: 这本质上是 §1.2 中描述的"层级 1 信息丢失"问题。通讯失败的信息在 `send()` 内部就流失了——驱动只能记日志，UseCase 拿到 `monostate`（成功），UI 显示"操作成功"，但 3 秒后 `pollFeedback` 发现轴纹丝不动。用户困惑："我明明看到成功了？"
+**分析**: 这本质上是 §1.2 中描述的"层级 1 信息丢失"问题。通讯失败的信息在 `send()` 内部就流失了----驱动只能记日志，UseCase 拿到 `monostate`（成功），UI 显示"操作成功"，但 3 秒后 `pollFeedback` 发现轴纹丝不动。用户困惑："我明明看到成功了？"
 
 **正确的语义边界**:
 - `send()` 应该返回 **"通讯帧是否成功送达 PLC"**（层级 1）
-- `send()` 绝不应该返回 **"PLC 是否执行成功"**（层级 2）——那是 `pollFeedback` 的职责
+- `send()` 绝不应该返回 **"PLC 是否执行成功"**（层级 2）----那是 `pollFeedback` 的职责
 - `send()` 更不应该返回 **"物理动作是否完成"**（层级 3）
 
 **推荐方案**: `send()` 返回 `CommunicationResult`，只表达通讯层的结果。详见 §4.1。
@@ -204,7 +204,7 @@ return std::monostate{};  // ← UI 看到"成功"，但命令可能根本没发
 - 读取到的数据需要被翻译成领域结构体（`AxisFeedback`、`GantryFeedback` 等）
 - 翻译后的数据需要注入到领域实体（`Axis::applyFeedback()`、`EmergencyStopController::applyFeedback()` 等）
 
-**当前**: 这三个步骤——拉取（Poll）、翻译（Translate）、分发（Dispatch）——在架构上完全没有定义。
+**当前**: 这三个步骤----拉取（Poll）、翻译（Translate）、分发（Dispatch）----在架构上完全没有定义。
 
 ### 问题 2: bool 返回值的语义混淆
 
@@ -215,10 +215,10 @@ return std::monostate{};  // ← UI 看到"成功"，但命令可能根本没发
 **混淆风险**:
 - `false` 可能意味着"领域规则不通过"（如状态不匹配）
 - `false` 也可能意味着"参数不合法"（如目标超出限位）
-- `false` **绝不**意味着"硬件拒绝"——因为硬件反馈根本没回来
+- `false` **绝不**意味着"硬件拒绝"----因为硬件反馈根本没回来
 - 但 `bool` 的语义天然暗示着"成功/失败"，容易让调用者误以为 `true` = "硬件已经执行了"
 
-**当前补救**: 代码注释已经说明了这一点（"阶段 2：轴领域层状态判定"），但注释是脆弱的——重构或新人接手时很容易被忽略。
+**当前补救**: 代码注释已经说明了这一点（"阶段 2：轴领域层状态判定"），但注释是脆弱的----重构或新人接手时很容易被忽略。
 
 ### 问题 3: FakeAxisDriver 混合了 Translator 职责
 
@@ -228,9 +228,9 @@ return std::monostate{};  // ← UI 看到"成功"，但命令可能根本没发
 
 ```
 FakeAxisDriver 当前承担了三件事:
-  1. 驱动适配 (Driver)   — 接收 send() 调用
-  2. 协议翻译 (Translator) — SystemCommand → PLC 寄存器地址 + 值
-  3. 硬件模拟 (FakePLC)   — 内存驻留的寄存器状态
+  1. 驱动适配 (Driver)   -- 接收 send() 调用
+  2. 协议翻译 (Translator) -- SystemCommand -> PLC 寄存器地址 + 值
+  3. 硬件模拟 (FakePLC)   -- 内存驻留的寄存器状态
 ```
 
 这是"快速验证"阶段的合理设计，但当真正的 Modbus TCP 驱动到来时，Translator 部分应该被提取为独立的、可复用的层。
@@ -251,9 +251,9 @@ FakeAxisDriver 当前承担了三件事:
 
 | 假设 | 真相 |
 |------|------|
-| "我发了一个使能命令 → 轴就使能了" | 可能电机驱动器故障、接线松动、急停触发 |
-| "我发了位置目标 → 轴到达了" | 可能堵转、过载、中途报警 |
-| "PLC 返回了 OK → 一切正常" | OK 只代表通信帧校验通过，不代表物理状态 |
+| "我发了一个使能命令 -> 轴就使能了" | 可能电机驱动器故障、接线松动、急停触发 |
+| "我发了位置目标 -> 轴到达了" | 可能堵转、过载、中途报警 |
+| "PLC 返回了 OK -> 一切正常" | OK 只代表通信帧校验通过，不代表物理状态 |
 
 **物理真相不来自命令的返回值，而来自持续的反馈信号。**
 
@@ -281,7 +281,7 @@ FakeAxisDriver 当前承担了三件事:
 │   命令通路 (Send)      │   │    反馈通路 (Poll / Receive)       │
 │                       │   │                                   │
 │  ISystemDriver::send  │   │  ISystemDriver::pollFeedback      │
-│  → CommunicationResult│   │       │                           │
+│  -> CommunicationResult│   │       │                           │
 │       │               │   │       ▼                           │
 │       ▼               │   │  Translator::                     │
 │  Translator::         │   │    toEntity()                     │
@@ -292,32 +292,32 @@ FakeAxisDriver 当前承担了三件事:
 │  [EtherCAT PDO]       │   │       │                           │
 │  [CANopen SDO]        │   │       ▼                           │
 │                       │   │  dispatch(feedback):              │
-│                       │   │    → axis->applyFeedback()        │
-│                       │   │    → eStop.applyFeedback()        │
-│                       │   │    → coupling.applyFeedback()     │
+│                       │   │    -> axis->applyFeedback()        │
+│                       │   │    -> eStop.applyFeedback()        │
+│                       │   │    -> coupling.applyFeedback()     │
 └───────────────────────┘   └───────────────────────────────────┘
 ```
 
 **关键原则**:
 1. **命令通路**: `send()` 返回通讯是否送达（层级 1）。物理结果通过反馈通路确认（层级 2/3）。
 2. **反馈通路**: 主动拉取（Poll）或被动接收（Callback），将硬件状态翻译为领域结构体后注入。
-3. **Translator 层**: 双向翻译——命令→硬件协议、硬件数据→领域结构体。
+3. **Translator 层**: 双向翻译----命令->硬件协议、硬件数据->领域结构体。
 4. **领域实体不关心协议**: `Axis` 只知道 `AxisFeedback`，不知道 Modbus 寄存器地址。
 
 ---
 
 ## 4. 推荐的目标架构
 
-### 4.1 send() 应该返回"通讯结果"——引入 CommunicationResult
+### 4.1 send() 应该返回"通讯结果"----引入 CommunicationResult
 
 **核心原则**: `send()` 只表达层级 1（通讯帧是否送达），不表达层级 2/3（PLC 执行 / 物理动作完成）。
 
 ```cpp
-/// @brief 通讯层结果 — 只表达"帧是否成功送达 PLC 的寄存器"
+/// @brief 通讯层结果 -- 只表达"帧是否成功送达 PLC 的寄存器"
 ///
 /// 不表达:
-///   - PLC 是否接受了该命令（层级 2 — pollFeedback 才知道）
-///   - 物理动作是否执行（层级 3 — pollFeedback 持续确认）
+///   - PLC 是否接受了该命令（层级 2 -- pollFeedback 才知道）
+///   - 物理动作是否执行（层级 3 -- pollFeedback 持续确认）
 struct CommunicationResult {
     enum class Status {
         Sent,     // 通讯帧成功写入 PLC 寄存器（收到 ACK/正常响应）
@@ -369,7 +369,7 @@ auto result = axis->enable(active);
 if (!result) return axis->lastRejection();
 if (axis->hasPendingCommand()) {
     drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
-    // ← void send() → 通讯失败被吞没
+    // ← void send() -> 通讯失败被吞没
 }
 return std::monostate{};  // ← 调用者以为一切OK
 
@@ -383,7 +383,7 @@ if (axis->hasPendingCommand()) {
 return std::monostate{};
 ```
 
-**效果**: 如果网线松了，`send()` 返回 `CommunicationResult{Status::Failed, "Socket write error: 10054"}`，UseCase 直接把这个结果返回给 UI 层，UI 可以在 3ms 内显示"通讯失败，请检查网络连接"——而不是等 `pollFeedback` 3 秒后才暴露问题。
+**效果**: 如果网线松了，`send()` 返回 `CommunicationResult{Status::Failed, "Socket write error: 10054"}`，UseCase 直接把这个结果返回给 UI 层，UI 可以在 3ms 内显示"通讯失败，请检查网络连接"----而不是等 `pollFeedback` 3 秒后才暴露问题。
 
 ### 4.3 扩展后的 ISystemDriver 接口
 
@@ -395,7 +395,7 @@ public:
     // ===== 命令通路 =====
 
     /// @brief 向硬件发送一个统一命令
-    /// @return CommunicationResult — 只表达通讯帧是否成功送达 PLC 的寄存器
+    /// @return CommunicationResult -- 只表达通讯帧是否成功送达 PLC 的寄存器
     ///         不表达 PLC 是否执行成功（层级 2）或物理动作是否完成（层级 3）
     /// @throw 不抛异常（所有错误通过返回值表达）
     virtual CommunicationResult send(const SystemCommand& cmd) = 0;
@@ -420,15 +420,15 @@ public:
 
 **为什么 pollFeedback 接受 SystemContext 而非只返回裸数据？**
 
-因为反馈分发是有结构的——AxisFeedback 去 `Axis`，bool 去 `EmergencyStopController`，`GantryFeedback` 去 `GantryCouplingController`。如果驱动只返回一堆原始结构体，上层还需要写一个 Dispatcher。把这个职责放在驱动内部（或 Translator 内部），是因为**只有驱动知道每个寄存器对应哪个领域实体**。
+因为反馈分发是有结构的----AxisFeedback 去 `Axis`，bool 去 `EmergencyStopController`，`GantryFeedback` 去 `GantryCouplingController`。如果驱动只返回一堆原始结构体，上层还需要写一个 Dispatcher。把这个职责放在驱动内部（或 Translator 内部），是因为**只有驱动知道每个寄存器对应哪个领域实体**。
 
-### 4.4 引入 IProtocolTranslator（提取 Translator — 阶段 2）
+### 4.4 引入 IProtocolTranslator（提取 Translator -- 阶段 2）
 
 ```cpp
-/// @brief 协议翻译器接口 — 双向翻译
+/// @brief 协议翻译器接口 -- 双向翻译
 ///
-/// 命令方向: SystemCommand → 硬件协议数据
-/// 反馈方向: 硬件协议数据 → 领域结构体
+/// 命令方向: SystemCommand -> 硬件协议数据
+/// 反馈方向: 硬件协议数据 -> 领域结构体
 ///
 /// 此接口独立于通信层，可被多种物理协议复用:
 ///   - ModbusTCPTranslator
@@ -496,7 +496,7 @@ public:
 
         if (!raw.ok) {
             TRACE_WARN("Modbus read failed, keeping last known feedback");
-            return;  // 不更新 —— 保留上次已知的物理状态
+            return;  // 不更新 ---- 保留上次已知的物理状态
         }
 
         // 2. 翻译
@@ -540,17 +540,17 @@ ctx->setDriver(new ModbusTcpAxisDriver("192.168.1.100", 502,
 
 while (running) {
     // ===== 命令阶段 =====
-    // 处理 UI 事件 → UseCase 执行 → send() 写入硬件
+    // 处理 UI 事件 -> UseCase 执行 -> send() 写入硬件
     // send() 返回的 CommunicationResult 即时反馈给 UI
     // 例: if (!commResult.ok()) { showError("网络连接失败"); }
 
     // ===== 反馈阶段 =====
     if (auto* drv = ctx->driver()) {
-        drv->pollFeedback(*ctx);  // 一个调用完成拉取→翻译→分发
+        drv->pollFeedback(*ctx);  // 一个调用完成拉取->翻译->分发
     }
 
     // ===== 编排器推进 =====
-    // GantryOrchestrator::tick() 检查状态 → 决定下一步
+    // GantryOrchestrator::tick() 检查状态 -> 决定下一步
 
     sleep_ms(10);  // 可选: 仅在 RTOS / 独立线程中使用
 }
@@ -578,7 +578,7 @@ struct CommandResult {
 };
 ```
 
-**但这可以放在阶段 3 再做** — 当前 bool + lastRejection() 模式虽然语义有瑕疵，但**功能完全正确**，且有注释说明。在第一阶段只做 feedback 闭环的建立 + CommunicationResult 引入，因为那才是阻塞问题。
+**但这可以放在阶段 3 再做** -- 当前 bool + lastRejection() 模式虽然语义有瑕疵，但**功能完全正确**，且有注释说明。在第一阶段只做 feedback 闭环的建立 + CommunicationResult 引入，因为那才是阻塞问题。
 
 ---
 
@@ -667,11 +667,11 @@ void FakeAxisDriver::pollFeedback(SystemContext& ctx) override {
 class SystemContext;  // 前向声明
 
 /**
- * @brief 通讯层结果 — 只表达"帧是否成功送达 PLC 的寄存器"
+ * @brief 通讯层结果 -- 只表达"帧是否成功送达 PLC 的寄存器"
  *
  * 不表达:
- *   - PLC 是否接受了该命令（层级 2 — pollFeedback 才知道）
- *   - 物理动作是否执行（层级 3 — pollFeedback 持续确认）
+ *   - PLC 是否接受了该命令（层级 2 -- pollFeedback 才知道）
+ *   - 物理动作是否执行（层级 3 -- pollFeedback 持续确认）
  */
 struct CommunicationResult {
     enum class Status {
@@ -689,9 +689,9 @@ struct CommunicationResult {
  *
  * 设计原则:
  *   1. Command / Feedback 双通路: send() 发命令，pollFeedback() 收反馈。
- *   2. send() 返回通讯结果（层级 1）— 只表达"帧是否送达"，不表达"PLC 是否执行"。
- *   3. pollFeedback() 是主动拉取 — 负责层级 2/3 的物理状态回传。
- *   4. 驱动不返回领域错误 — 物理异常通过 Feedback 反映在领域实体状态中。
+ *   2. send() 返回通讯结果（层级 1）-- 只表达"帧是否送达"，不表达"PLC 是否执行"。
+ *   3. pollFeedback() 是主动拉取 -- 负责层级 2/3 的物理状态回传。
+ *   4. 驱动不返回领域错误 -- 物理异常通过 Feedback 反映在领域实体状态中。
  */
 class ISystemDriver {
 public:
@@ -700,7 +700,7 @@ public:
     // ===== 命令通路 =====
 
     /// @brief 向硬件发送一个统一命令
-    /// @return CommunicationResult — 只表达通讯帧是否成功送达 PLC 的寄存器。
+    /// @return CommunicationResult -- 只表达通讯帧是否成功送达 PLC 的寄存器。
     ///         不表达 PLC 是否执行成功（层级 2）或物理动作是否完成（层级 3）。
     ///         通信失败时驱动内部记 TRACE_WARN，不抛异常。
     /// @param cmd 统一命令 variant（AxisCommandWithId / EmergencyStopCommand / ...）
@@ -790,12 +790,12 @@ private:
 #include "infrastructure/ISystemDriver.h"         // 引入 CommunicationResult
 #include <variant>
 
-/// @brief 用例层错误类型 — 覆盖从查找、领域校验到通讯的全部失败路径
+/// @brief 用例层错误类型 -- 覆盖从查找、领域校验到通讯的全部失败路径
 using UseCaseError = std::variant<
     std::monostate,          // 成功（领域规则通过 + 通讯送达）
     ContextRejection,        // 分组/轴查找失败（阶段 0/1）
-    RejectionReason,         // 领域规则拒绝（阶段 2 — 命令未生成，未发送）
-    CommunicationResult,     // 通讯失败（阶段 3 — 命令已生成但未送达 PLC）
+    RejectionReason,         // 领域规则拒绝（阶段 2 -- 命令未生成，未发送）
+    CommunicationResult,     // 通讯失败（阶段 3 -- 命令已生成但未送达 PLC）
     GantryRejection,         // 龙门操作拒绝
     SafetyRejection          // 安全操作拒绝
 >;
@@ -890,7 +890,7 @@ driver.pollFeedback(*ctx);
 ```
 
 **优点**:
-- 测试代码更接近生产代码路径（真实的 `pollFeedback` → `applyFeedback` 调用链）
+- 测试代码更接近生产代码路径（真实的 `pollFeedback` -> `applyFeedback` 调用链）
 - 不需要在测试中手动遍历所有 `AxisId`
 - FakePLC 的 `tick()` 由 `pollFeedback` 内部自动调用
 
@@ -910,7 +910,7 @@ auto error = EnableUseCase::execute(manager, "Group1", AxisId::X, true);
 ASSERT_TRUE(std::holds_alternative<std::monostate>(error));
 ```
 
-**无需改变**——FakeAxisDriver 的 `send()` 永远返回 `CommunicationResult{Sent}`，所以对于 Fake 驱动的测试，`monostate` 仍然正确。唯一需要新增的是 **通讯失败场景的测试**：
+**无需改变**----FakeAxisDriver 的 `send()` 永远返回 `CommunicationResult{Sent}`，所以对于 Fake 驱动的测试，`monostate` 仍然正确。唯一需要新增的是 **通讯失败场景的测试**：
 
 ```cpp
 // 新增测试：通讯失败应返回 CommunicationResult
@@ -973,8 +973,8 @@ private:
 
 | 组件 | ARM 适配要点 |
 |------|-------------|
-| `CommunicationResult` | 无变化 — 纯 C++ 结构体 |
-| `ISystemDriver` | 无变化 — 纯虚接口 |
+| `CommunicationResult` | 无变化 -- 纯 C++ 结构体 |
+| `ISystemDriver` | 无变化 -- 纯虚接口 |
 | `ModbusTcpAxisDriver` | 需链接 ARM 交叉编译的 libmodbus |
 | `EtherCATAxisDriver` | 需链接 IgH EtherCAT Master 或 SOEM 的用户空间库 |
 | `pollFeedback` 调用 | 在 QML 主循环的定时器中调用（与 x86 一致） |
@@ -1008,7 +1008,7 @@ ctx3->setDriver(new FakeAxisDriver(plc));
 
 ### Q1: "当前的 void send() 也能工作，为什么不先做其他功能？"
 
-**A**: 当前能工作是因为 **Fake 驱动从不失败**。只要一切到真实硬件（Modbus TCP 走网线），通信失败就是一个高频事件——网线松动、交换机重启、PLC 忙、Socket 超时。`void send()` 在这些场景下会导致：
+**A**: 当前能工作是因为 **Fake 驱动从不失败**。只要一切到真实硬件（Modbus TCP 走网线），通信失败就是一个高频事件----网线松动、交换机重启、PLC 忙、Socket 超时。`void send()` 在这些场景下会导致：
 - 用户收到"操作成功"的 UI 反馈，但轴根本没动
 - 排查问题时日志里只有一条 TRACE_WARN，无法追踪是哪次 send 失败
 - 后续 pollFeedback 发现状态不一致时，已经丢失了"send 失败"这个关键因果信息
@@ -1019,13 +1019,13 @@ ctx3->setDriver(new FakeAxisDriver(plc));
 
 **A**: 这是一个合理的架构关注。设计选择是：
 
-- **方案 A（当前推荐）**: `pollFeedback(SystemContext&)` — 驱动负责分发
-- **方案 B（备选）**: `pollFeedback() → DomainFeedbackBatch` — 驱动返回裸数据
+- **方案 A（当前推荐）**: `pollFeedback(SystemContext&)` -- 驱动负责分发
+- **方案 B（备选）**: `pollFeedback() -> DomainFeedbackBatch` -- 驱动返回裸数据
 
 选择方案 A 的理由：
-1. **只有驱动知道寄存器映射** — 哪个寄存器对应 AxisFeedback::actualPosition？哪个位对应急停？这个映射天然属于驱动/Translator 的知识范围
-2. **避免上层重复写 Dispatcher** — 如果驱动返回 `DomainFeedbackBatch`，那每个调用者（主循环、测试、仿真）都需要写一遍 `for (auto& [id, fb] : batch.axisFeedbacks) { axis->applyFeedback(fb); }`
-3. **SystemContext 本身就是分组隔离的** — 驱动只知道它所属的那个分组的上下文，这符合物理拓扑（一个 PLC 控制一组设备）
+1. **只有驱动知道寄存器映射** -- 哪个寄存器对应 AxisFeedback::actualPosition？哪个位对应急停？这个映射天然属于驱动/Translator 的知识范围
+2. **避免上层重复写 Dispatcher** -- 如果驱动返回 `DomainFeedbackBatch`，那每个调用者（主循环、测试、仿真）都需要写一遍 `for (auto& [id, fb] : batch.axisFeedbacks) { axis->applyFeedback(fb); }`
+3. **SystemContext 本身就是分组隔离的** -- 驱动只知道它所属的那个分组的上下文，这符合物理拓扑（一个 PLC 控制一组设备）
 
 **如果未来发现驱动对 SystemContext 的依赖过多，可以重构为方案 B（阶段 2 提取 IProtocolTranslator 后很容易切换）。**
 
@@ -1034,10 +1034,10 @@ ctx3->setDriver(new FakeAxisDriver(plc));
 **A**: `diagnostic` 字段的目的是让 **UI 层能做出决策**，而不仅仅是记录日志。
 
 ```cpp
-// 没有 diagnostic → UI 只能显示"通讯失败"
+// 没有 diagnostic -> UI 只能显示"通讯失败"
 showError("通讯失败");
 
-// 有 diagnostic → UI 可以给出有针对性的提示
+// 有 diagnostic -> UI 可以给出有针对性的提示
 if (commResult.status == Status::Failed) {
     showError("网络连接失败: " + commResult.diagnostic);
 } else if (commResult.status == Status::Busy) {
@@ -1045,23 +1045,23 @@ if (commResult.status == Status::Failed) {
 }
 ```
 
-这直接提升了操作员的体验——"网络连接失败 (Socket timeout: 192.168.1.100:502)"远比"操作失败"有用。
+这直接提升了操作员的体验----"网络连接失败 (Socket timeout: 192.168.1.100:502)"远比"操作失败"有用。
 
 ### Q4: "这不是过度工程吗？我们就一个 Modbus PLC"
 
 **A**: 当前的接口设计**不是为了支持多种协议而做**，而是因为：
-1. **Command / Feedback 双通路**是工业控制的本质——不管你用 Modbus 还是 EtherCAT，命令和反馈都是两条独立通路
-2. `send()` → `CommunicationResult` 是纠正了一个**客观上存在的语义缺陷**
-3. `pollFeedback()` 是**填补了一个架构空洞**——测试中有手动泵送，生产中却没有对应机制
+1. **Command / Feedback 双通路**是工业控制的本质----不管你用 Modbus 还是 EtherCAT，命令和反馈都是两条独立通路
+2. `send()` -> `CommunicationResult` 是纠正了一个**客观上存在的语义缺陷**
+3. `pollFeedback()` 是**填补了一个架构空洞**----测试中有手动泵送，生产中却没有对应机制
 
 这些修改没有引入任何"为了未来扩展"的抽象层（IProtocolTranslator 被明确推迟到阶段 2），只解决当前代码中真实存在的问题。
 
 ### Q5: "阶段 1 一次性改 7 个 UseCase，风险会不会太大？"
 
 **A**: 风险可控，因为：
-1. 所有修改的模式完全一致——在每个 `drv->send(...)` 后增加 3 行检查
+1. 所有修改的模式完全一致----在每个 `drv->send(...)` 后增加 3 行检查
 2. Fake 驱动永远返回 `Sent`，所有现有测试无需修改断言
-3. 编译器会在编译期检查所有调用点——`send()` 从 `void` 变成 `CommunicationResult`，漏改的地方会直接编译失败
+3. 编译器会在编译期检查所有调用点----`send()` 从 `void` 变成 `CommunicationResult`，漏改的地方会直接编译失败
 4. 如果担心风险，可以先在 `ISystemDriver` 中增加 `pollFeedback()`，`send()` 暂时保持 `void`，分两次 PR 提交
 
 ---
@@ -1080,9 +1080,9 @@ if (commResult.status == Status::Failed) {
 
 | 现有文档 | 本文档关联点 |
 |---------|------------|
-| `统一命令总线与反馈分发 — 架构重构思考.md` | 本文是那篇思考文档的**可执行实现方案**，将"应该有反馈通路"细化到接口签名、影响范围和测试适配 |
-| `单轴设置功能——数据流与架构设计.md` | 该文档的 Command 数据流在阶段 1 后增加 `CommunicationResult` 检查点 |
-| `设备安全急停——领域设计与实现思路.md` | 急停的 Feedback 通路通过 `pollFeedback` → `EmergencyStopController::applyFeedback(bool)` 实现 |
+| `统一命令总线与反馈分发 -- 架构重构思考.md` | 本文是那篇思考文档的**可执行实现方案**，将"应该有反馈通路"细化到接口签名、影响范围和测试适配 |
+| `单轴设置功能----数据流与架构设计.md` | 该文档的 Command 数据流在阶段 1 后增加 `CommunicationResult` 检查点 |
+| `设备安全急停----领域设计与实现思路.md` | 急停的 Feedback 通路通过 `pollFeedback` -> `EmergencyStopController::applyFeedback(bool)` 实现 |
 
 ## 附录 C: 重构实施时间估算
 

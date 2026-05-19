@@ -5,21 +5,21 @@
 #include <optional>
 
 /**
- * @brief 龙门电机控制器 — 五态全闭环状态机
+ * @brief 龙门电机控制器 -- 五态全闭环状态机
  *
  * 职责：控制 PLC 寄存器「使能轴X电机」（同时使能 X1/X2 电机）。
  *      在任何联动状态下均可访问（不经过 SystemContext 的龙门锁定逻辑）。
  *
  * 状态机流转：
- *  NotSynchronized ──[applyFeedback]──→ Disabled / Enabled
- *  Disabled  ──[requestEnable(true)]──→ Enabling + GantryPowerCommand
- *  Enabling  ──[applyFeedback]────────→ Enabled / Disabled
- *  Enabled   ──[requestEnable(false)]─→ Disabling + GantryPowerCommand
- *  Disabling ──[applyFeedback]────────→ Disabled / Enabled
+ *  NotSynchronized ──[applyFeedback]──-> Disabled / Enabled
+ *  Disabled  ──[requestEnable(true)]──-> Enabling + GantryPowerCommand
+ *  Enabling  ──[applyFeedback]────────-> Enabled / Disabled
+ *  Enabled   ──[requestEnable(false)]─-> Disabling + GantryPowerCommand
+ *  Disabling ──[applyFeedback]────────-> Disabled / Enabled
  *
  * m_enabled 废除，由 m_status 统一管理：
- *  - isEnabled() → m_status == Enabled
- *  - isSynchronized() → m_status != NotSynchronized
+ *  - isEnabled() -> m_status == Enabled
+ *  - isSynchronized() -> m_status != NotSynchronized
  */
 struct GantryPowerCommand {
     bool enable;  // true = 使能, false = 掉电
@@ -79,7 +79,7 @@ public:
     /**
      * @brief 接收 PLC 寄存器「轴X状态显示」的反馈
      *        首次反馈从 NotSynchronized 迁出；
-     *        后续反馈如实反映物理真相，可能将 Enabling→Disabled（PLC 未确认）等。
+     *        后续反馈如实反映物理真相，可能将 Enabling->Disabled（PLC 未确认）等。
      */
     void applyFeedback(const GantryFeedback& feedback) {
         m_status = feedback.enable ? Status::Enabled : Status::Disabled;

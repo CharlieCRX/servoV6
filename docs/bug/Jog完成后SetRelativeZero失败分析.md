@@ -18,10 +18,10 @@
 JogOrchestrator 的完整流程是：
 
 ```
-Idle → EnsuringEnabled → IssuingJog → Jogging → IssuingStop → WaitingForIdle → EnsuringDisabled → Done
+Idle -> EnsuringEnabled -> IssuingJog -> Jogging -> IssuingStop -> WaitingForIdle -> EnsuringDisabled -> Done
 ```
 
-关键在最后一个阶段：`EnsuringDisabled`。该阶段会下发 `EnableCommand{false}`（即掉电指令），将轴从 `Idle` 状态切换到 `Disabled` 状态。这是设计意图——点动完成后自动掉电。
+关键在最后一个阶段：`EnsuringDisabled`。该阶段会下发 `EnableCommand{false}`（即掉电指令），将轴从 `Idle` 状态切换到 `Disabled` 状态。这是设计意图----点动完成后自动掉电。
 
 ### 根因：Axis::setRelativeZero() 的状态准入过于严格
 
@@ -44,11 +44,11 @@ bool Axis::setRelativeZero() {
 
 ```
 用户按下 setRelativeZero 按钮
-  → AxisViewModelCore::setRelativeZero()
-    → axis->setRelativeZero()
-      → 检查 m_state == AxisState::Idle → 失败（当前为 Disabled）
-      → 返回 false, lastRejection = InvalidState
-    → pushError("AXIS_INVALID_STATE")
+  -> AxisViewModelCore::setRelativeZero()
+    -> axis->setRelativeZero()
+      -> 检查 m_state == AxisState::Idle -> 失败（当前为 Disabled）
+      -> 返回 false, lastRejection = InvalidState
+    -> pushError("AXIS_INVALID_STATE")
 ```
 
 ## 日志佐证
@@ -79,7 +79,7 @@ bool Axis::setRelativeZero() {
 
 ### 方案 A：扩展 setRelativeZero/clearRelativeZero 的状态准入范围（推荐）
 
-`setRelativeZero` 和 `clearRelativeZero` 是**纯坐标操作**——它们不涉及任何物理运动，只是记录/清除一个基准位置值。即使在 `Disabled` / `Unknown` 状态下，轴同样拥有有效的绝对位置读数，可以用来设置相对零点。
+`setRelativeZero` 和 `clearRelativeZero` 是**纯坐标操作**----它们不涉及任何物理运动，只是记录/清除一个基准位置值。即使在 `Disabled` / `Unknown` 状态下，轴同样拥有有效的绝对位置读数，可以用来设置相对零点。
 
 修复：将状态约束从 `== Idle` 放宽为 `!= Unknown`（即排除初始未知状态即可，`Disabled` 也允许）：
 
@@ -112,7 +112,7 @@ bool Axis::setRelativeZero() {
 
 理由：
 1. 修改范围最小，仅影响领域层一个方法的状态检查逻辑
-2. 与真实 PLC/伺服系统的行为一致——即使轴处于掉电状态，操作面板上也可以设置相对零点
+2. 与真实 PLC/伺服系统的行为一致----即使轴处于掉电状态，操作面板上也可以设置相对零点
 3. 不影响安全，因为 `setRelativeZero` 不产生任何物理运动
 4. 不改变 JogOrchestrator 的现有行为（安全掉电逻辑保持不变）
 

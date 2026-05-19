@@ -47,6 +47,7 @@ int main(int argc, char *argv[])
     LoggerConfig logCfg;
     logCfg.enableConsole = true;
     logCfg.enableFile = true;
+    logCfg.minConsoleLevel = LogLevel::DEBUG;   // 调试模式：显示 DEBUG 及以上（生产可改回 INFO）
 
     QString logBasePath;
 #ifdef Q_OS_ANDROID

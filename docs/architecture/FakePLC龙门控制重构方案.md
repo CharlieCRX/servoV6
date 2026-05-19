@@ -14,7 +14,7 @@
 ┌──────────────────────────────────────────────┐
 │                  FakePLC                       │
 │                                                │
-│  onGantryCommand()  ──→  m_gantry*Target      │
+│  onGantryCommand()  ──->  m_gantry*Target      │
 │                                                │
 │  tickGantry(ms):                              │
 │    if (pending) {                             │
@@ -27,7 +27,7 @@
 └──────────────────────────────────────────────┘
 ```
 
-**本质**：命令 → 延迟 → 直接修改 feedback（"命令回显器"）
+**本质**：命令 -> 延迟 -> 直接修改 feedback（"命令回显器"）
 
 ### 1.2 领域层已具备的能力
 
@@ -41,7 +41,7 @@ FakePLC 的上层（Domain）已经构建了完善的异步状态机框架：
 | `GantryRejection` | 拒因枚举（含 PLC 1~5 + 领域 100~999） | ✅ 已完成 |
 | `GantryFeedback` | 反馈 DTO（enable / isCoupled / errorCode） | ✅ 已完成 |
 
-领域层已经做好接收真实 PLC 错误码的准备了——但 FakePLC 从未产生这些错误码。
+领域层已经做好接收真实 PLC 错误码的准备了----但 FakePLC 从未产生这些错误码。
 
 ---
 
@@ -53,14 +53,14 @@ FakePLC 的上层（Domain）已经构建了完善的异步状态机框架：
 |---|------|-------------|---------|
 | 1 | 联动条件检查 | 无条件直接成功 | `applyFeedback` 的 errorCode 分支从未被触发 |
 | 2 | 基于轴状态的反馈生成 | `m_gantryFeedback.enable` 只有 bool | 无法表达"正在运动/报警/超差"等中间态 |
-| 3 | 联动状态自动掉线 | `isCoupled=true` 后永不变化 | 无法测试超差→自动解耦流程 |
+| 3 | 联动状态自动掉线 | `isCoupled=true` 后永不变化 | 无法测试超差->自动解耦流程 |
 | 4 | 超差监测 | 未计算 `|X1.pos - X2.pos|` | `GantryRejection::PositionToleranceExceeded` 永不产生 |
 | 5 | 命令拒绝 | 100ms 后必然成功 | 错误恢复/重试/超时逻辑全部失真 |
 | 6 | 扫描周期行为 | 仅处理 pending timer | 无命令时 feedback 永不变化 |
 | 7 | 轴状态聚合 | 龙门 feedback 与轴状态割裂 | X1 报警后龙门 feedback 无感知 |
 | 8 | 联动模式约束 | 无 `if (!isCoupled) reject` | 解耦态下的绝对定位应被拒绝 |
 | 9 | 联动/分动互斥 | 无运动互斥逻辑 | 联动态下独立点动 X1/X2 应被拒绝 |
-| 10 | 联动中间态 | 延迟→直接成功 | 无法模拟"等待双轴停止→检查位置差→同步→建立电子齿轮" |
+| 10 | 联动中间态 | 延迟->直接成功 | 无法模拟"等待双轴停止->检查位置差->同步->建立电子齿轮" |
 
 ---
 
@@ -152,9 +152,9 @@ void refreshGantryPhysicalState() {
 }
 ```
 
-### 4.4 改造：`tickGantry()` — 扫描周期模型
+### 4.4 改造：`tickGantry()` -- 扫描周期模型
 
-从"延迟－完成"两态模型，升级为"每周期评估物理状态→刷新反馈寄存器"：
+从"延迟－完成"两态模型，升级为"每周期评估物理状态->刷新反馈寄存器"：
 
 ```cpp
 void tickGantry(int ms) {
@@ -171,13 +171,13 @@ void tickGantry(int ms) {
     tickGantryCoupledMonitoring(ms);
 
     // 步骤 5：同步刷新 GantryFeedback.enable
-    //         enable 始终反映轴真实状态：X1 和 X2 都使能 → enable=true
+    //         enable 始终反映轴真实状态：X1 和 X2 都使能 -> enable=true
     m_gantryFeedback.enable = m_gantryPhysical.x1Enabled
                            && m_gantryPhysical.x2Enabled;
 }
 ```
 
-### 4.5 新增：`tickGantryPower()` — 电机使能状态机
+### 4.5 新增：`tickGantryPower()` -- 电机使能状态机
 
 ```cpp
 void tickGantryPower(int ms) {
@@ -202,9 +202,9 @@ void tickGantryPower(int ms) {
 }
 ```
 
-### 4.6 新增：`tickGantryCoupling()` — 联动条件检查 + 拒绝逻辑
+### 4.6 新增：`tickGantryCoupling()` -- 联动条件检查 + 拒绝逻辑
 
-**这是本次重构的核心**——FakePLC 第一次拥有了"拒绝命令"的能力。
+**这是本次重构的核心**----FakePLC 第一次拥有了"拒绝命令"的能力。
 
 ```cpp
 void tickGantryCoupling(int ms) {
@@ -218,7 +218,7 @@ void tickGantryCoupling(int ms) {
 
         int errorCode = checkCouplingConditions();
         if (errorCode != 0) {
-            // 条件不满足 → 拒绝联动，写入错误码
+            // 条件不满足 -> 拒绝联动，写入错误码
             m_gantryFeedback.errorCode = errorCode;
             m_gantryFeedback.isCoupled = false;
             m_gantryCouplingCmdPending = false;
@@ -226,7 +226,7 @@ void tickGantryCoupling(int ms) {
             return;
         }
 
-        // 所有条件满足 → 联动成功
+        // 所有条件满足 -> 联动成功
         m_gantryFeedback.isCoupled = true;
         m_gantryFeedback.errorCode = 0;
         m_gantryCouplingCmdPending = false;
@@ -276,9 +276,9 @@ int checkCouplingConditions() const {
 }
 ```
 
-### 4.7 新增：`tickGantryCoupledMonitoring()` — 联动持续监测
+### 4.7 新增：`tickGantryCoupledMonitoring()` -- 联动持续监测
 
-联动建立后每个 tick 检查，任一条件触发 → 自动解除联动 + 写入错误码：
+联动建立后每个 tick 检查，任一条件触发 -> 自动解除联动 + 写入错误码：
 
 ```cpp
 void tickGantryCoupledMonitoring(int /*ms*/) {
@@ -367,7 +367,7 @@ void tick(int ms) {
         axis.feedback.relPos = axis.feedback.absPos - axis.feedback.relZeroAbsPos;
     }
 
-    // 3. 龙门状态机（依赖最新的X1/X2物理状态 → 必须在轴推演之后执行）
+    // 3. 龙门状态机（依赖最新的X1/X2物理状态 -> 必须在轴推演之后执行）
     tickGantry(ms);
 }
 ```
@@ -436,42 +436,42 @@ void resetAll() {
 
 ```text
 GantryOrchestrator
-  → GantryCouplingController.requestCouple(true)
-    → popPendingCommand() → GantryCouplingCommand{true}
-      → Driver → FakePLC.onGantryCommand(cmd)
-        → m_gantryCouplingTarget = true
-          → tick(ms) → tickGantry(ms)
-            → 100ms 延迟
-              → m_gantryFeedback.isCoupled = true  ← 无条件！
-                → pollFeedback() → GantryCouplingController.applyFeedback()
-                  → m_state.applyCoupledFeedback()
+  -> GantryCouplingController.requestCouple(true)
+    -> popPendingCommand() -> GantryCouplingCommand{true}
+      -> Driver -> FakePLC.onGantryCommand(cmd)
+        -> m_gantryCouplingTarget = true
+          -> tick(ms) -> tickGantry(ms)
+            -> 100ms 延迟
+              -> m_gantryFeedback.isCoupled = true  ← 无条件！
+                -> pollFeedback() -> GantryCouplingController.applyFeedback()
+                  -> m_state.applyCoupledFeedback()
 ```
 
 ### 重构后
 
 ```text
 GantryOrchestrator
-  → GantryCouplingController.requestCouple(true)
-    → popPendingCommand() → GantryCouplingCommand{true}
-      → Driver → FakePLC.onGantryCommand(cmd)
-        → m_gantryCouplingTarget = true
-          → tick(ms) → tickGantry(ms)
-            → refreshGantryPhysicalState()        ← 新：读取X1/X2真实状态
-            → tickGantryCoupling(ms)              ← 新：条件检查
-              → checkCouplingConditions()         ← 新：6项条件逐一检查
-                ├─ X1 未使能? → errorCode=2 (X1NotEnabled)
-                ├─ X2 未使能? → errorCode=3 (X2NotEnabled)
-                ├─ X1 运动中? → errorCode=4 (X1NotStationary)
-                ├─ X2 运动中? → errorCode=5 (X2NotStationary)
-                ├─ 位置差≥0.1? → errorCode=1 (PositionToleranceExceeded)
-                └─ 全部通过 → isCoupled=true, errorCode=0
-            → tickGantryCoupledMonitoring()       ← 新：联动后持续监测
-              ├─ 超差? → isCoupled=false + errorCode
-              ├─ 轴报警? → isCoupled=false + errorCode
-              └─ 轴掉电? → isCoupled=false + errorCode
-              → pollFeedback() → GantryCouplingController.applyFeedback()
-                ├─ errorCode≠0 → m_state.applyDecoupledFeedback()  ← 首次被触发！
-                └─ errorCode=0, isCoupled=true → m_state.applyCoupledFeedback()
+  -> GantryCouplingController.requestCouple(true)
+    -> popPendingCommand() -> GantryCouplingCommand{true}
+      -> Driver -> FakePLC.onGantryCommand(cmd)
+        -> m_gantryCouplingTarget = true
+          -> tick(ms) -> tickGantry(ms)
+            -> refreshGantryPhysicalState()        ← 新：读取X1/X2真实状态
+            -> tickGantryCoupling(ms)              ← 新：条件检查
+              -> checkCouplingConditions()         ← 新：6项条件逐一检查
+                ├─ X1 未使能? -> errorCode=2 (X1NotEnabled)
+                ├─ X2 未使能? -> errorCode=3 (X2NotEnabled)
+                ├─ X1 运动中? -> errorCode=4 (X1NotStationary)
+                ├─ X2 运动中? -> errorCode=5 (X2NotStationary)
+                ├─ 位置差≥0.1? -> errorCode=1 (PositionToleranceExceeded)
+                └─ 全部通过 -> isCoupled=true, errorCode=0
+            -> tickGantryCoupledMonitoring()       ← 新：联动后持续监测
+              ├─ 超差? -> isCoupled=false + errorCode
+              ├─ 轴报警? -> isCoupled=false + errorCode
+              └─ 轴掉电? -> isCoupled=false + errorCode
+              -> pollFeedback() -> GantryCouplingController.applyFeedback()
+                ├─ errorCode≠0 -> m_state.applyDecoupledFeedback()  ← 首次被触发！
+                └─ errorCode=0, isCoupled=true -> m_state.applyCoupledFeedback()
 ```
 
 ---
@@ -488,7 +488,7 @@ GantryOrchestrator
 // GantryCouplingController::applyFeedback() 中
 if (m_state.isCouplingRequested()) {
     if (feedback.errorCode != 0) {
-        // PLC 已明确拒绝联动 → 回退到解耦状态  ← 现在可以触发了！
+        // PLC 已明确拒绝联动 -> 回退到解耦状态  ← 现在可以触发了！
         m_state.applyDecoupledFeedback();
     }
 }
@@ -500,14 +500,14 @@ if (m_state.isCouplingRequested()) {
 
 | 场景 | 测试方法概要 |
 |------|-------------|
-| X1 未使能时请求联动 → 被拒绝 | `onGantryCommand(GantryCouplingCommand{true})` + `tick()` → `errorCode == 2` |
-| X1 运动中请求联动 → 被拒绝 | 先 Jog X1，再请求联动 → `errorCode == 4` |
-| 位置差过大请求联动 → 被拒绝 | 设置 X1.pos=10, X2.pos=0，请求联动 → `errorCode == 1` |
-| 正常联动建立成功 | 先使能+静止+位置对齐，请求联动 → `isCoupled==true, errorCode==0` |
-| 联动后超差自动解耦 | 联动建立后，手动修改 X1 位置造成超差 → 下个 tick 自动解耦 |
-| 联动后 X1 报警自动解耦 | 联动建立后，force X1 Error → 下个 tick 自动解耦 |
-| 联动模式下拒绝 X1 独立点动 | 联动建立后，Jog X1 → X1 不运动 |
-| 解耦模式下允许 X1 独立点动 | 解耦后，Jog X1 → X1 正常运动 |
+| X1 未使能时请求联动 -> 被拒绝 | `onGantryCommand(GantryCouplingCommand{true})` + `tick()` -> `errorCode == 2` |
+| X1 运动中请求联动 -> 被拒绝 | 先 Jog X1，再请求联动 -> `errorCode == 4` |
+| 位置差过大请求联动 -> 被拒绝 | 设置 X1.pos=10, X2.pos=0，请求联动 -> `errorCode == 1` |
+| 正常联动建立成功 | 先使能+静止+位置对齐，请求联动 -> `isCoupled==true, errorCode==0` |
+| 联动后超差自动解耦 | 联动建立后，手动修改 X1 位置造成超差 -> 下个 tick 自动解耦 |
+| 联动后 X1 报警自动解耦 | 联动建立后，force X1 Error -> 下个 tick 自动解耦 |
+| 联动模式下拒绝 X1 独立点动 | 联动建立后，Jog X1 -> X1 不运动 |
+| 解耦模式下允许 X1 独立点动 | 解耦后，Jog X1 -> X1 正常运动 |
 
 ---
 
@@ -517,7 +517,7 @@ if (m_state.isCouplingRequested()) {
 
 1. 在 `FakePLC` private 区新增 `GantryPhysicalState` 结构体 + `m_gantryPhysical` 成员
 2. 新增 `refreshGantryPhysicalState()` 方法
-3. 改造 `tickGantry()` → 拆分为 `tickGantryPower()` + `tickGantryCoupling()` + `tickGantryCoupledMonitoring()`
+3. 改造 `tickGantry()` -> 拆分为 `tickGantryPower()` + `tickGantryCoupling()` + `tickGantryCoupledMonitoring()`
 4. 新增 `checkCouplingConditions()` 方法
 5. 在 `tick()` 中将 `tickGantry(ms)` 移到轴推演之后
 6. 更新 `resetAll()`
@@ -542,7 +542,7 @@ if (m_state.isCouplingRequested()) {
 | `tickGantry()` 时序变更影响 | 急停仍在龙门之前执行（与重构前一致），仅龙门移到轴推演之后，不影响急停行为 |
 | `refreshGantryPhysicalState()` 性能 | 仅读取 2 个 AxisStateInternal，O(1) 操作，无影响 |
 | `forceGantryFeedback()` 与自动刷新冲突 | 通过 `m_gantryFeedbackLocked` 标志隔离，测试注入模式跳过自动刷新 |
-| 联动后超差自动解耦是否需要同时停止运动 | 仅设置 `isCoupled=false` + `errorCode`，运动停止由上层 Domain/Application 基于 errorCode 决定——与真实 PLC 一致（PLC 只写寄存器，不做运动控制决策） |
+| 联动后超差自动解耦是否需要同时停止运动 | 仅设置 `isCoupled=false` + `errorCode`，运动停止由上层 Domain/Application 基于 errorCode 决定----与真实 PLC 一致（PLC 只写寄存器，不做运动控制决策） |
 | 现有测试回归 | `forceGantryFeedback()` 注入时设置 `locked=true`，行为与重构前完全一致 |
 
 ---
@@ -556,7 +556,7 @@ if (m_state.isCouplingRequested()) {
 - [x] **联动持续监测**：每个 tick 检查超差/报警/掉电/急停，自动解耦
 - [x] **超差监测**：实时计算 `|X1.absPos - X2.absPos|`，两个阈值（建立前 0.1mm + 建立后 0.5mm）
 - [x] **命令拒绝**：非零 errorCode 使 `GantryCouplingController.applyFeedback()` 的错误分支可触发
-- [x] **PLC 扫描周期行为**：每个 tick 无条件刷新物理状态→刷新反馈寄存器
+- [x] **PLC 扫描周期行为**：每个 tick 无条件刷新物理状态->刷新反馈寄存器
 - [x] **轴状态聚合**：`GantryPhysicalState` 从 X1/X2 的 `AxisState` + 限位状态聚合
 - [x] **联动/分动互斥**：联动态下拒绝 X1/X2 的 Jog 和 Move 命令
 - [x] **联动中间态**：从命令到反馈之间，真实反映了"延迟 + 条件检查"

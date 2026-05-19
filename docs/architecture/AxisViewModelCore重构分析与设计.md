@@ -17,7 +17,7 @@ AxisViewModelCore(Axis& axis, JogOrchestrator& jogOrch,
                   StopAxisUseCase& stopUc)
 ```
 
-问题：**这是一个"单轴单组硬绑定"的设计**——它在构造函数期就固化了轴引用和编排器引用，且完全没有 `SystemContext` / `SystemManager` / `groupName` 的概念。
+问题：**这是一个"单轴单组硬绑定"的设计**----它在构造函数期就固化了轴引用和编排器引用，且完全没有 `SystemContext` / `SystemManager` / `groupName` 的概念。
 
 ---
 
@@ -60,11 +60,11 @@ AxisViewModelCore(Axis& axis, JogOrchestrator& jogOrch,
 
 ### 2.2 SystemContext 层已完成
 
-- `tryGetAxis(id)` — 多层拦截（安全锁定 → 龙门同步 → 龙门语义 → 容器查找）
-- `gantryCouplingController()` — 联动/解耦状态机
-- `gantryPowerController()` — 龙门电机使能/掉电
-- `emergencyStopController()` — 急停状态机 + 命令产生/消费
-- `driver()` — ISystemDriver 引用
+- `tryGetAxis(id)` -- 多层拦截（安全锁定 -> 龙门同步 -> 龙门语义 -> 容器查找）
+- `gantryCouplingController()` -- 联动/解耦状态机
+- `gantryPowerController()` -- 龙门电机使能/掉电
+- `emergencyStopController()` -- 急停状态机 + 命令产生/消费
+- `driver()` -- ISystemDriver 引用
 
 ### 2.3 UseCaseError 完整类型
 
@@ -98,14 +98,14 @@ virtual void pollFeedback(SystemContext& ctx) = 0;
 │          而是通过 groupName + axisId 动态路由             │
 │                                                          │
 │  原则 2: ViewModel 是防腐层（Anti-Corruption Layer）      │
-│          用 std::visit 将 UseCaseError → ViewModelError   │
+│          用 std::visit 将 UseCaseError -> ViewModelError   │
 │          UI 层永不直接消费领域枚举                        │
 │                                                          │
 │  原则 3: 一个 ViewModel = 一组 + 一轴                    │
 │          UI 层创建 N×M 个 ViewModel 实例来控制所有组合    │
 │                                                          │
 │  原则 4: tick() 统一驱动                                 │
-│          ViewModel::tick() → Orchestrator::tick()         │
+│          ViewModel::tick() -> Orchestrator::tick()         │
 │          SystemManager 在更上层统一做 pollFeedback()       │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -137,7 +137,7 @@ virtual void pollFeedback(SystemContext& ctx) = 0;
 │  │           StopUc, JogOrch, AbsOrch, RelOrch            │
 │  ├─ 控制: enable(), disable(), jog+/-(), moveAbs() ...   │
 │  ├─ 状态: state(), absPos(), relPos(), posLimit() ...    │
-│  ├─ 错误: lastError() → ViewModelError                   │
+│  ├─ 错误: lastError() -> ViewModelError                   │
 │  └─ tick(): 驱动 Orchestrator + 收集错误                  │
 │                                                           │
 │  GantryViewModelCore (新增)                                │
@@ -159,7 +159,7 @@ virtual void pollFeedback(SystemContext& ctx) = 0;
 │  ├─ debugMessage:string  // "AxisId=X,pos=100.0,limit=…"  │
 │  └─ category:    ErrorCategory  // Inline/Modal/Silent    │
 │                                                           │
-│  translate(UseCaseError) → ViewModelError (新增函数)       │
+│  translate(UseCaseError) -> ViewModelError (新增函数)       │
 │  └─ std::visit 一次性覆盖所有 variant 分支                 │
 └──────────────┬───────────────────────────────────────────┘
                │ UseCaseError / 状态读取
@@ -261,9 +261,9 @@ private:
 /**
  * @brief UI 友好的错误分类
  *
- * Inline  — 在轴控件旁内联显示（如"轴已到达正向限位"），不打断用户操作
- * Modal   — 弹窗警告（如"通讯中断"），需要用户确认
- * Silent  — 不显示，仅记录日志（如"点动停止时轴已空闲"）
+ * Inline  -- 在轴控件旁内联显示（如"轴已到达正向限位"），不打断用户操作
+ * Modal   -- 弹窗警告（如"通讯中断"），需要用户确认
+ * Silent  -- 不显示，仅记录日志（如"点动停止时轴已空闲"）
  */
 enum class ErrorCategory {
     Inline,
@@ -290,7 +290,7 @@ struct ViewModelError {
 };
 ```
 
-### 3.5 UseCaseError → ViewModelError 翻译表
+### 3.5 UseCaseError -> ViewModelError 翻译表
 
 ```cpp
 // 在 AxisViewModelCore.cpp 中实现
@@ -771,7 +771,7 @@ private:
 | 步骤 | 内容 | 产出的文件 |
 |------|------|-----------|
 | 1.1 | 创建 `ViewModelError.h` 结构体 + `ErrorCategory` 枚举 | `presentation/viewmodel/ViewModelError.h` |
-| 1.2 | 创建 `translate(UseCaseError) → ViewModelError` 翻译函数 | `presentation/viewmodel/ErrorTranslator.h/.cpp` |
+| 1.2 | 创建 `translate(UseCaseError) -> ViewModelError` 翻译函数 | `presentation/viewmodel/ErrorTranslator.h/.cpp` |
 | 1.3 | 编写 ErrorTranslator 的单元测试（覆盖所有 variant 分支） | `tests/presentation/viewmodel/test_error_translator.cpp` |
 
 ### Phase 2: 重构 AxisViewModelCore
@@ -810,7 +810,7 @@ private:
 |------|------|
 | 5.1 | 在 SystemManager（或上层 Loop）中统一 pollFeedback |
 | 5.2 | 建立所有 ViewModel 的注册/收集机制 |
-| 5.3 | 单次主循环：pollFeedback → tickAllViewModels → emit |
+| 5.3 | 单次主循环：pollFeedback -> tickAllViewModels -> emit |
 
 ---
 
@@ -847,20 +847,20 @@ private:
 
 ---
 
-## 七、附录：UseCaseError 各分支 → ViewModelError 翻译速查表
+## 七、附录：UseCaseError 各分支 -> ViewModelError 翻译速查表
 
 | UseCaseError variant | 枚举值 | code | category |
 |---------------------|--------|------|----------|
-| `ContextRejection::GroupNotFound` | — | `CTX_GROUP_NOT_FOUND` | Modal |
-| `ContextRejection::PhysicalAxisLockedByGantry` | — | `CTX_PHYSICAL_AXIS_LOCKED` | Inline |
-| `ContextRejection::SystemSafetyLocked` | — | `CTX_SAFETY_LOCKED` | Modal |
-| `RejectionReason::AtPositiveLimit` | — | `AXIS_AT_POSITIVE_LIMIT` | Inline |
-| `RejectionReason::AtNegativeLimit` | — | `AXIS_AT_NEGATIVE_LIMIT` | Inline |
-| `RejectionReason::TargetOutOfPositiveLimit` | — | `AXIS_TARGET_OUT_OF_POS_LIMIT` | Inline |
-| `RejectionReason::InvalidState` | — | `AXIS_INVALID_STATE` | Inline |
-| `RejectionReason::AlreadyMoving` | — | `AXIS_ALREADY_MOVING` | Inline |
-| `CommunicationResult::Status::NetworkError` | — | `COMM_NETWORK_ERROR` | Modal |
-| `CommunicationResult::Status::Timeout` | — | `COMM_TIMEOUT` | Modal |
-| `CommunicationResult::Status::Busy` | — | `COMM_PLC_BUSY` | Inline |
-| `GantryRejection::PowerNotEnabled` | — | `GANTRY_POWER_NOT_ENABLED` | Inline |
-| `SafetyRejection::AlreadyStopped` | — | `SAFETY_ALREADY_STOPPED` | Silent |
+| `ContextRejection::GroupNotFound` | -- | `CTX_GROUP_NOT_FOUND` | Modal |
+| `ContextRejection::PhysicalAxisLockedByGantry` | -- | `CTX_PHYSICAL_AXIS_LOCKED` | Inline |
+| `ContextRejection::SystemSafetyLocked` | -- | `CTX_SAFETY_LOCKED` | Modal |
+| `RejectionReason::AtPositiveLimit` | -- | `AXIS_AT_POSITIVE_LIMIT` | Inline |
+| `RejectionReason::AtNegativeLimit` | -- | `AXIS_AT_NEGATIVE_LIMIT` | Inline |
+| `RejectionReason::TargetOutOfPositiveLimit` | -- | `AXIS_TARGET_OUT_OF_POS_LIMIT` | Inline |
+| `RejectionReason::InvalidState` | -- | `AXIS_INVALID_STATE` | Inline |
+| `RejectionReason::AlreadyMoving` | -- | `AXIS_ALREADY_MOVING` | Inline |
+| `CommunicationResult::Status::NetworkError` | -- | `COMM_NETWORK_ERROR` | Modal |
+| `CommunicationResult::Status::Timeout` | -- | `COMM_TIMEOUT` | Modal |
+| `CommunicationResult::Status::Busy` | -- | `COMM_PLC_BUSY` | Inline |
+| `GantryRejection::PowerNotEnabled` | -- | `GANTRY_POWER_NOT_ENABLED` | Inline |
+| `SafetyRejection::AlreadyStopped` | -- | `SAFETY_ALREADY_STOPPED` | Silent |

@@ -39,12 +39,12 @@
  * pollFeedback() 实现:
  *   1. 推进 FakePLC 一个周期 (tick)
  *   2. 遍历所有 6 个轴，读取 FakePLC 反馈并注入 Axis::applyFeedback()
- *   3. 注入急停状态反馈 → EmergencyStopController::applyFeedback()
- *   4. 注入龙门反馈 → GantryCouplingController::applyFeedback()
+ *   3. 注入急停状态反馈 -> EmergencyStopController::applyFeedback()
+ *   4. 注入龙门反馈 -> GantryCouplingController::applyFeedback()
  *                     + GantryPowerController::applyFeedback()
  *
  * --- 测试辅助 ---
- *   disconnect() / connect() — 模拟网络通断
+ *   disconnect() / connect() -- 模拟网络通断
  *
  * 使用示例：
  *   FakePLC plcA, plcB;
@@ -81,10 +81,10 @@ public:
         // 1. 推进硬件模拟一个周期
         m_plc.tick(10);
 
-        // 2. 注入安全状态反馈 — 急停
+        // 2. 注入安全状态反馈 -- 急停
         ctx.emergencyStopController().applyFeedback(m_plc.getEmergencyStopFeedback());
 
-        // 3. 注入龙门反馈 — 电机使能 + 联动状态
+        // 3. 注入龙门反馈 -- 电机使能 + 联动状态
         GantryFeedback gf = m_plc.getGantryFeedback();
         ctx.gantryPowerController().applyFeedback(gf);
         ctx.gantryCouplingController().applyFeedback(gf);

@@ -12,12 +12,12 @@
 // EnableUseCase TDD 测试套件
 //
 // 验证完整调用链：
-//   UI → EnableUseCase.execute(manager, groupName, axisId, active)
-//      → 阶段 0: SystemManager::tryGetGroup
-//      → 阶段 1: SystemContext::tryGetAxis (含龙门校验)
-//      → 阶段 2: Axis::enable (领域状态判定)
-//      → 阶段 3: 驱动下发
-//      → 返回 UseCaseError
+//   UI -> EnableUseCase.execute(manager, groupName, axisId, active)
+//      -> 阶段 0: SystemManager::tryGetGroup
+//      -> 阶段 1: SystemContext::tryGetAxis (含龙门校验)
+//      -> 阶段 2: Axis::enable (领域状态判定)
+//      -> 阶段 3: 驱动下发
+//      -> 返回 UseCaseError
 // ============================================================
 
 // ── 辅助：将 UseCaseError 断言为某一具体类型 ──────────────────
@@ -140,7 +140,7 @@ TEST_F(EnableUseCaseTest, Disable_WhenAlreadyDisabled_IdempotentSuccess) {
 }
 
 // ============================================================
-// 第二部分：SystemManager 层错误 — 分组不存在
+// 第二部分：SystemManager 层错误 -- 分组不存在
 // ============================================================
 
 TEST_F(EnableUseCaseTest, NonExistentGroup_ReturnsGroupNotFound) {
@@ -151,12 +151,12 @@ TEST_F(EnableUseCaseTest, NonExistentGroup_ReturnsGroupNotFound) {
 }
 
 // ============================================================
-// 第三部分：NotSynchronized 态 — 龙门轴访问全部拒绝
+// 第三部分：NotSynchronized 态 -- 龙门轴访问全部拒绝
 // ============================================================
 
 TEST_F(EnableUseCaseTest, EnableX_WhenNotSynchronized_ReturnsGantryNotSynchronized) {
     // Given: 默认构造后 GantryGroup 处于 NotSynchronized，尚未收到任何 PLC 反馈
-    //        → tryGetAxis(X) 被前置拦截
+    //        -> tryGetAxis(X) 被前置拦截
 
     // When: 尝试操作逻辑轴 X
     UseCaseError result = useCase.execute(manager, GROUP, AxisId::X, true);
@@ -168,7 +168,7 @@ TEST_F(EnableUseCaseTest, EnableX_WhenNotSynchronized_ReturnsGantryNotSynchroniz
 
 TEST_F(EnableUseCaseTest, EnableX1_WhenNotSynchronized_ReturnsGantryNotSynchronized) {
     // Given: GantryGroup 处于 NotSynchronized
-    //        → tryGetAxis(X1) 被前置拦截
+    //        -> tryGetAxis(X1) 被前置拦截
 
     // When: 尝试操作物理轴 X1
     UseCaseError result = useCase.execute(manager, GROUP, X1, true);
@@ -180,7 +180,7 @@ TEST_F(EnableUseCaseTest, EnableX1_WhenNotSynchronized_ReturnsGantryNotSynchroni
 
 TEST_F(EnableUseCaseTest, EnableX2_WhenNotSynchronized_ReturnsGantryNotSynchronized) {
     // Given: GantryGroup 处于 NotSynchronized
-    //        → tryGetAxis(X2) 被前置拦截
+    //        -> tryGetAxis(X2) 被前置拦截
 
     // When: 尝试操作物理轴 X2
     UseCaseError result = useCase.execute(manager, GROUP, X2, true);
@@ -200,18 +200,18 @@ TEST_F(EnableUseCaseTest, EnableY_WhenNotSynchronized_Succeeds) {
     // When: 操作 Y 轴
     UseCaseError result = useCase.execute(manager, GROUP, Y, true);
 
-    // Then: 成功 — 非龙门轴不受 NotSynchronized 影响
+    // Then: 成功 -- 非龙门轴不受 NotSynchronized 影响
     expectSuccess(result);
     EXPECT_TRUE(y->hasPendingCommand());
 }
 
 // ============================================================
-// 第四部分：SystemContext 层错误 — 龙门联动锁定
+// 第四部分：SystemContext 层错误 -- 龙门联动锁定
 // ============================================================
 
 TEST_F(EnableUseCaseTest, EnableX1_WhenGantryCoupled_ReturnsPhysicalAxisLocked) {
     // Given: 龙门联动中，X1 物理轴被锁定
-    //        PLC 反馈 isCoupled=true → 进入 Coupled 态
+    //        PLC 反馈 isCoupled=true -> 进入 Coupled 态
     SystemContext* ctx = nullptr;
     ContextRejection reason;
     manager.tryGetGroup(GROUP, ctx, reason);
@@ -227,7 +227,7 @@ TEST_F(EnableUseCaseTest, EnableX1_WhenGantryCoupled_ReturnsPhysicalAxisLocked) 
 
 TEST_F(EnableUseCaseTest, EnableX1_WhenGantryDecoupled_PassesThrough) {
     // Given: 龙门解耦
-    //        PLC 反馈 isCoupled=false → 退出 NotSynchronized 进入 Decoupled 态
+    //        PLC 反馈 isCoupled=false -> 退出 NotSynchronized 进入 Decoupled 态
     SystemContext* ctx = nullptr;
     ContextRejection reason;
     manager.tryGetGroup(GROUP, ctx, reason);
@@ -278,7 +278,7 @@ TEST_F(EnableUseCaseTest, Disable_WhenAxisMoving_ReturnsAlreadyMoving) {
 }
 
 // ============================================================
-// 第六部分：多轴操作 — 不同轴错误互不干扰
+// 第六部分：多轴操作 -- 不同轴错误互不干扰
 // ============================================================
 
 TEST_F(EnableUseCaseTest, X1Failed_YStillSucceeds) {
@@ -303,14 +303,14 @@ TEST_F(EnableUseCaseTest, X1Failed_YStillSucceeds) {
 }
 
 // ============================================================
-// 第七部分：往返测试 — Enable + Disable 完整循环
+// 第七部分：往返测试 -- Enable + Disable 完整循环
 // ============================================================
 
 TEST_F(EnableUseCaseTest, RoundTrip_EnableThenDisable_BothSucceed) {
     Axis* y = getAxis(Y);
     ASSERT_NE(y, nullptr);
 
-    // Step 1: Disabled → Enable
+    // Step 1: Disabled -> Enable
     y->applyFeedback({.state = AxisState::Disabled});
     UseCaseError r1 = useCase.execute(manager, GROUP, Y, true);
     expectSuccess(r1);
@@ -318,13 +318,13 @@ TEST_F(EnableUseCaseTest, RoundTrip_EnableThenDisable_BothSucceed) {
     // 模拟 PLC 反馈：上电成功，进入 Idle
     y->applyFeedback({.state = AxisState::Idle});
 
-    // Step 2: Idle → Disable
+    // Step 2: Idle -> Disable
     UseCaseError r2 = useCase.execute(manager, GROUP, Y, false);
     expectSuccess(r2);
 }
 
 // ============================================================
-// 第八部分：UseCase 无状态 — 多次调用互不影响
+// 第八部分：UseCase 无状态 -- 多次调用互不影响
 // ============================================================
 
 TEST_F(EnableUseCaseTest, Stateless_RepeatedCallsProduceConsistentResult) {

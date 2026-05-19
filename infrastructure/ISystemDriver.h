@@ -6,20 +6,20 @@
 class SystemContext;  // 前向声明，避免循环依赖（SystemContext.h 已 include 本文件）
 
 /**
- * @brief 通讯层结果 — 精确表达 Modbus TCP 通讯的每一类失败
+ * @brief 通讯层结果 -- 精确表达 Modbus TCP 通讯的每一类失败
  *
  * 设计原则:
- *   1. 不表达 PLC 执行结果 — 那是 pollFeedback 的职责
- *   2. 不表达物理动作状态 — 那是 pollFeedback 的职责
+ *   1. 不表达 PLC 执行结果 -- 那是 pollFeedback 的职责
+ *   2. 不表达物理动作状态 -- 那是 pollFeedback 的职责
  *   3. 只表达"命令是否成功写入 PLC 的寄存器"
  *
  * 错误层级（从低到高）:
- *   L1 — 网络层:    NetworkError   (socket 断连/拒绝，不可重试)
- *   L2 — 传输层:    Timeout        (超时，可重试)
- *   L3 — Modbus层:  ProtocolError  (异常响应，保留 exceptionCode)
+ *   L1 -- 网络层:    NetworkError   (socket 断连/拒绝，不可重试)
+ *   L2 -- 传输层:    Timeout        (超时，可重试)
+ *   L3 -- Modbus层:  ProtocolError  (异常响应，保留 exceptionCode)
  *                    Busy           (PLC忙，可重试)
- *   L4 — 数据层:    InvalidResponse (数据非法，不可重试)
- *   L0 — 会话层:    Disconnected   (当前未连接，不可重试)
+ *   L4 -- 数据层:    InvalidResponse (数据非法，不可重试)
+ *   L0 -- 会话层:    Disconnected   (当前未连接，不可重试)
  */
 struct CommunicationResult {
 
@@ -36,8 +36,8 @@ struct CommunicationResult {
         /// 注意: 超时不等于断线，超时后网络可能立即恢复
         Timeout,
 
-        /// PLC 忙（Modbus Exception Code 0x06 — Server Device Busy）
-        /// 注意: 这是可重试的——稍等 PLC 空闲后重发
+        /// PLC 忙（Modbus Exception Code 0x06 -- Server Device Busy）
+        /// 注意: 这是可重试的----稍等 PLC 空闲后重发
         Busy,
 
         /// Modbus 异常响应（非 Busy 的其他 Exception Code）
@@ -123,8 +123,8 @@ struct CommunicationResult {
  *
  * 设计原则:
  *   1. Command / Feedback 双通路: send() 发命令，pollFeedback() 收反馈。
- *   2. send() 返回通讯结果 — 只表达"帧是否送达"，不表达"PLC 是否执行"。
- *   3. pollFeedback() 是主动拉取 — 负责物理状态回传，每主循环周期调用一次。
+ *   2. send() 返回通讯结果 -- 只表达"帧是否送达"，不表达"PLC 是否执行"。
+ *   3. pollFeedback() 是主动拉取 -- 负责物理状态回传，每主循环周期调用一次。
  */
 class ISystemDriver {
 public:
@@ -133,7 +133,7 @@ public:
     // ===== 命令通路 =====
 
     /// @brief 向硬件发送一个统一命令
-    /// @return CommunicationResult — 只表达通讯帧是否成功送达 PLC
+    /// @return CommunicationResult -- 只表达通讯帧是否成功送达 PLC
     virtual CommunicationResult send(const SystemCommand& cmd) = 0;
 
     // ===== 反馈通路 =====
@@ -144,7 +144,7 @@ public:
     ///
     /// 内部执行:
     ///   1. Read:  从硬件读取当前状态
-    ///   2. Translate: 硬件数据 → 领域反馈结构体
+    ///   2. Translate: 硬件数据 -> 领域反馈结构体
     ///   3. Dispatch: 注入 axis->applyFeedback() / emergencyStopController.applyFeedback() / ...
     ///
     /// 失败策略: 通信失败时保留上次已知反馈值，不更新，记 TRACE_WARN

@@ -72,7 +72,7 @@ Rectangle {
                 border.width: 1
             }
             Text {
-                text: viewModel ? viewModel.stateText : "—"
+                text: viewModel ? viewModel.stateText : "--"
                 color: getStateColor(viewModel ? viewModel.state : 0)
                 font.pixelSize: Theme.fontNormal
                 font.bold: true
@@ -81,7 +81,7 @@ Rectangle {
 
         Item { Layout.fillHeight: true }
 
-        // 2. 核心大数字区 — 绝对位置
+        // 2. 核心大数字区 -- 绝对位置
         ColumnLayout {
             Layout.alignment: Qt.AlignHCenter
             spacing: 5

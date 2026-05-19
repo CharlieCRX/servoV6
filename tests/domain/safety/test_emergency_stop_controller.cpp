@@ -5,7 +5,7 @@
 #include "command/SystemCommand.h"
 
 // ============================================================
-// Startup Synchronization — 首次 applyFeedback() 即同步
+// Startup Synchronization -- 首次 applyFeedback() 即同步
 // ============================================================
 
 // 1. 初始状态 = NotSynchronized（绝不假设系统安全）
@@ -21,7 +21,7 @@ TEST(EmergencyStopController, should_be_not_synchronized_initially)
     EXPECT_FALSE(controller.hasPendingCommand());
 }
 
-// 2. NotSynchronized + applyFeedback(false) → Running（首次同步，PLC 未急停）
+// 2. NotSynchronized + applyFeedback(false) -> Running（首次同步，PLC 未急停）
 TEST(EmergencyStopController, should_synchronize_to_running_via_first_feedback)
 {
     EmergencyStopController controller;
@@ -35,7 +35,7 @@ TEST(EmergencyStopController, should_synchronize_to_running_via_first_feedback)
     EXPECT_FALSE(controller.isSystemLocked());
 }
 
-// 3. NotSynchronized + applyFeedback(true) → EmergencyStopped（首次同步，PLC 已急停）
+// 3. NotSynchronized + applyFeedback(true) -> EmergencyStopped（首次同步，PLC 已急停）
 TEST(EmergencyStopController, should_synchronize_to_emergency_stopped_via_first_feedback)
 {
     EmergencyStopController controller;
@@ -50,7 +50,7 @@ TEST(EmergencyStopController, should_synchronize_to_emergency_stopped_via_first_
     EXPECT_TRUE(controller.isSystemLocked());
 }
 
-// 4. NotSynchronized 时 requestEmergencyStop() → NotSynchronized 拒绝
+// 4. NotSynchronized 时 requestEmergencyStop() -> NotSynchronized 拒绝
 TEST(EmergencyStopController, should_reject_emergency_stop_when_not_synchronized)
 {
     EmergencyStopController controller;
@@ -62,7 +62,7 @@ TEST(EmergencyStopController, should_reject_emergency_stop_when_not_synchronized
     EXPECT_FALSE(controller.hasPendingCommand());
 }
 
-// 5. NotSynchronized 时 requestReleaseEmergencyStop() → NotSynchronized 拒绝
+// 5. NotSynchronized 时 requestReleaseEmergencyStop() -> NotSynchronized 拒绝
 TEST(EmergencyStopController, should_reject_release_when_not_synchronized)
 {
     EmergencyStopController controller;
@@ -78,7 +78,7 @@ TEST(EmergencyStopController, should_reject_release_when_not_synchronized)
 // 急停触发测试（从 Running 开始）
 // ============================================================
 
-// 6. Running → 触发急停 → EmergencyStopping + 生成 command{true}
+// 6. Running -> 触发急停 -> EmergencyStopping + 生成 command{true}
 TEST(EmergencyStopController, should_request_emergency_stop_from_running)
 {
     EmergencyStopController controller;
@@ -98,7 +98,7 @@ TEST(EmergencyStopController, should_request_emergency_stop_from_running)
     EXPECT_FALSE(controller.hasPendingCommand());
 }
 
-// 7. EmergencyStopping + PLC 反馈 true → EmergencyStopped
+// 7. EmergencyStopping + PLC 反馈 true -> EmergencyStopped
 TEST(EmergencyStopController, should_transition_to_emergency_stopped_when_plc_confirms)
 {
     EmergencyStopController controller;
@@ -114,7 +114,7 @@ TEST(EmergencyStopController, should_transition_to_emergency_stopped_when_plc_co
     EXPECT_FALSE(controller.isTransitioning());
 }
 
-// 8. EmergencyStopping + PLC 反馈 false → 保持 EmergencyStopping（等待）
+// 8. EmergencyStopping + PLC 反馈 false -> 保持 EmergencyStopping（等待）
 TEST(EmergencyStopController, should_remain_emergency_stopping_when_plc_not_yet_confirmed)
 {
     EmergencyStopController controller;
@@ -128,7 +128,7 @@ TEST(EmergencyStopController, should_remain_emergency_stopping_when_plc_not_yet_
     EXPECT_TRUE(controller.isTransitioning());
 }
 
-// 9. Running → 完整急停链路 (request + feedback)
+// 9. Running -> 完整急停链路 (request + feedback)
 TEST(EmergencyStopController, should_complete_full_emergency_stop_flow)
 {
     EmergencyStopController controller;
@@ -154,7 +154,7 @@ TEST(EmergencyStopController, should_complete_full_emergency_stop_flow)
 // 物理急停按钮测试（PLC Feedback 驱动，非 Controller 命令）
 // ============================================================
 
-// 10. 物理急停按钮按下：Running + feedback(true) → 直接跃迁到 EmergencyStopped
+// 10. 物理急停按钮按下：Running + feedback(true) -> 直接跃迁到 EmergencyStopped
 //      不经过 EmergencyStopping，因为没有通过 Controller 发出命令
 TEST(EmergencyStopController, should_transition_directly_to_emergency_stopped_when_physical_button_pressed)
 {
@@ -175,7 +175,7 @@ TEST(EmergencyStopController, should_transition_directly_to_emergency_stopped_wh
     EXPECT_FALSE(controller.hasPendingCommand());
 }
 
-// 11. 物理急停 → 软件解除：EmergencyStopped(物理) → requestRelease → ReleasingEmergencyStop → feedback(false) → Running
+// 11. 物理急停 -> 软件解除：EmergencyStopped(物理) -> requestRelease -> ReleasingEmergencyStop -> feedback(false) -> Running
 TEST(EmergencyStopController, should_release_physical_emergency_stop_via_software)
 {
     EmergencyStopController controller;
@@ -204,7 +204,7 @@ TEST(EmergencyStopController, should_release_physical_emergency_stop_via_softwar
 // 解除急停测试
 // ============================================================
 
-// 12. EmergencyStopped → 解除急停 → ReleasingEmergencyStop + 生成 command{false}
+// 12. EmergencyStopped -> 解除急停 -> ReleasingEmergencyStop + 生成 command{false}
 TEST(EmergencyStopController, should_request_release_from_emergency_stopped)
 {
     EmergencyStopController controller;
@@ -229,7 +229,7 @@ TEST(EmergencyStopController, should_request_release_from_emergency_stopped)
     EXPECT_FALSE(controller.hasPendingCommand());
 }
 
-// 13. ReleasingEmergencyStop + PLC 反馈 false → Running（直接恢复）
+// 13. ReleasingEmergencyStop + PLC 反馈 false -> Running（直接恢复）
 TEST(EmergencyStopController, should_transition_to_running_when_plc_confirms_release)
 {
     EmergencyStopController controller;
@@ -253,7 +253,7 @@ TEST(EmergencyStopController, should_transition_to_running_when_plc_confirms_rel
     EXPECT_FALSE(controller.isTransitioning());
 }
 
-// 14. ReleasingEmergencyStop + PLC 反馈 true → 保持 ReleasingEmergencyStop（等待）
+// 14. ReleasingEmergencyStop + PLC 反馈 true -> 保持 ReleasingEmergencyStop（等待）
 TEST(EmergencyStopController, should_remain_releasing_emergency_stop_when_plc_not_yet_released)
 {
     EmergencyStopController controller;
@@ -279,7 +279,7 @@ TEST(EmergencyStopController, should_remain_releasing_emergency_stop_when_plc_no
 // 幂等 & 冲突拦截测试
 // ============================================================
 
-// 15. 幂等：EmergencyStopping 下再次请求急停 → AlreadyInState
+// 15. 幂等：EmergencyStopping 下再次请求急停 -> AlreadyInState
 TEST(EmergencyStopController, should_reject_duplicate_emergency_stop_when_stopping)
 {
     EmergencyStopController controller;
@@ -294,7 +294,7 @@ TEST(EmergencyStopController, should_reject_duplicate_emergency_stop_when_stoppi
     EXPECT_EQ(controller.state(), SafetyState::EmergencyStopping); // 状态不变
 }
 
-// 16. 幂等：EmergencyStopped 下再次请求急停 → AlreadyInState
+// 16. 幂等：EmergencyStopped 下再次请求急停 -> AlreadyInState
 TEST(EmergencyStopController, should_reject_duplicate_emergency_stop_when_already_stopped)
 {
     EmergencyStopController controller;
@@ -310,13 +310,13 @@ TEST(EmergencyStopController, should_reject_duplicate_emergency_stop_when_alread
     EXPECT_EQ(controller.state(), SafetyState::EmergencyStopped); // 状态不变
 }
 
-// 17. 冲突：ReleasingEmergencyStop 下请求急停 → InvalidStateTransition
+// 17. 冲突：ReleasingEmergencyStop 下请求急停 -> InvalidStateTransition
 TEST(EmergencyStopController, should_reject_emergency_stop_when_releasing)
 {
     EmergencyStopController controller;
     controller.applyFeedback(false);
 
-    // 先进入 EmergencyStopped → ReleasingEmergencyStop
+    // 先进入 EmergencyStopped -> ReleasingEmergencyStop
     controller.requestEmergencyStop();
     controller.applyFeedback(true);
     controller.requestReleaseEmergencyStop();
@@ -329,7 +329,7 @@ TEST(EmergencyStopController, should_reject_emergency_stop_when_releasing)
     EXPECT_EQ(controller.state(), SafetyState::ReleasingEmergencyStop); // 状态不变
 }
 
-// 18. 前置条件：Running 下解除急停 → NotEmergencyStopped
+// 18. 前置条件：Running 下解除急停 -> NotEmergencyStopped
 TEST(EmergencyStopController, should_reject_release_when_running)
 {
     EmergencyStopController controller;
@@ -342,7 +342,7 @@ TEST(EmergencyStopController, should_reject_release_when_running)
     EXPECT_EQ(controller.state(), SafetyState::Running); // 状态不变
 }
 
-// 19. 前置条件：EmergencyStopping 下解除急停 → NotEmergencyStopped
+// 19. 前置条件：EmergencyStopping 下解除急停 -> NotEmergencyStopped
 TEST(EmergencyStopController, should_reject_release_when_emergency_stopping)
 {
     EmergencyStopController controller;
@@ -369,7 +369,7 @@ TEST(EmergencyStopController, is_system_locked_should_cover_all_locked_states)
     // NotSynchronized: 锁定（真相未知，保守策略）
     EXPECT_TRUE(controller.isSystemLocked());
 
-    // 首次同步 → Running: 不锁定
+    // 首次同步 -> Running: 不锁定
     controller.applyFeedback(false);
     EXPECT_FALSE(controller.isSystemLocked());
 
@@ -399,7 +399,7 @@ TEST(EmergencyStopController, state_query_methods_should_be_precise)
     EXPECT_FALSE(controller.isEmergencyStopped());
     EXPECT_FALSE(controller.isTransitioning());
 
-    // 首次同步 → Running
+    // 首次同步 -> Running
     controller.applyFeedback(false);
     EXPECT_FALSE(controller.isEmergencyStopped());
     EXPECT_FALSE(controller.isTransitioning());
@@ -425,7 +425,7 @@ TEST(EmergencyStopController, state_query_methods_should_be_precise)
     EXPECT_FALSE(controller.isTransitioning());
 }
 
-// 22. applyFeedback(true) 首次同步 → EmergencyStopped 后可以走完整软件解除链路
+// 22. applyFeedback(true) 首次同步 -> EmergencyStopped 后可以走完整软件解除链路
 TEST(EmergencyStopController, should_release_after_synced_to_emergency_stopped_via_feedback)
 {
     EmergencyStopController controller;

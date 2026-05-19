@@ -1,4 +1,4 @@
-# ViewModel 设计决策分析——为何使用 void 返回值
+# ViewModel 设计决策分析----为何使用 void 返回值
 
 > **文档版本:** v1.0  
 > **分析日期:** 2026-05-17  
@@ -66,19 +66,19 @@ if (vm.hasError()) {
 用户调用方法
     │
     ├─ UseCase 同步路径（enable, stop）:
-    │     execute() → UseCaseError (variant<monostate, RejectionReason, ...>)
+    │     execute() -> UseCaseError (variant<monostate, RejectionReason, ...>)
     │     ↓
-    │   ErrorTranslator::translate(UseCaseError) → ViewModelError
+    │   ErrorTranslator::translate(UseCaseError) -> ViewModelError
     │     ↓
     │   存入 m_lastError / m_hasError
     │
     ├─ Orchestrator 异步路径（jog, moveAbsolute, moveRelative）:
-    │     startJog() → 编排器开始执行
-    │     tick() 驱动编排器 → tick() 收集错误 → ErrorTranslator → m_lastError
+    │     startJog() -> 编排器开始执行
+    │     tick() 驱动编排器 -> tick() 收集错误 -> ErrorTranslator -> m_lastError
     │
     ├─ Axis 同步 + 异步下发路径（zeroAbsolutePosition, setJogVelocity）:
-    │     Axis::操作() → 立即检查 lastRejection()
-    │     tick() 中 driver->send() → 检查 CommunicationResult
+    │     Axis::操作() -> 立即检查 lastRejection()
+    │     tick() 中 driver->send() -> 检查 CommunicationResult
     │
     └─ tick() 是统一的错误收集点
 ```
@@ -97,8 +97,8 @@ if (vm.hasError()) {
 | **查询（Query）** | 返回状态，无副作用 | `bool` / `double` | `hasError()`, `state()`, `absPos()` |
 
 **优点：**
-- 命令方法职责单一——只负责发起操作
-- 查询方法无副作用——可安全多次调用
+- 命令方法职责单一----只负责发起操作
+- 查询方法无副作用----可安全多次调用
 - 调用者和观察者的视角分离，阅读代码时意图清晰
 
 ### 3.2 决策二：tick() 驱动模式（Push vs Pull）
@@ -191,10 +191,10 @@ void AxisViewModelCore::tick() {
 如果改用返回值模式，每个方法只能报告"发起时刻"的错误：
 
 ```
-时序箭头 →
+时序箭头 ->
 ────────────────────────────────────────────────────
 vm.jog(Forward);       // 返回 true（发起成功）
-vm.tick() → 编排器执行 → 触碰限位 → 错误！
+vm.tick() -> 编排器执行 -> 触碰限位 -> 错误！
                        // ⚠ 此时已经无法通知 caller
                        // caller 只能通过 hasError() 查询
 ```
@@ -311,7 +311,7 @@ cons:
   ❌ 与方案 B 同样的问题：无法追踪异步错误
   ❌ QML 侧 Q_INVOKABLE 返回值无法消费
   ❌ ErrorTranslator 需要在每个方法中执行（代码重复）
-  ❌ tick() 中还需要再收集 Orchestrator 的错误——双重路径
+  ❌ tick() 中还需要再收集 Orchestrator 的错误----双重路径
   ❌ 调用方同样可能忽略返回值
 ```
 
@@ -392,11 +392,11 @@ cons:
 
 ```cpp
 // enable() 的调用链是同步的：
-// enable(bool) → EnableUseCase::execute() → Axis::enable(bool) → 返回 bool
+// enable(bool) -> EnableUseCase::execute() -> Axis::enable(bool) -> 返回 bool
 // 整个过程在同一个线程、同一个调用栈中完成
 
 // 对比 jog() 的调用链是异步的：
-// jog(Direction) → JogOrchestrator::startJog() → 设置状态机 → 立即返回
+// jog(Direction) -> JogOrchestrator::startJog() -> 设置状态机 -> 立即返回
 // 真正的执行在 tick() 中完成
 ```
 
@@ -444,7 +444,7 @@ cons:
 | **Command-Query Separation** | ✅ 严格遵守 |
 | **可测试性** | ⚠️ 需要额外检查，但测试框架能接受 |
 
-### 5.2 改进建议（Tier 1 — 推荐立即实施）
+### 5.2 改进建议（Tier 1 -- 推荐立即实施）
 
 ```cpp
 // 给每个控制方法增加 [[nodiscard]] 的替代模式？
@@ -463,7 +463,7 @@ cons:
 void enable(bool active);
 ```
 
-### 5.3 改进建议（Tier 2 — 可选优化）
+### 5.3 改进建议（Tier 2 -- 可选优化）
 
 ```cpp
 // 为 C++ 调用者增加便捷方法，同时保留 void 版本
@@ -478,7 +478,7 @@ ViewModelError AxisViewModelCore::tryEnable(bool active) {
 }
 ```
 
-**但需注意：** `tryEnable()` 破坏了 tick() 驱动模型的一致性——如果在 Orchestrator 执行过程中调用 `tryEnable()`，可能会导致意外的状态推进。
+**但需注意：** `tryEnable()` 破坏了 tick() 驱动模型的一致性----如果在 Orchestrator 执行过程中调用 `tryEnable()`，可能会导致意外的状态推进。
 
 ```cpp
 // 选项 B：不增加重载，仅增强文档和测试覆盖
@@ -521,10 +521,10 @@ ViewModelError AxisViewModelCore::tryEnable(bool active) {
 | | `AxisViewModelCore` | `state(), hasError()` | 有返回值 | 纯查询 |
 
 **规律：**
-- 纯同步操作 → 有返回值（`Axis::enable()` / `Axis::state()`）
-- 纯查询 → 有返回值（`AxisViewModelCore::state()`）
-- 异步/编排操作 → void（`Orchestrator::tick()` / `ViewModelCore::jog()`）
-- UI 门面 → void（`ViewModelCore::enable()`）
+- 纯同步操作 -> 有返回值（`Axis::enable()` / `Axis::state()`）
+- 纯查询 -> 有返回值（`AxisViewModelCore::state()`）
+- 异步/编排操作 -> void（`Orchestrator::tick()` / `ViewModelCore::jog()`）
+- UI 门面 -> void（`ViewModelCore::enable()`）
 
 这个规律在各层是一致的，ViewModel 层采用 void 返回值是架构风格的延续，而非异常。
 
@@ -571,7 +571,7 @@ graph TD
 
 ---
 
-## 附录 B：如果改为返回值——QML 侧的困境
+## 附录 B：如果改为返回值----QML 侧的困境
 
 **当前设计**（QML 通过属性获取反馈）：
 ```qml
@@ -610,4 +610,4 @@ Label {
 
 ---
 
-*本文档分析了 AxisViewModelCore 中所有控制方法使用 void 返回值的设计原因，并对比了 7 种替代方案。最终结论是：void + tick + hasError 是适合当前架构的设计，改进重点应放在错误收集模型升级（单值→列表）而非返回值改造。*
+*本文档分析了 AxisViewModelCore 中所有控制方法使用 void 返回值的设计原因，并对比了 7 种替代方案。最终结论是：void + tick + hasError 是适合当前架构的设计，改进重点应放在错误收集模型升级（单值->列表）而非返回值改造。*

@@ -4,7 +4,7 @@
 >
 > 当前状态：`CommunicationResult` 结构体已在 `ISystemDriver.h` 中完整定义，`ISystemDriver::send()` 已返回 `CommunicationResult`，但所有 UseCase / Orchestrator 的调用方均**丢弃了返回值**。
 >
-> 目标：打通"驱动报告通讯错误 → UseCase 传播 → UI 诊断"的完整链路。
+> 目标：打通"驱动报告通讯错误 -> UseCase 传播 -> UI 诊断"的完整链路。
 
 ---
 
@@ -45,7 +45,7 @@ struct CommunicationResult {
     std::string diagnostic;       // 日志/UI 诊断信息
 
     [[nodiscard]] bool ok() const              { return status == Status::Sent; }
-    [[nodiscard]] bool retryable() const       { /* Timeout | Busy → true */ }
+    [[nodiscard]] bool retryable() const       { /* Timeout | Busy -> true */ }
     [[nodiscard]] bool isNetworkIssue() const  { /* NetworkError | Timeout | Disconnected */ }
     [[nodiscard]] bool isProtocolIssue() const { return status == Status::ProtocolError; }
 };
@@ -58,7 +58,7 @@ struct CommunicationResult {
 | 语义边界 | ✅ 正确 | 只表达"帧是否送达"，不表达"PLC 是否执行" |
 | 错误层级 | ✅ 正确 | L1~L4 + L0 覆盖完整 |
 | Modbus 异常码 | ✅ 正确 | `Busy` 单独抽出（因为可重试），其余归入 `ProtocolError` |
-| retryable() | ✅ 正确 | Timeout/Busy → true，其余 → false，工业现场核心决策 |
+| retryable() | ✅ 正确 | Timeout/Busy -> true，其余 -> false，工业现场核心决策 |
 | 实用方法 | ✅ 正确 | ok() / retryable() / isNetworkIssue() / isProtocolIssue() 各尽其职 |
 
 **结论：设计无需修改，直接进入落地阶段。**
@@ -95,7 +95,7 @@ struct CommunicationResult {
      └────────────────────────┘
 ```
 
-### 2.1 第 1 层：TCP 网络层 → `NetworkError`
+### 2.1 第 1 层：TCP 网络层 -> `NetworkError`
 
 | 现场现象 | 根因 | Status |
 |---------|------|--------|
@@ -108,7 +108,7 @@ struct CommunicationResult {
 
 **关键判断：NetworkError ≠ 可重试**。网线断开时重试无意义，应触发重连逻辑。
 
-### 2.2 第 2 层：传输超时层 → `Timeout`
+### 2.2 第 2 层：传输超时层 -> `Timeout`
 
 | 现场现象 | 根因 | Status |
 |---------|------|--------|
@@ -120,7 +120,7 @@ struct CommunicationResult {
 
 **工业现场事实：Timeout 非常常见，不等于断线。** 这是与 IT 系统最大的认知差异。
 
-### 2.3 第 3 层：Modbus 协议层 → `ProtocolError` / `Busy`
+### 2.3 第 3 层：Modbus 协议层 -> `ProtocolError` / `Busy`
 
 | Exception Code | 含义 | Status |
 |---------------|------|--------|
@@ -131,10 +131,10 @@ struct CommunicationResult {
 
 **关键判断：TCP 连接成功，PLC 返回了响应，但拒绝了请求。** 与 `NetworkError` 完全不同。
 
-- `Busy` → `retryable() = true`：PLC 显式告知忙，稍后重试
-- `ProtocolError`（其他）→ `retryable() = false`：编程/配置错误，重试同样失败
+- `Busy` -> `retryable() = true`：PLC 显式告知忙，稍后重试
+- `ProtocolError`（其他）-> `retryable() = false`：编程/配置错误，重试同样失败
 
-### 2.4 数据层 → `InvalidResponse`
+### 2.4 数据层 -> `InvalidResponse`
 
 CRC 校验通过但数据语义不符合预期：
 - 响应长度与请求不匹配
@@ -148,7 +148,7 @@ CRC 校验通过但数据语义不符合预期：
 ### 3.1 调用方全景图
 
 ```
-                         ISystemDriver::send(SystemCommand) → CommunicationResult
+                         ISystemDriver::send(SystemCommand) -> CommunicationResult
                                      ↑
                                      │
         ┌────────────────────────────┼────────────────────────────┐
@@ -203,11 +203,11 @@ send 返回值    传播改造       错误能力                      文档化
 
 | 阶段 | 内容 | 涉及文件 | 风险 | 预计工时 |
 |-----|------|---------|------|---------|
-| A | UseCase 层传播 | 8 个 .h | 低 — 接口兼容 | 1.5h |
-| B | Orchestrator 传播 | 3 个 .h | 中 — 需新增错误类型 | 1h |
-| C | Fake 注入错误能力 | 1 个 .h | 低 — 纯新增 | 0.5h |
-| D | 测试覆盖 | 1~2 个 .cpp | 低 — 新增测试 | 1.5h |
-| E | pollFeedback 文档化 | 1 个 .h | 无 — 纯注释 | 0.5h |
+| A | UseCase 层传播 | 8 个 .h | 低 -- 接口兼容 | 1.5h |
+| B | Orchestrator 传播 | 3 个 .h | 中 -- 需新增错误类型 | 1h |
+| C | Fake 注入错误能力 | 1 个 .h | 低 -- 纯新增 | 0.5h |
+| D | 测试覆盖 | 1~2 个 .cpp | 低 -- 新增测试 | 1.5h |
+| E | pollFeedback 文档化 | 1 个 .h | 无 -- 纯注释 | 0.5h |
 
 ### 4.2 依赖关系
 
@@ -250,7 +250,7 @@ using UseCaseError = std::variant<
 - 调用方可以通过 `result.retryable()` 决策是否重试
 
 缺点：
-- 增加 `UseCaseError.h` 对 `infrastructure/ISystemDriver.h` 的依赖（Application → Infrastructure）
+- 增加 `UseCaseError.h` 对 `infrastructure/ISystemDriver.h` 的依赖（Application -> Infrastructure）
 
 **方案 2（备选）：将 CommunicationResult 映射为现有错误类型**
 
@@ -354,7 +354,7 @@ void stop(SystemManager& manager,
             if (!result.ok()) {
                 LOG_WARN(LogLayer::HAL, "JogUC",
                     "Stop command delivery failed: " + result.diagnostic);
-                // 不返回错误 — stop 是安全操作，下一帧 feedback 会反映真实状态
+                // 不返回错误 -- stop 是安全操作，下一帧 feedback 会反映真实状态
             }
         }
     }
@@ -391,9 +391,9 @@ if (power.hasPendingCommand() && drv) {
 ```
 
 3 处修改位置：
-1. `Case::EnsuringEnabled` — 第 94 行，GantryPowerCommand
-2. `Case::Coupling` — 第 135 行，GantryCouplingCommand
-3. `Case::Decoupling` — 第 157 行，GantryCouplingCommand
+1. `Case::EnsuringEnabled` -- 第 94 行，GantryPowerCommand
+2. `Case::Coupling` -- 第 135 行，GantryCouplingCommand
+3. `Case::Decoupling` -- 第 157 行，GantryCouplingCommand
 
 ### 6.2 AutoAbsMoveOrchestrator 和 AutoRelMoveOrchestrator
 
@@ -493,14 +493,14 @@ CommunicationResult send(const SystemCommand& cmd) override {
 | 测试用例 | 测试内容 | 优先级 |
 |---------|---------|:---:|
 | `ShouldReturnNetworkErrorOnDisconnect` | disconnect() 后 send() 返回 Disconnected | 高 |
-| `ShouldPropagateErrorFromEnableUseCase` | 注入 NetworkError → EnableUseCase 返回 CommunicationResult | 高 |
-| `ShouldPropagateErrorFromMoveUseCase` | 注入 Timeout → MoveAbsoluteUseCase 返回 CommunicationResult | 高 |
-| `ShouldPropagateErrorFromEmergencyStop` | 注入 ProtocolError → EmergencyStopUseCase 返回 CommunicationResult | 高 |
-| `ShouldRetryOnTimeout` | 注入 Timeout → retryable() = true → 重试后成功 | 中 |
-| `ShouldNotRetryOnNetworkError` | 注入 NetworkError → retryable() = false | 中 |
-| `ShouldPropagateBusyWithRetry` | 注入 Busy(0x06) → retryable() = true | 中 |
-| `ShouldPropagateProtocolErrorWithCode` | 注入 ProtocolError(0x02) → exceptionCode = 0x02 | 中 |
-| `ShouldGantryOrchestratorFailOnSendError` | Gantry 流程中注入 NetworkError → Step::Error | 高 |
+| `ShouldPropagateErrorFromEnableUseCase` | 注入 NetworkError -> EnableUseCase 返回 CommunicationResult | 高 |
+| `ShouldPropagateErrorFromMoveUseCase` | 注入 Timeout -> MoveAbsoluteUseCase 返回 CommunicationResult | 高 |
+| `ShouldPropagateErrorFromEmergencyStop` | 注入 ProtocolError -> EmergencyStopUseCase 返回 CommunicationResult | 高 |
+| `ShouldRetryOnTimeout` | 注入 Timeout -> retryable() = true -> 重试后成功 | 中 |
+| `ShouldNotRetryOnNetworkError` | 注入 NetworkError -> retryable() = false | 中 |
+| `ShouldPropagateBusyWithRetry` | 注入 Busy(0x06) -> retryable() = true | 中 |
+| `ShouldPropagateProtocolErrorWithCode` | 注入 ProtocolError(0x02) -> exceptionCode = 0x02 | 中 |
+| `ShouldGantryOrchestratorFailOnSendError` | Gantry 流程中注入 NetworkError -> Step::Error | 高 |
 | `ShouldJogStopNotBlockOnSendError` | Jog::stop() 通讯失败不阻塞（void 返回） | 中 |
 | `ShouldDiagnosticBeHumanReadable` | diagnostic 包含 IP 和错误描述 | 低 |
 
@@ -693,17 +693,17 @@ void ModbusTcpAxisDriver::pollFeedback(SystemContext& ctx) {
  *
  * 内部执行:
  *   1. Read:  从硬件读取当前状态
- *   2. Translate: 硬件数据 → 领域反馈结构体
+ *   2. Translate: 硬件数据 -> 领域反馈结构体
  *   3. Dispatch: 注入 axis->applyFeedback() / emergencyStopController.applyFeedback() / ...
  *
  * 失败策略（重要）:
  *   - 通讯失败时【保留上次已知反馈值，不更新领域状态】
- *   - 不能将反馈值置零或置为默认值——这会导致领域实体状态跳变
+ *   - 不能将反馈值置零或置为默认值----这会导致领域实体状态跳变
  *   - 典型的错误场景:
  *     * 单次 TCP read 超时（偶尔发生）
  *     * 连续 TCP read 超时（需触发断线检测）
  *     * Modbus 异常响应（协议层错误）
- *   - 每次失败记录 TRACE_WARN（不是 ERROR——单次超时是正常现象）
+ *   - 每次失败记录 TRACE_WARN（不是 ERROR----单次超时是正常现象）
  *   - 连续失败超过阈值（如 500ms）时记录 ERROR，触发重连
  *
  * @param ctx 目标分组上下文
@@ -715,11 +715,11 @@ virtual void pollFeedback(SystemContext& ctx) = 0;
 
 ## 10. 附录 A：错误码映射表
 
-### 10.1 CommunicationResult → 用户可见信息
+### 10.1 CommunicationResult -> 用户可见信息
 
 | Status | diagnostic 示例 | UI 展示 | 用户操作 |
 |--------|----------------|---------|---------|
-| `Sent` | — | 正常 | 无 |
+| `Sent` | -- | 正常 | 无 |
 | `NetworkError` | `"192.168.1.100:502 ECONNREFUSED"` | "PLC 连接失败" | 检查网线/PLC 电源 |
 | `Timeout` | `"192.168.1.100:502 timeout 500ms"` | "通讯超时" | 等待或减少并发操作 |
 | `Busy` | `"Modbus Exception 0x06: Device Busy"` | "PLC 忙，自动重试中" | 等待 |
@@ -767,7 +767,7 @@ virtual void pollFeedback(SystemContext& ctx) = 0;
 
 ### 11.2 检查表（逐项完成后打勾）
 
-#### 阶段 A — UseCase 层
+#### 阶段 A -- UseCase 层
 - [ ] `UseCaseError.h` 增加 `CommunicationResult` 分支
 - [ ] `EnableUseCase.h` 发送后检查 `result.ok()`
 - [ ] `JogAxisUseCase.h` execute() 发送后检查 `result.ok()`
@@ -779,20 +779,20 @@ virtual void pollFeedback(SystemContext& ctx) = 0;
 - [ ] `ReleaseEmergencyStopUseCase.h` 发送后检查 `result.ok()`
 - [ ] 编译通过（`cmake --build build`）
 
-#### 阶段 B — Orchestrator 层
+#### 阶段 B -- Orchestrator 层
 - [ ] `GantryOrchestrator.h` EnsuringEnabled 步骤捕获 send() 返回值
 - [ ] `GantryOrchestrator.h` Coupling 步骤捕获 send() 返回值
 - [ ] `GantryOrchestrator.h` Decoupling 步骤捕获 send() 返回值
 - [ ] 编译通过
 
-#### 阶段 C — Fake 注入
+#### 阶段 C -- Fake 注入
 - [ ] `FakeAxisDriver.h` 增加 `injectNextSendResult()`
 - [ ] `FakeAxisDriver.h` 增加 `injectPersistentSendResult()`
 - [ ] `FakeAxisDriver.h` 增加 `clearInjectedResult()`
 - [ ] `FakeAxisDriver::send()` 增加注入检查逻辑
 - [ ] 编译通过
 
-#### 阶段 D — 测试覆盖
+#### 阶段 D -- 测试覆盖
 - [ ] 新建 `tests/infrastructure/test_communication_error.cpp`
 - [ ] `ShouldPropagateDisconnectedFromEnableUseCase` 测试
 - [ ] `ShouldMarkTimeoutAsRetryable` 测试
@@ -801,7 +801,7 @@ virtual void pollFeedback(SystemContext& ctx) = 0;
 - [ ] `ShouldJogStopNotBlockOnSendError` 测试
 - [ ] `ctest` 全部通过
 
-#### 阶段 E — 文档化
+#### 阶段 E -- 文档化
 - [ ] `ISystemDriver.h` pollFeedback() 注释增强
 - [ ] 本重构实践文档归档
 
@@ -821,4 +821,4 @@ ctest --output-on-failure
 
 > **文档版本**: v1.0
 > **创建日期**: 2026-05-15
-> **关联文档**: `ISystemDriver重构设计说明——Cline分析方案.md`、`统一命令总线与反馈分发 — 架构重构思考.md`
+> **关联文档**: `ISystemDriver重构设计说明----Cline分析方案.md`、`统一命令总线与反馈分发 -- 架构重构思考.md`

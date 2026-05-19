@@ -279,7 +279,7 @@ disabled by our build system. Please see more details
 ## My death test hangs (or seg-faults). How do I fix it?
 
 In GoogleTest, death tests are run in a child process and the way they work is
-delicate. To write death tests you really need to understand how they work—see
+delicate. To write death tests you really need to understand how they work--see
 the details at [Death Assertions](reference/assertions.md#death) in the
 Assertions Reference.
 

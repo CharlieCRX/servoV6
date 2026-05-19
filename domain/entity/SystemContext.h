@@ -36,11 +36,11 @@ public:
      * @return true 允许访问；false 拒绝访问
      *
      * 拦截优先级（从高到低）：
-     *   Layer 0 — 安全锁定：急停中 / 未同步 / 过渡中 → SystemSafetyLocked
-     *   Layer 1 — 龙门同步：NotSynchronized → GantryNotSynchronized
-     *   Layer 2 — 龙门语义：Coupled → PhysicalAxisLockedByGantry / Decoupled → LogicalAxisUnavailableWhenDecoupled
-     *   Layer 3 — 容器查找：AxisNotRegistered
-     *   Layer 4 — 通过：None
+     *   Layer 0 -- 安全锁定：急停中 / 未同步 / 过渡中 -> SystemSafetyLocked
+     *   Layer 1 -- 龙门同步：NotSynchronized -> GantryNotSynchronized
+     *   Layer 2 -- 龙门语义：Coupled -> PhysicalAxisLockedByGantry / Decoupled -> LogicalAxisUnavailableWhenDecoupled
+     *   Layer 3 -- 容器查找：AxisNotRegistered
+     *   Layer 4 -- 通过：None
      *
      * 注意：此方法受 Layer 0 安全锁定拦截，用于控制操作（使能/运动）；
      *       纯遥测读取请使用 tryReadAxis()，它绕过安全锁定仅保留龙门语义。
@@ -48,7 +48,7 @@ public:
     bool tryGetAxis(AxisId id, Axis*& outAxis, ContextRejection& reason) {
         // ==========================================
         // Layer 0：安全域最高优先级拦截
-        // 急停中 / 未同步 / 过渡中 → 所有轴访问全部拒绝
+        // 急停中 / 未同步 / 过渡中 -> 所有轴访问全部拒绝
         // ==========================================
         if (m_emergencyStopController.isSystemLocked()) {
             reason = ContextRejection::SystemSafetyLocked;
@@ -66,10 +66,10 @@ public:
      * 急停/同步期间，位置与状态遥测仍然可读，但控制操作被拒绝。
      *
      * 拦截优先级：
-     *   Layer 1 — 龙门同步：NotSynchronized → GantryNotSynchronized
-     *   Layer 2 — 龙门语义：Coupled → PhysicalAxisLockedByGantry / Decoupled → LogicalAxisUnavailableWhenDecoupled
-     *   Layer 3 — 容器查找：AxisNotRegistered
-     *   Layer 4 — 通过：None
+     *   Layer 1 -- 龙门同步：NotSynchronized -> GantryNotSynchronized
+     *   Layer 2 -- 龙门语义：Coupled -> PhysicalAxisLockedByGantry / Decoupled -> LogicalAxisUnavailableWhenDecoupled
+     *   Layer 3 -- 容器查找：AxisNotRegistered
+     *   Layer 4 -- 通过：None
      */
     bool tryReadAxis(AxisId id, Axis*& outAxis, ContextRejection& reason) {
         return tryGetAxisInternal(id, outAxis, reason);
@@ -84,10 +84,10 @@ public:
      * @brief 急停控制器引用
      *
      * 暴露给外部用于：
-     *   1. 查询 isSystemLocked() — 在 UseCase 中快速判断
-     *   2. 调用 requestEmergencyStop() / requestReleaseEmergencyStop() — 产生急停/解除意图
-     *   3. 调用 applyFeedback(plcEmergencyStopped) — 注入 PLC 反馈，驱动状态机
-     *   4. hasPendingCommand() / popPendingCommand() — 从 SystemManager 消费命令
+     *   1. 查询 isSystemLocked() -- 在 UseCase 中快速判断
+     *   2. 调用 requestEmergencyStop() / requestReleaseEmergencyStop() -- 产生急停/解除意图
+     *   3. 调用 applyFeedback(plcEmergencyStopped) -- 注入 PLC 反馈，驱动状态机
+     *   4. hasPendingCommand() / popPendingCommand() -- 从 SystemManager 消费命令
      */
     EmergencyStopController& emergencyStopController() { return m_emergencyStopController; }
 
@@ -104,7 +104,7 @@ private:
     bool tryGetAxisInternal(AxisId id, Axis*& outAxis, ContextRejection& reason) {
         // 仅龙门相关轴受联动状态约束，非龙门轴跳过
         if (id == AxisId::X || id == AxisId::X1 || id == AxisId::X2) {
-            // A. 前置拦截：状态机尚未同步，物理真相未知 → 拒绝一切龙门轴访问
+            // A. 前置拦截：状态机尚未同步，物理真相未知 -> 拒绝一切龙门轴访问
             if (m_gantryCouplingController->isNotSynchronized()) {
                 reason = ContextRejection::GantryNotSynchronized;
                 outAxis = nullptr;

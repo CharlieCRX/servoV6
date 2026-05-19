@@ -29,7 +29,7 @@
 namespace {
 
 /**
- * @brief 通过 SystemManager → SystemContext → Axis 定位目标轴（控制操作入口）
+ * @brief 通过 SystemManager -> SystemContext -> Axis 定位目标轴（控制操作入口）
  *        受 Layer 0 安全锁定拦截。
  * @return Axis* 若成功，nullptr 若查找失败
  */
@@ -53,7 +53,7 @@ Axis* tryGetAxis(SystemManager& manager,
 }
 
 /**
- * @brief 通过 SystemManager → SystemContext → Axis 定位目标轴（遥测读取入口）
+ * @brief 通过 SystemManager -> SystemContext -> Axis 定位目标轴（遥测读取入口）
  *        绕过 Layer 0 安全锁定拦截，急停期间仍可读取位置与状态。
  * @return Axis* 若成功，nullptr 若龙门语义/容器查找失败
  */

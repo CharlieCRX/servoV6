@@ -10,13 +10,13 @@
  * @brief 点动用例
  *
  * 完整调用链：
- *   UI (ViewModel) → JogAxisUseCase.execute(manager, groupName, axisId, dir) → UseCaseError
- *   UI (ViewModel) → JogAxisUseCase.stop(manager, groupName, axisId, dir)    → void
+ *   UI (ViewModel) -> JogAxisUseCase.execute(manager, groupName, axisId, dir) -> UseCaseError
+ *   UI (ViewModel) -> JogAxisUseCase.stop(manager, groupName, axisId, dir)    -> void
  *
  * 涵盖三层错误：
- *   1. SystemManager 层 — 分组不存在 / 名称非法
- *   2. SystemContext 层 — 龙门联动锁定 / 逻辑轴不可用 / 轴未注册
- *   3. Axis 领域层 — 状态非法 / 限位拦截
+ *   1. SystemManager 层 -- 分组不存在 / 名称非法
+ *   2. SystemContext 层 -- 龙门联动锁定 / 逻辑轴不可用 / 轴未注册
+ *   3. Axis 领域层 -- 状态非法 / 限位拦截
  */
 class JogAxisUseCase {
 public:
@@ -28,7 +28,7 @@ public:
      * @param groupName 目标分组名称
      * @param axisId    目标轴 ID
      * @param dir       点动方向
-     * @return UseCaseError — monostate 表示成功，否则为具体错误码
+     * @return UseCaseError -- monostate 表示成功，否则为具体错误码
      */
     UseCaseError execute(SystemManager& manager,
                          const std::string& groupName,
@@ -71,7 +71,7 @@ public:
      *
      * stop 是安全操作：
      * - 不返回错误码（无需向 UI 反馈失败）
-     * - 分组不存在 / 龙门锁定 → 静默忽略
+     * - 分组不存在 / 龙门锁定 -> 静默忽略
      * - 仅在有效轴且 stopJog 产生命令时，才下发至驱动
      *
      * @param manager   系统管理器（分组注册表）
@@ -87,14 +87,14 @@ public:
         SystemContext* group = nullptr;
         ContextRejection mgrReason = ContextRejection::None;
         if (!manager.tryGetGroup(groupName, group, mgrReason)) {
-            return;  // 分组不存在 → 静默返回
+            return;  // 分组不存在 -> 静默返回
         }
 
         // ===== 阶段 1：轴获取（SystemContext 层） =====
         Axis* axis = nullptr;
         ContextRejection ctxReason = ContextRejection::None;
         if (!group->tryGetAxis(axisId, axis, ctxReason)) {
-            return;  // 龙门锁定 / 轴未注册 → 静默返回
+            return;  // 龙门锁定 / 轴未注册 -> 静默返回
         }
 
         // ===== 阶段 2：轴领域层停止点动 =====

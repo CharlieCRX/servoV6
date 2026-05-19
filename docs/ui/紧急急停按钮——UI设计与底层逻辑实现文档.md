@@ -1,4 +1,4 @@
-# 紧急急停按钮 — UI设计与底层逻辑实现
+# 紧急急停按钮 -- UI设计与底层逻辑实现
 
 > 状态：设计文档 + 实施指南  
 > 适用范围：`servoV6` 项目 `presentation/qml/blocks/ActionControlBlock.qml` 急停按钮重构  
@@ -27,18 +27,18 @@ IndustrialButton {
 **`viewModel.stop()` 是轴的 STOP 指令**（对应 `StopAxisUseCase`），用于停止单个轴的运动，走的是：
 
 ```
-UI → QtAxisViewModel::stop() → AxisViewModelCore::stop() → StopAxisUseCase
+UI -> QtAxisViewModel::stop() -> AxisViewModelCore::stop() -> StopAxisUseCase
 ```
 
 这完全不是急停。急停的**正确链路**应该是：
 
 ```
-UI → EmergencyStopUseCase.execute(manager, groupName)
-   → EmergencyStopController::requestEmergencyStop()
-   → ISystemDriver::send(EmergencyStopCommand{true})
-   → PLC 接收"设备急停"命令
-   → PLC 硬掉电所有轴 + 设置"设备急停中"=TRUE
-   → 下一帧 applyFeedback(true) → EmergencyStopped
+UI -> EmergencyStopUseCase.execute(manager, groupName)
+   -> EmergencyStopController::requestEmergencyStop()
+   -> ISystemDriver::send(EmergencyStopCommand{true})
+   -> PLC 接收"设备急停"命令
+   -> PLC 硬掉电所有轴 + 设置"设备急停中"=TRUE
+   -> 下一帧 applyFeedback(true) -> EmergencyStopped
 ```
 
 ### 1.2 根本原因
@@ -141,7 +141,7 @@ class EmergencyStopViewModel : public QObject {
 
 ```
 ╔══════════════════════════════════════════════════════════╗
-║  工业惯例 — 急停按钮视觉指引：                          ║
+║  工业惯例 -- 急停按钮视觉指引：                          ║
 ║  ✅ 红色底（大红色 #D32F2F）                           ║
 ║  ✅ 白色文字（高对比度）                                ║
 ║  ✅ 圆角少（硬朗风格）                                  ║
@@ -215,15 +215,15 @@ EmergencyStopViewModel::triggerEmergencyStop()
     │     │    └─ 找到 Machine_A 的 SystemContext
     │     │
     │     ├─ controller.requestEmergencyStop()
-    │     │    ├─ 当前状态: Running → 通过
+    │     │    ├─ 当前状态: Running -> 通过
     │     │    ├─ 生成 pending_intent = EmergencyStopCommand{true}
-    │     │    ├─ 本地状态 Running → EmergencyStopping
+    │     │    ├─ 本地状态 Running -> EmergencyStopping
     │     │    └─ 返回 SafetyRejection::None
     │     │
-    │     └─ controller.hasPendingCommand() → true
+    │     └─ controller.hasPendingCommand() -> true
     │          └─ driver->send(controller.popPendingCommand())
     │               └─ FakePLC::onEmergencyStopCommand(true)
-    │                    ├─ 所有轴 → AxisState::Disabled
+    │                    ├─ 所有轴 -> AxisState::Disabled
     │                    ├─ 清空所有运动指令
     │                    └─ m_emergencyStoppedState = true
     │
@@ -232,15 +232,15 @@ EmergencyStopViewModel::triggerEmergencyStop()
     │
     ├─ driver->pollFeedback(*ctx)
     │    └─ controller.applyFeedback(true)
-    │         └─ 状态 EmergencyStopping → EmergencyStopped
+    │         └─ 状态 EmergencyStopping -> EmergencyStopped
     │
     ├─ emergencyVM.tick()
     │    ├─ 检测到 state() 变化
     │    ├─ emit safetyStateChanged()
-    │    └─ QML 更新：按钮文字 → "解除急停"，状态文本 → "⚠ SYSTEM EMERGENCY STOPPED"
+    │    └─ QML 更新：按钮文字 -> "解除急停"，状态文本 -> "⚠ SYSTEM EMERGENCY STOPPED"
     │
     └─ 所有 AxisViewModel::tick()
-         └─ tryGetAxis() → ContextRejection::SystemSafetyLocked
+         └─ tryGetAxis() -> ContextRejection::SystemSafetyLocked
               └─ 所有轴运动按钮自动灰掉
 ```
 
@@ -254,9 +254,9 @@ EmergencyStopViewModel::releaseEmergencyStop()
     │
     ├─ ① ReleaseEmergencyStopUseCase::execute(m_manager, m_groupName)
     │     ├─ controller.requestReleaseEmergencyStop()
-    │     │    ├─ 当前状态: EmergencyStopped → 通过
+    │     │    ├─ 当前状态: EmergencyStopped -> 通过
     │     │    ├─ 生成 pending_intent = EmergencyStopCommand{false}
-    │     │    ├─ 本地状态 EmergencyStopped → ReleasingEmergencyStop
+    │     │    ├─ 本地状态 EmergencyStopped -> ReleasingEmergencyStop
     │     │    └─ 返回 SafetyRejection::None
     │     │
     │     └─ driver->send(controller.popPendingCommand())
@@ -268,10 +268,10 @@ EmergencyStopViewModel::releaseEmergencyStop()
 下一帧 Tick Loop
     │
     ├─ controller.applyFeedback(false)
-    │    └─ 状态 ReleasingEmergencyStop → Running
+    │    └─ 状态 ReleasingEmergencyStop -> Running
     │
     ├─ emergencyVM.tick()
-    │    └─ QML 更新：按钮文字 → "急 停"，状态文本清除
+    │    └─ QML 更新：按钮文字 -> "急 停"，状态文本清除
     │
     └─ 轴全部 Disabled，用户发起运动时 EnsureEnabled 自动使能
 ```
@@ -288,7 +288,7 @@ FakePLC::m_emergencyStoppedState 被硬件置为 true
 下一帧 Tick Loop
     │
     ├─ controller.applyFeedback(true)
-    │    └─ 当前状态 Running → EmergencyStopped（直接从 1 → 3，不经过 EmergencyStopping）
+    │    └─ 当前状态 Running -> EmergencyStopped（直接从 1 -> 3，不经过 EmergencyStopping）
     │
     └─ QML 更新：按钮变为 "解除急停"，所有运动灰掉
 ```
@@ -299,8 +299,8 @@ FakePLC::m_emergencyStoppedState 被硬件置为 true
 
 | 关键点 | 说明 |
 |-------|------|
-| **ViewModel 新增** | `EmergencyStopViewModel` — 分组级安全桥接器 |
-| **按钮逻辑替换** | `viewModel.stop()` → `emergencyViewModel.triggerEmergencyStop()` / `releaseEmergencyStop()` |
+| **ViewModel 新增** | `EmergencyStopViewModel` -- 分组级安全桥接器 |
+| **按钮逻辑替换** | `viewModel.stop()` -> `emergencyViewModel.triggerEmergencyStop()` / `releaseEmergencyStop()` |
 | **状态驱动 UI** | 按钮文字、颜色、可用性由 `safetyState` 驱动 |
 | **工业视觉** | 红底白字、硬朗风格、状态标识、危险警示 |
-| **命令路径** | UI → UseCase → EmergencyStopController → Driver → PLC → Feedback → Controller |
+| **命令路径** | UI -> UseCase -> EmergencyStopController -> Driver -> PLC -> Feedback -> Controller |

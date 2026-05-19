@@ -32,22 +32,22 @@
 
 ```
 🔴 严重缺陷 (4)
-├─ #1 Q_PROPERTY 缺少 isEnabled          → QtAxisViewModel.h
-├─ #2 错误优先级策略丢失错误               → AxisViewModelCore::tick()
-├─ #3 零位/速度命令无错误保护              → AxisViewModelCore (5 处)
-└─ #4 disable() 无条件重置错误             → AxisViewModelCore::enable(false)
+├─ #1 Q_PROPERTY 缺少 isEnabled          -> QtAxisViewModel.h
+├─ #2 错误优先级策略丢失错误               -> AxisViewModelCore::tick()
+├─ #3 零位/速度命令无错误保护              -> AxisViewModelCore (5 处)
+└─ #4 disable() 无条件重置错误             -> AxisViewModelCore::enable(false)
 
 🟡 中等缺陷 (5)
-├─ #5 QML 无 ErrorCategory 映射           → QtAxisViewModel.h
-├─ #6 缺少状态文本描述                     → QtAxisViewModel.h / QML
-├─ #7 velocity 无信号节流                  → QtAxisViewModel::tick()
-├─ #8 posLimit/negLimit 无变化检测         → QtAxisViewModel::tick()
-└─ #9 错误接口测试薄弱                     → test_axis_viewmodel_core.cpp
+├─ #5 QML 无 ErrorCategory 映射           -> QtAxisViewModel.h
+├─ #6 缺少状态文本描述                     -> QtAxisViewModel.h / QML
+├─ #7 velocity 无信号节流                  -> QtAxisViewModel::tick()
+├─ #8 posLimit/negLimit 无变化检测         -> QtAxisViewModel::tick()
+└─ #9 错误接口测试薄弱                     -> test_axis_viewmodel_core.cpp
 
 🔵 轻微缺陷 (3)
-├─ #10 硬编码日志上下文                    → AxisViewModelCore.cpp (历史问题)
-├─ #11 tick() 中 driver->send() 重复调用   → AxisViewModelCore::tick()
-└─ #12 ErrorTranslator 测试代码冗余        → test_error_translator.cpp
+├─ #10 硬编码日志上下文                    -> AxisViewModelCore.cpp (历史问题)
+├─ #11 tick() 中 driver->send() 重复调用   -> AxisViewModelCore::tick()
+└─ #12 ErrorTranslator 测试代码冗余        -> test_error_translator.cpp
 ```
 
 ### 1.2 根因聚类分析
@@ -65,9 +65,9 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │  Phase 1: 错误模型升级（阻塞性）                                   │
 │  ┌─────────────────────────────────────────────────────────────┐ │
-│  │  #2 错误收集改为列表    →  m_errors: vector<ViewModelError> │ │
-│  │  #3 零位/速度加保护     →  检查 Axis::lastRejection()       │ │
-│  │  #4 disable()修复       →  跳过错误收集 (enable(false))     │ │
+│  │  #2 错误收集改为列表    ->  m_errors: vector<ViewModelError> │ │
+│  │  #3 零位/速度加保护     ->  检查 Axis::lastRejection()       │ │
+│  │  #4 disable()修复       ->  跳过错误收集 (enable(false))     │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 │                                    │                              │
 │                                    ▼                              │
@@ -120,26 +120,26 @@
 ```
 操作入口 (enable / jog / moveAbsolute / ...)
     │
-    ├─→ [缺少] TraceScope 创建 (group + axis + traceId)
-    ├─→ [缺少] LOG_INFO 记录操作意图
+    ├─-> [缺少] TraceScope 创建 (group + axis + traceId)
+    ├─-> [缺少] LOG_INFO 记录操作意图
     │
     ▼
 UseCase / Orchestrator 执行
     │
-    ├─→ [缺少] LOG_TRACE 记录步骤推进
-    ├─→ [缺少] CommandFormatter 记录下发的命令内容
+    ├─-> [缺少] LOG_TRACE 记录步骤推进
+    ├─-> [缺少] CommandFormatter 记录下发的命令内容
     │
     ▼
 错误收集 / 翻译
     │
-    ├─→ [缺少] LOG_WARN / LOG_ERROR 记录错误发生
-    ├─→ [缺少] 调试信息结构化为 debugMessage
+    ├─-> [缺少] LOG_WARN / LOG_ERROR 记录错误发生
+    ├─-> [缺少] 调试信息结构化为 debugMessage
     │
     ▼
 tick() 驱动
     │
-    ├─→ [缺少] LOG_TRACE_EVERY_N 周期性状态摘要
-    └─→ [缺少] LOG_SUMMARY 阶段总结
+    ├─-> [缺少] LOG_TRACE_EVERY_N 周期性状态摘要
+    └─-> [缺少] LOG_SUMMARY 阶段总结
 ```
 
 ---
@@ -214,7 +214,7 @@ size_t m_currentErrorIndex = 0;           // 当前指向的错误索引
 ### 4.3 核心 API 变更
 
 ```cpp
-// AxisViewModelCore.h — 错误接口替换
+// AxisViewModelCore.h -- 错误接口替换
 
 // ==== 替换前 ====
 bool hasError() const;
@@ -379,7 +379,7 @@ void AxisViewModelCore::pushError(const ViewModelError& error, const std::string
 ### 5.1 新增 Q_PROPERTY（修复 #1, #5, #6）
 
 ```cpp
-// QtAxisViewModel.h — 新增属性
+// QtAxisViewModel.h -- 新增属性
 
 class QtAxisViewModel : public QObject {
     Q_OBJECT
@@ -423,7 +423,7 @@ signals:
 ### 5.2 stateText 映射实现
 
 ```cpp
-// QtAxisViewModel.cpp — 状态文本映射
+// QtAxisViewModel.cpp -- 状态文本映射
 
 QString QtAxisViewModel::stateText() const {
     switch (m_core->state()) {
@@ -456,7 +456,7 @@ int QtAxisViewModel::errorCount() const {
 ### 5.3 信号节流补齐（修复 #7, #8）
 
 ```cpp
-// QtAxisViewModel.h — 新增缓存成员
+// QtAxisViewModel.h -- 新增缓存成员
 class QtAxisViewModel : public QObject {
 private:
     // ... 现有缓存成员 ...
@@ -465,7 +465,7 @@ private:
     int m_lastErrorCount = 0;         // ⭐ 新增
 };
 
-// QtAxisViewModel.cpp — tick() 节流补齐
+// QtAxisViewModel.cpp -- tick() 节流补齐
 
 void QtAxisViewModel::tick() {
     m_core->tick();
@@ -519,7 +519,7 @@ void QtAxisViewModel::tick() {
         emit errorCountChanged();
     }
 
-    // ⭐ 新增：limitsChanged（Periodic check — 每 100 帧检查一次）
+    // ⭐ 新增：limitsChanged（Periodic check -- 每 100 帧检查一次）
     LOG_TRACE_EVERY_N(100, LogLayer::UI, "QtAxisVM",
         "tick end: state=" + QString::number(static_cast<int>(currentState)).toStdString() +
         " absPos=" + std::to_string(currentAbsPos) +
@@ -530,7 +530,7 @@ void QtAxisViewModel::tick() {
 ### 5.4 QML 侧使用示例
 
 ```qml
-// QML 使用示例 — ActionControlBlock.qml（重构后）
+// QML 使用示例 -- ActionControlBlock.qml（重构后）
 
 // 状态灯: 通过 stateText 直接显示
 Label {
@@ -642,7 +642,7 @@ void AxisViewModelCore::stop() {
 ### 6.3 TraceScope 辅助方法
 
 ```cpp
-// AxisViewModelCore.h — 新增辅助方法
+// AxisViewModelCore.h -- 新增辅助方法
 
 private:
     // 生成唯一追踪 ID（基于时间戳 + 序列号）
@@ -654,7 +654,7 @@ private:
         return std::to_string(ns) + "_" + std::to_string(++counter);
     }
 
-    // AxisId → 字符串（避免硬编码 "Y" / "Z" 等）
+    // AxisId -> 字符串（避免硬编码 "Y" / "Z" 等）
     static std::string axisIdToString(AxisId id) {
         switch (id) {
         case AxisId::X1: return "X1";
@@ -669,7 +669,7 @@ private:
 ### 6.4 命令下发日志
 
 ```cpp
-// AxisViewModelCore.cpp — tick() 中命令消费增加日志
+// AxisViewModelCore.cpp -- tick() 中命令消费增加日志
 
 void AxisViewModelCore::consumePendingCommands() {
     auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
@@ -740,21 +740,21 @@ void AxisViewModelCore::consumePendingCommands() {
 
 ```
 运动操作路径（正确）:
-  jog(Direction) ──→ JogOrchestrator::startJog()
-                      └── Orchestrator 内部: check state → UseCase → send
-                    错误 → tick() → collectOrchError()
+  jog(Direction) ──-> JogOrchestrator::startJog()
+                      └── Orchestrator 内部: check state -> UseCase -> send
+                    错误 -> tick() -> collectOrchError()
 
 零位操作路径（缺陷）:
-  zeroAbsolutePosition() ──→ axis->zeroAbsolutePosition()
+  zeroAbsolutePosition() ──-> axis->zeroAbsolutePosition()
                               └── 直接 Axis 领域操作
-                            命令 → tick() → driver->send()
-                            错误 → 无检查（缺陷 #3）
+                            命令 -> tick() -> driver->send()
+                            错误 -> 无检查（缺陷 #3）
 
 速度设置路径（缺陷）:
-  setJogVelocity(v) ──→ axis->setJogVelocity(v)
+  setJogVelocity(v) ──-> axis->setJogVelocity(v)
                           └── 直接 Axis 领域操作
-                        命令 → tick() → driver->send()
-                        错误 → 无检查（缺陷 #3）
+                        命令 -> tick() -> driver->send()
+                        错误 -> 无检查（缺陷 #3）
 ```
 
 ### 7.2 统一后的路径
@@ -762,18 +762,18 @@ void AxisViewModelCore::consumePendingCommands() {
 ```
 所有操作采用统一模式:
 
-  enable(bool) ──→ UseCase::execute() → 立即检查错误 → LOG_INFO/WARN
-  jog(Direction) ──→ Orchestrator::startJog() → tick() 收集错误 → LOG_WARN
-  moveAbsolute(t) ──→ Orchestrator::startAbs() → tick() 收集错误 → LOG_WARN
-  stop() ──→ UseCase::execute() + Orch 中断 → 立即检查错误 → LOG_ERROR
+  enable(bool) ──-> UseCase::execute() -> 立即检查错误 -> LOG_INFO/WARN
+  jog(Direction) ──-> Orchestrator::startJog() -> tick() 收集错误 -> LOG_WARN
+  moveAbsolute(t) ──-> Orchestrator::startAbs() -> tick() 收集错误 -> LOG_WARN
+  stop() ──-> UseCase::execute() + Orch 中断 -> 立即检查错误 -> LOG_ERROR
   
   ⭐ 零位操作: zeroAbsolutePosition()
-     尝试 Axis 操作 → 检查 lastRejection() → 有错误则 pushError + LOG_WARN
-     命令留在 pending → tick() 中 consumePendingCommands() 下发 → 检查 send 结果
+     尝试 Axis 操作 -> 检查 lastRejection() -> 有错误则 pushError + LOG_WARN
+     命令留在 pending -> tick() 中 consumePendingCommands() 下发 -> 检查 send 结果
   
   ⭐ 速度设置: setJogVelocity(v)
-     尝试 Axis 操作 → 检查 lastRejection() → 有错误则 pushError + LOG_WARN
-     命令留在 pending → tick() 中 consumePendingCommands() 下发 → 检查 send 结果
+     尝试 Axis 操作 -> 检查 lastRejection() -> 有错误则 pushError + LOG_WARN
+     命令留在 pending -> tick() 中 consumePendingCommands() 下发 -> 检查 send 结果
 ```
 
 ### 7.3 操作分类规范化
@@ -791,7 +791,7 @@ void AxisViewModelCore::consumePendingCommands() {
 ### 8.1 新增测试用例（修复 #9）
 
 ```cpp
-// tests/presentation/viewmodel/test_axis_viewmodel_core.cpp — 新增
+// tests/presentation/viewmodel/test_axis_viewmodel_core.cpp -- 新增
 
 // =========================================================
 // 新增测试 14: 限位触发错误
@@ -926,7 +926,7 @@ TEST_F(QtAxisViewModelTest, ShouldReportIsEnabled) {
 // =========================================================
 TEST_F(QtAxisViewModelTest, ShouldMapStateText) {
     EXPECT_EQ(qtVm->stateText(), "未使能");
-    // ... enable → Idle ...
+    // ... enable -> Idle ...
     EXPECT_EQ(qtVm->stateText(), "就绪");
 }
 ```
@@ -988,7 +988,7 @@ INSTANTIATE_TEST_SUITE_P(
 | 1.4 | 修复 `enable(false)` 不覆盖错误 | `AxisViewModelCore.cpp` |
 | 1.5 | 为 5 个零位/速度操作添加错误保护 | `AxisViewModelCore.cpp` |
 | 1.6 | 更新单元测试适配新接口 | `test_axis_viewmodel_core.cpp` |
-| 1.7 | 构建和运行测试验证 | — |
+| 1.7 | 构建和运行测试验证 | -- |
 
 ### Phase 2: Q_PROPERTY 补齐 + 日志整合（并行，预计 2-3 天）
 
@@ -1001,7 +1001,7 @@ INSTANTIATE_TEST_SUITE_P(
 | 2.5 | consumePendingCommands() 增加 CommandFormatter 日志 | `AxisViewModelCore.cpp` |
 | 2.6 | ErrorTranslator 增加 DEBUG 日志（每次翻译记录） | `ErrorTranslator.cpp` |
 | 2.7 | 新建 `test_qt_axis_viewmodel.cpp` | 测试文件 |
-| 2.8 | 构建和运行测试验证 | — |
+| 2.8 | 构建和运行测试验证 | -- |
 
 ### Phase 3: 测试补充 + 清理（预计 1 天）
 
@@ -1012,7 +1012,7 @@ INSTANTIATE_TEST_SUITE_P(
 | 3.3 | 新增 disable 不重置错误测试 | `test_axis_viewmodel_core.cpp` |
 | 3.4 | 将 ErrorTranslator 测试改为参数化 | `test_error_translator.cpp` |
 | 3.5 | 删除 `executeAndTranslate()` 等废弃代码 | `AxisViewModelCore.cpp` |
-| 3.6 | 全量构建跑测试 | — |
+| 3.6 | 全量构建跑测试 | -- |
 
 ---
 
@@ -1026,9 +1026,9 @@ INSTANTIATE_TEST_SUITE_P(
 | `presentation/viewmodel/AxisViewModelCore.cpp` | 🔴 大量 | 全部操作入口日志注入, 零位操作错误保护, tick() 错误收集重写, disable() 修复 |
 | `presentation/viewmodel/QtAxisViewModel.h` | 🟡 中等 | 新增 4 个 Q_PROPERTY, 3 个 Q_INVOKABLE, 3 个缓存成员 |
 | `presentation/viewmodel/QtAxisViewModel.cpp` | 🟡 中等 | 实现 stateText, errorCategory, tick() 节流补齐 |
-| `presentation/viewmodel/ErrorTranslator.h` | 🔵 无变更 | — |
-| `presentation/viewmodel/ErrorTranslator.cpp` | 🔵 无变更 | — |
-| `presentation/viewmodel/ViewModelError.h` | 🔵 无变更 | — |
+| `presentation/viewmodel/ErrorTranslator.h` | 🔵 无变更 | -- |
+| `presentation/viewmodel/ErrorTranslator.cpp` | 🔵 无变更 | -- |
+| `presentation/viewmodel/ViewModelError.h` | 🔵 无变更 | -- |
 
 ### 新增文件
 

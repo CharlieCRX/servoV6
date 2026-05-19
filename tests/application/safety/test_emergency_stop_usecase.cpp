@@ -15,21 +15,21 @@
 // EmergencyStopUseCase & ReleaseEmergencyStopUseCase TDD 测试套件
 //
 // 验证完整调用链：
-//   UI → EmergencyStopUseCase.execute(manager, groupName)
-//      → SystemManager::tryGetGroup
-//      → EmergencyStopController::requestEmergencyStop()
-//      → EmergencyStopController::hasPendingCommand()
-//      → EmergencyStopController::popPendingCommand()
-//      → SystemContext::driver()->send(EmergencyStopCommand)
-//      → 返回 UseCaseError
+//   UI -> EmergencyStopUseCase.execute(manager, groupName)
+//      -> SystemManager::tryGetGroup
+//      -> EmergencyStopController::requestEmergencyStop()
+//      -> EmergencyStopController::hasPendingCommand()
+//      -> EmergencyStopController::popPendingCommand()
+//      -> SystemContext::driver()->send(EmergencyStopCommand)
+//      -> 返回 UseCaseError
 //
-//   UI → ReleaseEmergencyStopUseCase.execute(manager, groupName)
-//      → SystemManager::tryGetGroup
-//      → EmergencyStopController::requestReleaseEmergencyStop()
-//      → EmergencyStopController::hasPendingCommand()
-//      → EmergencyStopController::popPendingCommand()
-//      → SystemContext::driver()->send(EmergencyStopCommand)
-//      → 返回 UseCaseError
+//   UI -> ReleaseEmergencyStopUseCase.execute(manager, groupName)
+//      -> SystemManager::tryGetGroup
+//      -> EmergencyStopController::requestReleaseEmergencyStop()
+//      -> EmergencyStopController::hasPendingCommand()
+//      -> EmergencyStopController::popPendingCommand()
+//      -> SystemContext::driver()->send(EmergencyStopCommand)
+//      -> 返回 UseCaseError
 // ============================================================
 
 // ── 辅助：将 UseCaseError 断言为某一具体类型 ──────────────────
@@ -72,7 +72,7 @@ protected:
         ctx->setDriver(&driver);
     }
 
-    /// @brief 完成 PLC 反馈同步 — 初始 NotSynchronized → Running
+    /// @brief 完成 PLC 反馈同步 -- 初始 NotSynchronized -> Running
     void syncToRunning() {
         SystemContext* ctx = getContext();
         // 首次 applyFeedback 完成同步
@@ -80,14 +80,14 @@ protected:
         ASSERT_EQ(ctx->emergencyStopController().state(), SafetyState::Running);
     }
 
-    /// @brief 完成 PLC 反馈同步 — 初始 NotSynchronized → EmergencyStopped
+    /// @brief 完成 PLC 反馈同步 -- 初始 NotSynchronized -> EmergencyStopped
     void syncToEmergencyStopped() {
         SystemContext* ctx = getContext();
         ctx->emergencyStopController().applyFeedback(true);
         ASSERT_EQ(ctx->emergencyStopController().state(), SafetyState::EmergencyStopped);
     }
 
-    /// @brief 走完完整急停链路: Running → 触发 → EmergencyStopping → PLC确认 → EmergencyStopped
+    /// @brief 走完完整急停链路: Running -> 触发 -> EmergencyStopping -> PLC确认 -> EmergencyStopped
     void fullEmergencyStop() {
         SystemContext* ctx = getContext();
         syncToRunning();
@@ -110,7 +110,7 @@ protected:
 };
 
 // ============================================================
-// 第一部分：分组路由 — SystemManager 层错误
+// 第一部分：分组路由 -- SystemManager 层错误
 // ============================================================
 
 TEST_F(EmergencyStopUseCaseTest, EmergencyStop_NonExistentGroup_ReturnsGroupNotFound) {
@@ -128,7 +128,7 @@ TEST_F(EmergencyStopUseCaseTest, ReleaseEmergencyStop_NonExistentGroup_ReturnsGr
 }
 
 // ============================================================
-// 第二部分：NotSynchronized — 尚未同步 PLC 状态，拒绝所有操作
+// 第二部分：NotSynchronized -- 尚未同步 PLC 状态，拒绝所有操作
 // ============================================================
 
 TEST_F(EmergencyStopUseCaseTest, EmergencyStop_WhenNotSynchronized_ReturnsNotSynchronized) {
@@ -139,7 +139,7 @@ TEST_F(EmergencyStopUseCaseTest, EmergencyStop_WhenNotSynchronized_ReturnsNotSyn
     // When: 尝试触发急停
     UseCaseError result = emergencyStopUseCase.execute(manager, GROUP);
 
-    // Then: 被拒绝 — 真相未知时不允许操作
+    // Then: 被拒绝 -- 真相未知时不允许操作
     SafetyRejection err = expectError<SafetyRejection>(result);
     EXPECT_EQ(err, SafetyRejection::NotSynchronized);
 }
@@ -158,7 +158,7 @@ TEST_F(EmergencyStopUseCaseTest, ReleaseEmergencyStop_WhenNotSynchronized_Return
 }
 
 // ============================================================
-// 第三部分：完整急停触发链路 — Running → EmergencyStopping → EmergencyStopped
+// 第三部分：完整急停触发链路 -- Running -> EmergencyStopping -> EmergencyStopped
 // ============================================================
 
 TEST_F(EmergencyStopUseCaseTest, EmergencyStop_FromRunning_ProducesCommandAndTransitionsToEmergencyStopping) {
@@ -209,14 +209,14 @@ TEST_F(EmergencyStopUseCaseTest, EmergencyStop_FullLink_RunningToEmergencyStoppe
     plc.tick(100);
     ctx->emergencyStopController().applyFeedback(plc.getEmergencyStopFeedback());
 
-    // Then: EmergencyStopping → EmergencyStopped
+    // Then: EmergencyStopping -> EmergencyStopped
     EXPECT_EQ(ctx->emergencyStopController().state(), SafetyState::EmergencyStopped);
     EXPECT_TRUE(ctx->emergencyStopController().isEmergencyStopped());
     EXPECT_TRUE(ctx->emergencyStopController().isSystemLocked());
 }
 
 // ============================================================
-// 第四部分：幂等 — 重复触发/解除急停
+// 第四部分：幂等 -- 重复触发/解除急停
 // ============================================================
 
 TEST_F(EmergencyStopUseCaseTest, EmergencyStop_DoubleTrigger_ReturnsAlreadyInState) {
@@ -292,7 +292,7 @@ TEST_F(EmergencyStopUseCaseTest, ReleaseEmergencyStop_FullLink_EmergencyStoppedT
     plc.tick(100);
     ctx->emergencyStopController().applyFeedback(plc.getEmergencyStopFeedback());
 
-    // Then: ReleasingEmergencyStop → Running
+    // Then: ReleasingEmergencyStop -> Running
     EXPECT_EQ(ctx->emergencyStopController().state(), SafetyState::Running);
     EXPECT_FALSE(ctx->emergencyStopController().isEmergencyStopped());
     EXPECT_FALSE(ctx->emergencyStopController().isSystemLocked());
@@ -318,11 +318,11 @@ TEST_F(EmergencyStopUseCaseTest, ReleaseEmergencyStop_AfterUseCase_PLCReceivesRe
 }
 
 // ============================================================
-// 第六部分：冲突检测 — ReleasingEmergencyStop 时不能再触发急停
+// 第六部分：冲突检测 -- ReleasingEmergencyStop 时不能再触发急停
 // ============================================================
 
 TEST_F(EmergencyStopUseCaseTest, EmergencyStop_WhileReleasing_ReturnsInvalidStateTransition) {
-    // Given: EmergencyStopped → 正在解除中
+    // Given: EmergencyStopped -> 正在解除中
     SystemContext* ctx = getContext();
     syncToRunning();
     UseCaseError err1 = emergencyStopUseCase.execute(manager, GROUP);
@@ -344,7 +344,7 @@ TEST_F(EmergencyStopUseCaseTest, EmergencyStop_WhileReleasing_ReturnsInvalidStat
 }
 
 // ============================================================
-// 第七部分：UseCase 无状态 — 多次调用互不影响
+// 第七部分：UseCase 无状态 -- 多次调用互不影响
 // ============================================================
 
 TEST_F(EmergencyStopUseCaseTest, Stateless_RepeatedCallsProduceConsistentResult) {
@@ -366,7 +366,7 @@ TEST_F(EmergencyStopUseCaseTest, Stateless_RepeatedCallsProduceConsistentResult)
 }
 
 // ============================================================
-// 第八部分：物理急停按钮路径 — Running + feedback(true) → EmergencyStopped
+// 第八部分：物理急停按钮路径 -- Running + feedback(true) -> EmergencyStopped
 // ============================================================
 
 TEST_F(EmergencyStopUseCaseTest, PhysicalEmergencyStop_RunningToEmergencyStopped_WithoutControllerCommand) {
@@ -375,7 +375,7 @@ TEST_F(EmergencyStopUseCaseTest, PhysicalEmergencyStop_RunningToEmergencyStopped
     SystemContext* ctx = getContext();
     ASSERT_EQ(ctx->emergencyStopController().state(), SafetyState::Running);
 
-    // When: 物理急停按钮被按下 — PLC 直接反馈 true（绕过 Controller 命令）
+    // When: 物理急停按钮被按下 -- PLC 直接反馈 true（绕过 Controller 命令）
     ctx->emergencyStopController().applyFeedback(true);
 
     // Then: 直接跃迁到 EmergencyStopped，不经过 EmergencyStopping
@@ -407,7 +407,7 @@ TEST_F(EmergencyStopUseCaseTest, ReleaseAfterPhysicalEmergencyStop_Succeeds) {
 }
 
 // ============================================================
-// 第九部分：UseCase → PLC 驱动 — 命令正确路由到 Driver
+// 第九部分：UseCase -> PLC 驱动 -- 命令正确路由到 Driver
 // ============================================================
 
 TEST_F(EmergencyStopUseCaseTest, EmergencyStopCommandSentViaDriver) {

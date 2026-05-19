@@ -11,7 +11,7 @@ struct GantryCouplingCommand {
 };
 
 // ==========================================
-// 龙门联动控制器 — 五态耦合状态机
+// 龙门联动控制器 -- 五态耦合状态机
 // ==========================================
 // 职责：管理 PLC 寄存器「轴X联动使能」的上位机侧状态机
 //       - 生成联动/解耦意图（GantryCouplingCommand）
@@ -20,9 +20,9 @@ struct GantryCouplingCommand {
 //       - 在任何联动状态下均可独立访问
 //
 // 状态机：
-//   NotSynchronized → Coupled / Decoupled（仅通过 applyFeedback 退出）
-//   Decoupled       → CouplingRequested → Coupled
-//   Coupled         → DecouplingRequested → Decoupled
+//   NotSynchronized -> Coupled / Decoupled（仅通过 applyFeedback 退出）
+//   Decoupled       -> CouplingRequested -> Coupled
+//   Coupled         -> DecouplingRequested -> Decoupled
 // ==========================================
 
 class GantryCouplingController {
@@ -59,7 +59,7 @@ public:
             if (m_state.isDecouplingRequested()) {
                 return GantryRejection::StateConflict;
             }
-            // 通过：Decoupled → 生成联动意图
+            // 通过：Decoupled -> 生成联动意图
             // 注意：不再检查 Axis Error 状态，X1/X2 是否使能/静止/超差
             //       由 PLC 通过 Gantry_Error_Code 反馈，PLC 是最终安全裁决者
             m_pending_intent = GantryCouplingCommand{ true };
@@ -74,7 +74,7 @@ public:
             if (m_state.isCouplingRequested()) {
                 return GantryRejection::StateConflict;
             }
-            // 通过：Coupled → 生成解耦意图
+            // 通过：Coupled -> 生成解耦意图
             m_pending_intent = GantryCouplingCommand{ false };
             m_state.requestDecouple();
         }
@@ -106,7 +106,7 @@ public:
         // 2. 状态感知的反馈处理
         if (m_state.isCouplingRequested()) {
             if (feedback.errorCode != 0) {
-                // PLC 已明确拒绝联动 → 回退到解耦状态
+                // PLC 已明确拒绝联动 -> 回退到解耦状态
                 m_state.applyDecoupledFeedback();
             } else if (feedback.isCoupled) {
                 // PLC 已确认联动成功

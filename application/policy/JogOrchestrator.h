@@ -13,7 +13,7 @@
 /**
  * @brief 点动运动编排器
  *
- * 职责：编排"使能 → 下发点动 → 运行 → 停止 → 等待空闲 → 掉电"的完整流程。
+ * 职责：编排"使能 -> 下发点动 -> 运行 -> 停止 -> 等待空闲 -> 掉电"的完整流程。
  *
  * 分层职责：
  *   - EnableUseCase 负责：分组路由 + 轴状态幂等检查 + 下发使能/掉电命令
@@ -76,7 +76,7 @@ public:
         if (id != m_targetId || dir != m_dir) {
             LOG_WARN(LogLayer::APP, "JogOrch",
                      "[" + m_groupName + "][" + axisName(m_targetId) + "] "
-                     "StopJog ignored — mismatched AxisId/Direction (got "
+                     "StopJog ignored -- mismatched AxisId/Direction (got "
                          + axisName(id) + "/" + dirName(dir) + ")");
             return;
         }
@@ -110,7 +110,7 @@ public:
         if (group->emergencyStopController().isSystemLocked()) {
             if (m_step != Step::Idle && m_step != Step::Done && m_step != Step::Error) {
                 LOG_INFO(LogLayer::APP, "JogOrch",
-                         "[" + m_groupName + "][" + axisName(m_targetId) + "] Safety locked — aborting gracefully");
+                         "[" + m_groupName + "][" + axisName(m_targetId) + "] Safety locked -- aborting gracefully");
                 m_step = Step::Done;
                 m_lastError = std::monostate{};
             }
@@ -129,7 +129,7 @@ public:
         // 全局最高优先级：硬件/状态错误拦截
         if (axis->state() == AxisState::Error) {
             LOG_ERROR(LogLayer::APP, "JogOrch",
-                      "[" + m_groupName + "][" + axisName(m_targetId) + "] Axis Error state — aborting");
+                      "[" + m_groupName + "][" + axisName(m_targetId) + "] Axis Error state -- aborting");
             m_step = Step::Error;
             m_lastError = axis->lastRejection();
             return;
@@ -140,7 +140,7 @@ public:
             break;
 
         // ============================================================
-        // EnsuringEnabled：使能 → 等待 Idle
+        // EnsuringEnabled：使能 -> 等待 Idle
         // ============================================================
 
         case Step::EnsuringEnabled:
@@ -158,7 +158,7 @@ public:
             }
             if (axis->state() == AxisState::Idle) {
                 LOG_DEBUG(LogLayer::APP, "JogOrch",
-                          "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled → IssuingJog");
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -> IssuingJog");
                 m_step = Step::IssuingJog;
                 break;
             }
@@ -166,7 +166,7 @@ public:
             break;
 
         // ============================================================
-        // IssuingJog：下发点动指令 → Jogging
+        // IssuingJog：下发点动指令 -> Jogging
         // ============================================================
 
         case Step::IssuingJog:
@@ -178,13 +178,13 @@ public:
                           "[" + m_groupName + "][" + axisName(m_targetId) + "] Jog rejected: "
                               + std::to_string(static_cast<int>(axis->lastRejection())));
                 m_lastError = axis->lastRejection();
-                // 失败熔断 → 掉电
+                // 失败熔断 -> 掉电
                 EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, false);
                 m_step = Step::Error;
                 break;
             }
 
-            // 领域层通过 → 下发 JogCommand 到驱动
+            // 领域层通过 -> 下发 JogCommand 到驱动
             if (axis->hasPendingCommand()) {
                 if (auto* drv = group->driver()) {
                     auto commResult = drv->send(AxisCommandWithId{m_targetId, axis->getPendingCommand()});
@@ -198,7 +198,7 @@ public:
 
             m_jogIssued = true;
             LOG_DEBUG(LogLayer::APP, "JogOrch",
-                      "[" + m_groupName + "][" + axisName(m_targetId) + "] IssuingJog → Jogging");
+                      "[" + m_groupName + "][" + axisName(m_targetId) + "] IssuingJog -> Jogging");
             m_step = Step::Jogging;
             break;
 
@@ -211,13 +211,13 @@ public:
             if (axis->state() == AxisState::Idle && !axis->hasPendingCommand()) {
                 LOG_ERROR(LogLayer::APP, "JogOrch",
                           "[" + m_groupName + "][" + axisName(m_targetId) + "] "
-                          "Axis unexpectedly Idle during Jog — forcing stop sequence");
+                          "Axis unexpectedly Idle during Jog -- forcing stop sequence");
                 m_step = Step::IssuingStop;
             }
             break;
 
         // ============================================================
-        // IssuingStop：下发停止 → WaitingForIdle
+        // IssuingStop：下发停止 -> WaitingForIdle
         // ============================================================
 
         case Step::IssuingStop:
@@ -237,7 +237,7 @@ public:
                 m_stopIssued = true;
             }
             LOG_DEBUG(LogLayer::APP, "JogOrch",
-                      "[" + m_groupName + "][" + axisName(m_targetId) + "] IssuingStop → WaitingForIdle");
+                      "[" + m_groupName + "][" + axisName(m_targetId) + "] IssuingStop -> WaitingForIdle");
             m_step = Step::WaitingForIdle;
             break;
 
@@ -248,13 +248,13 @@ public:
         case Step::WaitingForIdle:
             if (axis->state() == AxisState::Idle) {
                 LOG_DEBUG(LogLayer::APP, "JogOrch",
-                          "[" + m_groupName + "][" + axisName(m_targetId) + "] WaitingForIdle → EnsuringDisabled");
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] WaitingForIdle -> EnsuringDisabled");
                 m_step = Step::EnsuringDisabled;
             }
             break;
 
         // ============================================================
-        // EnsuringDisabled：掉电 → Done
+        // EnsuringDisabled：掉电 -> Done
         // ============================================================
 
         case Step::EnsuringDisabled:
@@ -269,7 +269,7 @@ public:
             }
             if (axis->state() == AxisState::Disabled) {
                 LOG_SUMMARY(LogLayer::APP, "JogOrch",
-                            "[" + m_groupName + "][" + axisName(m_targetId) + "] Jog → SUCCESS (Safely Stopped)");
+                            "[" + m_groupName + "][" + axisName(m_targetId) + "] Jog -> SUCCESS (Safely Stopped)");
                 m_step = Step::Done;
             }
             break;

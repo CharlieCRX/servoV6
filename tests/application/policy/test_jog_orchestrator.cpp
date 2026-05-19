@@ -1,16 +1,16 @@
 // ============================================================================
 // 业务模块：Jog 点动运动编排器 (JogOrchestrator) 单元测试
 // 文件路径：tests/application/policy/test_jog_orchestrator.cpp
-// 测试目标：验证点动运动全生命周期（启动→运行→停止→掉电）的状态机流转正确性
+// 测试目标：验证点动运动全生命周期（启动->运行->停止->掉电）的状态机流转正确性
 // ============================================================================
 //
 // 核心业务概念：
 //   JogOrchestrator 是一个有限状态机，负责协调"点动"操作的完整流程：
-//   Idle → EnsuringEnabled → IssuingJog → Jogging → IssuingStop → WaitingForIdle → EnsuringDisabled → Done
-//   ⚠ 任意环节出错 → Error（终态）
+//   Idle -> EnsuringEnabled -> IssuingJog -> Jogging -> IssuingStop -> WaitingForIdle -> EnsuringDisabled -> Done
+//   ⚠ 任意环节出错 -> Error（终态）
 //
 // 架构变更（组管理重构）：
-//   编排器不再直接持有 AxisRepository，改为通过 SystemManager → SystemContext 获取轴。
+//   编排器不再直接持有 AxisRepository，改为通过 SystemManager -> SystemContext 获取轴。
 //   EnableUseCase 已改为无状态（execute 时传入 manager + groupName + axisId）。
 //   指令下发通过 group->driver()->send() 完成。
 //
@@ -99,15 +99,15 @@ protected:
     // 状态机快速推进工具方法
     // --------------------------------------------------------------------------
 
-    // 业务场景：从 Idle 开始，完成"上使能→下发点动→进入点动运行"全流程
+    // 业务场景：从 Idle 开始，完成"上使能->下发点动->进入点动运行"全流程
     // 用于测试"点动运行中"的各类业务场景（停止、异常跌落、方向验证等）
     // 前置条件：轴已 Idle
     // 后置条件：编排器状态为 Jogging，driver 历史被清空（便于后续精确计数）
     void runToJoggingState(Direction dir = Direction::Forward) {
         axis().applyFeedback({.state = AxisState::Idle, .absPos = 0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
         orchestrator->startJog(targetId, dir);
-        orchestrator->tick();  // EnsuringEnabled（Idle → IssuingJog）
-        orchestrator->tick();  // IssuingJog（下发 JogCommand → Jogging）
+        orchestrator->tick();  // EnsuringEnabled（Idle -> IssuingJog）
+        orchestrator->tick();  // IssuingJog（下发 JogCommand -> Jogging）
         driver.history.clear();
     }
 
@@ -117,7 +117,7 @@ protected:
     void runToWaitingForIdleState(Direction dir = Direction::Forward) {
         runToJoggingState(dir);
         orchestrator->stopJog(targetId, dir);
-        orchestrator->tick();  // IssuingStop（下发stop）→ WaitingForIdle
+        orchestrator->tick();  // IssuingStop（下发stop）-> WaitingForIdle
         driver.history.clear();
     }
 
@@ -127,14 +127,14 @@ protected:
     void runToEnsuringDisabledState(Direction dir = Direction::Forward) {
         runToWaitingForIdleState(dir);
         axis().applyFeedback({.state = AxisState::Idle, .absPos = 0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
-        orchestrator->tick();  // WaitingForIdle → EnsuringDisabled（并下发disable指令）
+        orchestrator->tick();  // WaitingForIdle -> EnsuringDisabled（并下发disable指令）
         driver.history.clear();
     }
 };
 
 // ============================================================================
 // ╔═══════════════════════════════════════════════════════════════════════════╗
-// ║                   核心测试用例 — 状态机流转验证                            ║
+// ║                   核心测试用例 -- 状态机流转验证                            ║
 // ╚═══════════════════════════════════════════════════════════════════════════╝
 // ============================================================================
 
@@ -142,7 +142,7 @@ protected:
 // [测试场景 1] 异常状态拦截：轴处于 Error 状态时，立即跳转到 Error 终态
 // ============================================================================
 // 业务规则：
-//   安全性约束 —— 在任何时刻，只要轴反馈 Error 状态，编排器必须立即熔断，
+//   安全性约束 ---- 在任何时刻，只要轴反馈 Error 状态，编排器必须立即熔断，
 //   不执行任何指令（这是最高优先级检查，在 tick 方法入口处执行）。
 // 验收标准：
 //   1. 编排器状态 === Error
@@ -218,7 +218,7 @@ TEST_F(JogOrchestratorTest, ShouldTransitionToIssuingJogButNotSendJogCommandYet)
     orchestrator->tick();  // EnsuringEnabled: 下发EnableCommand
 
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
-    orchestrator->tick();  // EnsuringEnabled（收到Idle）→ IssuingJog
+    orchestrator->tick();  // EnsuringEnabled（收到Idle）-> IssuingJog
 
     EXPECT_EQ(orchestrator->currentStep(), JogOrchestrator::Step::IssuingJog);
     EXPECT_FALSE(driver.has<JogCommand>());
@@ -228,8 +228,8 @@ TEST_F(JogOrchestratorTest, ShouldTransitionToIssuingJogButNotSendJogCommandYet)
 // [测试场景 5] 下发点动指令并进入 Jogging（正向点动，基础路径）
 // ============================================================================
 // 业务规则：
-//   JogOrchestrator 的主路径：轴处于 Idle 状态 → 启动正方向点动 →
-//   下发 JogCommand(dir=Forward, active=true) → 进入 Jogging 运行状态。
+//   JogOrchestrator 的主路径：轴处于 Idle 状态 -> 启动正方向点动 ->
+//   下发 JogCommand(dir=Forward, active=true) -> 进入 Jogging 运行状态。
 // 验收标准：
 //   1. 下发了 JogCommand，方向为 Forward，active=true
 //   2. 编排器状态 === Jogging
@@ -238,8 +238,8 @@ TEST_F(JogOrchestratorTest, ShouldSendJogCommandAndEnterJogging)
 {
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->startJog(targetId, Direction::Forward);
-    orchestrator->tick();  // EnsuringEnabled: Idle → IssuingJog
-    orchestrator->tick();  // IssuingJog: 下发JogCommand → Jogging
+    orchestrator->tick();  // EnsuringEnabled: Idle -> IssuingJog
+    orchestrator->tick();  // IssuingJog: 下发JogCommand -> Jogging
 
     ASSERT_TRUE(driver.has<JogCommand>());
     auto cmd = driver.lastForAxis<JogCommand>(targetId);
@@ -295,7 +295,7 @@ TEST_F(JogOrchestratorTest, ShouldSendJogCommandOnlyOnce)
 }
 
 // ============================================================================
-// [测试场景 8] 点动被拒：轴上正限位触发 → 掉电熔断 → Error
+// [测试场景 8] 点动被拒：轴上正限位触发 -> 掉电熔断 -> Error
 // ============================================================================
 // 业务规则：
 //   如果轴已经在正限位 (posLimit=true) 上，仍然尝试正方向点动，领域层
@@ -352,7 +352,7 @@ TEST_F(JogOrchestratorTest, ShouldTransitionToIssuingStopOnValidStopJog)
 // 业务规则：
 //   多方向点动场景中，如果 UI 误传了与当前运动方向相反的停止指令，
 //   编排器应安全忽略，不中断正在进行的点动。
-//   例如：轴正在 Forward 点动，收到 Backward 停止指令 → 忽略。
+//   例如：轴正在 Forward 点动，收到 Backward 停止指令 -> 忽略。
 // 验收标准：
 //   1. 编排器状态保持不变（仍为 Jogging）
 //
@@ -376,9 +376,9 @@ TEST_F(JogOrchestratorTest, ShouldIgnoreStopJogWithWrongDirection)
 //     - 否则安全忽略，当前运行轴不被干扰
 // 业务场景示例：
 //   用户界面存在并行正向点动 Y 和反向点动 Z 的场景，UI 层误将
-//   Z 轴的停止指令路由到了 Y 轴的 Orchestrator → 安全过滤，Y 轴继续运行。
+//   Z 轴的停止指令路由到了 Y 轴的 Orchestrator -> 安全过滤，Y 轴继续运行。
 // 验收标准：
-//   1. 使用错误的 AxisId（如 Z）调用 stopJog → 编排器忽略
+//   1. 使用错误的 AxisId（如 Z）调用 stopJog -> 编排器忽略
 //   2. 编排器状态保持不变（仍为 Jogging）
 //
 TEST_F(JogOrchestratorTest, ShouldIgnoreStopJogWithWrongAxisId)
@@ -393,7 +393,7 @@ TEST_F(JogOrchestratorTest, ShouldIgnoreStopJogWithWrongAxisId)
 }
 
 // ============================================================================
-// [测试场景 12] 异常跌落监测：点动中轴突然变为 Idle → 自动切入 IssuingStop
+// [测试场景 12] 异常跌落监测：点动中轴突然变为 Idle -> 自动切入 IssuingStop
 // ============================================================================
 // 业务规则：
 //   当轴在 Jogging 状态下意外跌回 Idle（例如驱动层保护性停机、硬件故障等），
@@ -411,7 +411,7 @@ TEST_F(JogOrchestratorTest, ShouldAutoTransitionToIssuingStopIfAxisDropsToIdle)
 }
 
 // ============================================================================
-// [测试场景 13] 停止指令下发：IssuingStop → WaitingForIdle 跃迁
+// [测试场景 13] 停止指令下发：IssuingStop -> WaitingForIdle 跃迁
 // ============================================================================
 // 业务规则：
 //   进入 IssuingStop 后，编排器调用 axis->stopJog() 产生停止指令，
@@ -484,7 +484,7 @@ TEST_F(JogOrchestratorTest, ShouldStayInWaitingForIdleIfAxisIsNotYetIdle)
 }
 
 // ============================================================================
-// [测试场景 16] 轴停稳跃迁：WaitingForIdle → EnsuringDisabled
+// [测试场景 16] 轴停稳跃迁：WaitingForIdle -> EnsuringDisabled
 // ============================================================================
 // 业务规则：
 //   当轴反馈 Idle 状态（物理停稳），编排器从 WaitingForIdle 跃迁到
@@ -513,7 +513,7 @@ TEST_F(JogOrchestratorTest, ShouldIssueDisableCommandAndWait)
 {
     runToWaitingForIdleState(Direction::Forward);
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
-    orchestrator->tick();  // WaitingForIdle → EnsuringDisabled（并下发掉电指令）
+    orchestrator->tick();  // WaitingForIdle -> EnsuringDisabled（并下发掉电指令）
     orchestrator->tick();
 
     ASSERT_TRUE(driver.has<EnableCommand>());
@@ -531,7 +531,7 @@ TEST_F(JogOrchestratorTest, ShouldIssueDisableCommandAndWait)
 }
 
 // ============================================================================
-// [测试场景 18] 掉电完成跃迁：EnsuringDisabled → Done
+// [测试场景 18] 掉电完成跃迁：EnsuringDisabled -> Done
 // ============================================================================
 // 业务规则：
 //   当轴反馈 Disabled 状态（硬件已完成掉电），编排器从 EnsuringDisabled
@@ -562,7 +562,7 @@ TEST_F(JogOrchestratorTest, ShouldRemainSilentWhenInDoneState)
 {
     runToEnsuringDisabledState();
     axis().applyFeedback({.state = AxisState::Disabled, .absPos = 0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
-    orchestrator->tick();  // EnsuringDisabled → Done
+    orchestrator->tick();  // EnsuringDisabled -> Done
     driver.history.clear();
 
     // 后续多次 tick，Done 状态不应再下发任何指令
@@ -575,7 +575,7 @@ TEST_F(JogOrchestratorTest, ShouldRemainSilentWhenInDoneState)
 }
 
 // ============================================================================
-// [测试场景 20] 分组不存在 → 立即 Error + GroupNotFound（NEW）
+// [测试场景 20] 分组不存在 -> 立即 Error + GroupNotFound（NEW）
 // ============================================================================
 // ⭐ 组管理重构后的新测试路径
 //
@@ -599,7 +599,7 @@ TEST_F(JogOrchestratorTest, ShouldEnterErrorWhenGroupNotFound)
 }
 
 // ============================================================================
-// [测试场景 21] 点动被拒时掉电也只下发一次（幂等）—— NEW
+// [测试场景 21] 点动被拒时掉电也只下发一次（幂等）---- NEW
 // ============================================================================
 // 业务规则：
 //   Jog 被拒绝时编排器会调用 EnableUseCase 掉电。如果后续 tick 被调用，
@@ -613,7 +613,7 @@ TEST_F(JogOrchestratorTest, ShouldDisableOnlyOnceWhenJogRejected)
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = true, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->startJog(targetId, Direction::Forward);
     orchestrator->tick();
-    orchestrator->tick();  // Jog 被拒 → 掉电 + Error
+    orchestrator->tick();  // Jog 被拒 -> 掉电 + Error
     orchestrator->tick();  // Error 终态，不应再下发
 
     int disableCount = 0;
@@ -637,7 +637,7 @@ TEST_F(JogOrchestratorTest, ShouldRemainInErrorAfterMultipleTicks)
 {
     axis().applyFeedback({.state = AxisState::Error, .absPos = 0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->startJog(targetId, Direction::Forward);
-    orchestrator->tick();  // → Error
+    orchestrator->tick();  // -> Error
     orchestrator->tick();  // 再次 tick
     orchestrator->tick();  // 再次 tick
 

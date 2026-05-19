@@ -5,7 +5,7 @@
 
 // ============================================================================
 // 分组隔离测试套件
-// 核心验证点：两个独立 FakePLC 实例之间完全隔离 ——
+// 核心验证点：两个独立 FakePLC 实例之间完全隔离 ----
 //    GroupA 的指令不会影响 GroupB 的轴状态
 // ============================================================================
 
@@ -299,7 +299,7 @@ TEST_F(FakePLCMultiAxisTest, ShouldStopSpecificAxisOnly) {
 }
 
 // ============================================================================
-// 用例 11：FakeAxisDriver 集成 — 通过 Driver.send 验证 AxisId 路由正确性
+// 用例 11：FakeAxisDriver 集成 -- 通过 Driver.send 验证 AxisId 路由正确性
 // ============================================================================
 TEST_F(FakePLCMultiAxisTest, ShouldRouteAxisIdCorrectlyThroughDriver) {
     FakeAxisDriver driver(plc);
@@ -440,7 +440,7 @@ TEST_F(FakePLCMultiAxisTest, ShouldInitializeAllAxesToDisabledZeroPosition) {
 // 核心验证点：
 //   1. 龙门使能（GantryPowerCommand）同步控制 X1/X2 使能
 //   2. 联动条件检查（6 项前置条件）与拒绝逻辑
-//   3. 联动建立后持续监测（超差/报警/掉电→自动解耦）
+//   3. 联动建立后持续监测（超差/报警/掉电->自动解耦）
 //   4. 联动/分动互斥（联动态下拒绝 X1/X2 独立点动/定位）
 //   5. 龙门反馈 enable 标志从 X1/X2 真实物理状态聚合
 //   6. forceGantryFeedback 锁定机制
@@ -473,7 +473,7 @@ protected:
 };
 
 // ============================================================================
-// 用例 G1：龙门电机使能——GantryPowerCommand{true} 同步使能 X1 和 X2
+// 用例 G1：龙门电机使能----GantryPowerCommand{true} 同步使能 X1 和 X2
 // ============================================================================
 TEST_F(FakePLCGantryTest, ShouldEnableX1AndX2ViaGantryPowerCommand) {
     EXPECT_EQ(plc.getFeedback(AxisId::X1).state, AxisState::Disabled);
@@ -492,7 +492,7 @@ TEST_F(FakePLCGantryTest, ShouldEnableX1AndX2ViaGantryPowerCommand) {
 }
 
 // ============================================================================
-// 用例 G2：龙门电机掉电——GantryPowerCommand{false} 同步掉电 X1 和 X2
+// 用例 G2：龙门电机掉电----GantryPowerCommand{false} 同步掉电 X1 和 X2
 // ============================================================================
 TEST_F(FakePLCGantryTest, ShouldDisableX1AndX2ViaGantryPowerCommand) {
     enableX1AndX2();
@@ -510,7 +510,7 @@ TEST_F(FakePLCGantryTest, ShouldDisableX1AndX2ViaGantryPowerCommand) {
 }
 
 // ============================================================================
-// 用例 G3：联动成功——X1/X2 使能、静止、位置对齐 → isCoupled=true, errorCode=0
+// 用例 G3：联动成功----X1/X2 使能、静止、位置对齐 -> isCoupled=true, errorCode=0
 // ============================================================================
 TEST_F(FakePLCGantryTest, ShouldCoupleWhenAllConditionsMet) {
     prepareForCoupling();
@@ -525,7 +525,7 @@ TEST_F(FakePLCGantryTest, ShouldCoupleWhenAllConditionsMet) {
 }
 
 // ============================================================================
-// 用例 G4：X1 未使能时请求联动 → 被拒绝，errorCode=2 (X1NotEnabled)
+// 用例 G4：X1 未使能时请求联动 -> 被拒绝，errorCode=2 (X1NotEnabled)
 // ============================================================================
 TEST_F(FakePLCGantryTest, ShouldRejectCouplingWhenX1NotEnabled) {
     // X2 使能，但 X1 未使能
@@ -543,7 +543,7 @@ TEST_F(FakePLCGantryTest, ShouldRejectCouplingWhenX1NotEnabled) {
 }
 
 // ============================================================================
-// 用例 G5：X2 未使能时请求联动 → 被拒绝，errorCode=3 (X2NotEnabled)
+// 用例 G5：X2 未使能时请求联动 -> 被拒绝，errorCode=3 (X2NotEnabled)
 // ============================================================================
 TEST_F(FakePLCGantryTest, ShouldRejectCouplingWhenX2NotEnabled) {
     // X1 使能，但 X2 未使能
@@ -561,7 +561,7 @@ TEST_F(FakePLCGantryTest, ShouldRejectCouplingWhenX2NotEnabled) {
 }
 
 // ============================================================================
-// 用例 G6：X1 运动中请求联动 → 被拒绝，errorCode=4 (X1NotStationary)
+// 用例 G6：X1 运动中请求联动 -> 被拒绝，errorCode=4 (X1NotStationary)
 // ============================================================================
 TEST_F(FakePLCGantryTest, ShouldRejectCouplingWhenX1Moving) {
     enableX1AndX2();
@@ -582,12 +582,12 @@ TEST_F(FakePLCGantryTest, ShouldRejectCouplingWhenX1Moving) {
 }
 
 // ============================================================================
-// 用例 G7：位置差过大请求联动 → 被拒绝，errorCode=1 (PositionToleranceExceeded)
+// 用例 G7：位置差过大请求联动 -> 被拒绝，errorCode=1 (PositionToleranceExceeded)
 // ============================================================================
 TEST_F(FakePLCGantryTest, ShouldRejectCouplingWhenPositionDeltaExceeded) {
     enableX1AndX2();
 
-    // X1 在 0.0，X2 在 5.0 → 位置差 5.0 > 0.1 (GANTRY_MAX_POSITION_DELTA)
+    // X1 在 0.0，X2 在 5.0 -> 位置差 5.0 > 0.1 (GANTRY_MAX_POSITION_DELTA)
     plc.setAbsolutePosition(AxisId::X1, 0.0);
     plc.setAbsolutePosition(AxisId::X2, 5.0);
 
@@ -600,12 +600,12 @@ TEST_F(FakePLCGantryTest, ShouldRejectCouplingWhenPositionDeltaExceeded) {
 }
 
 // ============================================================================
-// 用例 G8：位置差恰好满足阈值 → 联动成功（边界值）
+// 用例 G8：位置差恰好满足阈值 -> 联动成功（边界值）
 // ============================================================================
 TEST_F(FakePLCGantryTest, ShouldCoupleWhenPositionDeltaAtThreshold) {
     enableX1AndX2();
 
-    // X1 在 0.0，X2 在 0.099 → 位置差 0.099 < 0.1
+    // X1 在 0.0，X2 在 0.099 -> 位置差 0.099 < 0.1
     plc.setAbsolutePosition(AxisId::X1, 0.0);
     plc.setAbsolutePosition(AxisId::X2, 0.099);
 
@@ -618,7 +618,7 @@ TEST_F(FakePLCGantryTest, ShouldCoupleWhenPositionDeltaAtThreshold) {
 }
 
 // ============================================================================
-// 用例 G9：联动建立后超差 → 自动解耦，errorCode=1
+// 用例 G9：联动建立后超差 -> 自动解耦，errorCode=1
 // ============================================================================
 TEST_F(FakePLCGantryTest, ShouldAutoDecoupleWhenPositionExceededAfterCoupled) {
     prepareForCoupling();
@@ -641,7 +641,7 @@ TEST_F(FakePLCGantryTest, ShouldAutoDecoupleWhenPositionExceededAfterCoupled) {
 }
 
 // ============================================================================
-// 用例 G10：联动建立后 X1 报警 → 自动解耦，errorCode=999
+// 用例 G10：联动建立后 X1 报警 -> 自动解耦，errorCode=999
 // ============================================================================
 TEST_F(FakePLCGantryTest, ShouldAutoDecoupleWhenX1HasAlarm) {
     prepareForCoupling();
@@ -661,7 +661,7 @@ TEST_F(FakePLCGantryTest, ShouldAutoDecoupleWhenX1HasAlarm) {
 }
 
 // ============================================================================
-// 用例 G11：联动建立后 X1 限位触发 → 自动解耦（限位等同于报警）
+// 用例 G11：联动建立后 X1 限位触发 -> 自动解耦（限位等同于报警）
 // ============================================================================
 TEST_F(FakePLCGantryTest, ShouldAutoDecoupleWhenX1HitsLimit) {
     prepareForCoupling();
@@ -710,15 +710,15 @@ TEST_F(FakePLCGantryTest, ShouldAutoDecoupleWhenX1HitsLimit) {
     plc.tick(10);
 
     // posLimit 应该在 tick 中由 checkHardwareLimits 设置为 true
-    // 然后 refreshGantryPhysicalState 会检测到 posLimit → x1HasAlarm=true
-    // → tickGantryCoupledMonitoring 自动解耦
+    // 然后 refreshGantryPhysicalState 会检测到 posLimit -> x1HasAlarm=true
+    // -> tickGantryCoupledMonitoring 自动解耦
     auto gf = plc.getGantryFeedback();
     EXPECT_FALSE(gf.isCoupled);
     EXPECT_EQ(gf.errorCode, 999);
 }
 
 // ============================================================================
-// 用例 G12：联动建立后 X1 掉电 → 自动解耦，errorCode=3 (X2NotEnabled)
+// 用例 G12：联动建立后 X1 掉电 -> 自动解耦，errorCode=3 (X2NotEnabled)
 // ============================================================================
 TEST_F(FakePLCGantryTest, ShouldAutoDecoupleWhenX1Disabled) {
     prepareForCoupling();
@@ -733,14 +733,14 @@ TEST_F(FakePLCGantryTest, ShouldAutoDecoupleWhenX1Disabled) {
 
     auto gf = plc.getGantryFeedback();
     EXPECT_FALSE(gf.isCoupled);
-    // X1 未使能 → 统一用 X2 的码? 看代码：
+    // X1 未使能 -> 统一用 X2 的码? 看代码：
     // errorCode = m_gantryPhysical.x1Enabled ? 3 : 2;
-    // X1 未使能（x1Enabled=false）→ errorCode=2
+    // X1 未使能（x1Enabled=false）-> errorCode=2
     EXPECT_EQ(gf.errorCode, 2);
 }
 
 // ============================================================================
-// 用例 G13：解耦请求 — 无条件下通过，isCoupled=false
+// 用例 G13：解耦请求 -- 无条件下通过，isCoupled=false
 // ============================================================================
 TEST_F(FakePLCGantryTest, ShouldDecoupleUnconditionally) {
     // 即使 X1/X2 未使能，解耦也应成功（无条件）
@@ -823,7 +823,7 @@ TEST_F(FakePLCGantryTest, ShouldAllowX1JogWhenDecoupled) {
 }
 
 // ============================================================================
-// 用例 G17：forceGantryFeedback 锁定机制——自动刷新被跳过
+// 用例 G17：forceGantryFeedback 锁定机制----自动刷新被跳过
 // ============================================================================
 TEST_F(FakePLCGantryTest, ShouldLockAutoRefreshWhenForceGantryFeedback) {
     prepareForCoupling();
@@ -851,7 +851,7 @@ TEST_F(FakePLCGantryTest, ShouldUnlockWhenNewGantryCommandArrives) {
     plc.forceGantryFeedback(GantryFeedback{false, false, 99});
     ASSERT_EQ(plc.getGantryFeedback().errorCode, 99);
 
-    // 发送新的龙门耦合命令 → 自动解锁
+    // 发送新的龙门耦合命令 -> 自动解锁
     plc.onGantryCommand(GantryCouplingCommand{true});
     plc.tick(150);
 
@@ -931,7 +931,7 @@ TEST_F(FakePLCGantryTest, ShouldResetGantryStateOnResetAll) {
 }
 
 // ============================================================================
-// 用例 G22：龙门耦合命令延迟——100ms 内未完成
+// 用例 G22：龙门耦合命令延迟----100ms 内未完成
 // ============================================================================
 TEST_F(FakePLCGantryTest, ShouldDelayCouplingBeforeGANTRY_COUPLING_DELAY_MS) {
     prepareForCoupling();

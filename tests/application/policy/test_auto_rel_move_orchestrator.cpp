@@ -2,12 +2,12 @@
  * @file test_auto_rel_move_orchestrator.cpp
  * @brief AutoRelMoveOrchestrator 的单元测试套件
  *
- * 本文件测试 AutoRelMoveOrchestrator——相对运动编排器的完整状态机行为。
- * 编排器负责协调多轴场景下的 "Enable → IssueMove → WaitMotionStart → WaitMotionFinish → Done"
+ * 本文件测试 AutoRelMoveOrchestrator----相对运动编排器的完整状态机行为。
+ * 编排器负责协调多轴场景下的 "Enable -> IssueMove -> WaitMotionStart -> WaitMotionFinish -> Done"
  * 全生命周期，覆盖正常流程、异常恢复、幂等性保障等关键路径。
  *
  * 架构变更（组管理重构）：
- *   编排器不再直接持有 AxisRepository，改为通过 SystemManager → SystemContext 获取轴。
+ *   编排器不再直接持有 AxisRepository，改为通过 SystemManager -> SystemContext 获取轴。
  *   EnableUseCase 已改为无状态（execute 时传入 manager + groupName + axisId）。
  *   指令下发通过 group->driver()->send() 完成。
  *
@@ -17,7 +17,7 @@
  *     提供便捷的轴状态注入与状态机快速推进工具方法
  *
  * 状态机流转示意：
- *   Initial → EnsuringEnabled → IssuingMove → WaitingMotionStart → WaitingMotionFinish → Done
+ *   Initial -> EnsuringEnabled -> IssuingMove -> WaitingMotionStart -> WaitingMotionFinish -> Done
  *               ↓                    ↓              ↓                    ↓
  *             Error ←────────── Error ←───────── Error ←───────────── Error
  */
@@ -90,7 +90,7 @@ protected:
 // =====================================================================
 // Error 状态测试
 // =====================================================================
-// 全局最高优先级的错误拦截：任何阶段检测到 AxisState::Error → 立即熔断
+// 全局最高优先级的错误拦截：任何阶段检测到 AxisState::Error -> 立即熔断
 // =====================================================================
 
 /**
@@ -202,8 +202,8 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldOnlyTransitionToIssuingMoveWhenAxisBec
 TEST_F(AutoRelMoveOrchestratorTest, ShouldSendMoveOnlyOnNextTickAfterEnteringIssuingMove)
 {
     orchestrator->startRel(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → 发 Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> 发 Move
 
     ASSERT_TRUE(driver.has<MoveCommand>());
     auto cmd = driver.lastForAxis<MoveCommand>(targetId);
@@ -217,8 +217,8 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldSendMoveOnlyOnNextTickAfterEnteringIss
 TEST_F(AutoRelMoveOrchestratorTest, ShouldSendMoveOnlyOnce)
 {
     orchestrator->startRel(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
     orchestrator->tick();
     orchestrator->tick();
 
@@ -235,8 +235,8 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldDisableAndEnterErrorWhenMoveRejected)
 {
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 100.0, .negLimitValue = -100.0});
     orchestrator->startRel(targetId, 9999.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move 被拒绝
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move 被拒绝
 
     ASSERT_TRUE(driver.has<EnableCommand>());
     auto cmd = driver.lastForAxis<EnableCommand>(targetId);
@@ -250,8 +250,8 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldDisableAndEnterErrorWhenMoveRejected)
 TEST_F(AutoRelMoveOrchestratorTest, ShouldEnterWaitingMotionStartAfterMoveSuccess)
 {
     orchestrator->startRel(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     EXPECT_EQ(orchestrator->currentStep(), AutoRelMoveOrchestrator::Step::WaitingMotionStart);
 }
@@ -266,8 +266,8 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldEnterWaitingMotionStartAfterMoveSucces
 TEST_F(AutoRelMoveOrchestratorTest, ShouldDetectMotionByPositionDeltaEvenWithoutMovingState)
 {
     orchestrator->startRel(targetId, 0.5);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
     EXPECT_EQ(orchestrator->currentStep(), AutoRelMoveOrchestrator::Step::WaitingMotionStart);
 
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 0.5, .relPos = 0.5, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
@@ -282,8 +282,8 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldDetectMotionByPositionDeltaEvenWithout
 TEST_F(AutoRelMoveOrchestratorTest, ShouldEnterWaitingMotionFinishWhenAxisStartsMoving)
 {
     orchestrator->startRel(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     axis().applyFeedback({.state = AxisState::MovingRelative, .absPos = 0.1, .relPos = 0.1, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->tick();
@@ -297,8 +297,8 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldEnterWaitingMotionFinishWhenAxisStarts
 TEST_F(AutoRelMoveOrchestratorTest, ShouldStayIfNoMotionObserved)
 {
     orchestrator->startRel(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
     orchestrator->tick();
 
     EXPECT_EQ(orchestrator->currentStep(), AutoRelMoveOrchestrator::Step::WaitingMotionStart);
@@ -310,8 +310,8 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldStayIfNoMotionObserved)
 TEST_F(AutoRelMoveOrchestratorTest, ShouldEnterErrorWhenAxisReportsError)
 {
     orchestrator->startRel(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     axis().applyFeedback({.state = AxisState::Error, .absPos = 0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->tick();
@@ -325,8 +325,8 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldEnterErrorWhenAxisReportsError)
 TEST_F(AutoRelMoveOrchestratorTest, ShouldLatchMotionObserved)
 {
     orchestrator->startRel(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 0.2, .relPos = 0.2, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->tick();
@@ -347,11 +347,11 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldLatchMotionObserved)
 TEST_F(AutoRelMoveOrchestratorTest, ShouldDisableWhenMotionFinished)
 {
     orchestrator->startRel(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     axis().applyFeedback({.state = AxisState::MovingRelative, .absPos = 0.5, .relPos = 0.5, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
-    orchestrator->tick(); // → WaitingMotionFinish
+    orchestrator->tick(); // -> WaitingMotionFinish
 
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 1.0, .relPos = 1.0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->tick();
@@ -368,11 +368,11 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldDisableWhenMotionFinished)
 TEST_F(AutoRelMoveOrchestratorTest, ShouldNotCompleteIfNotInPosition)
 {
     orchestrator->startRel(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     axis().applyFeedback({.state = AxisState::MovingRelative, .absPos = 0.5, .relPos = 0.5, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
-    orchestrator->tick(); // → WaitingMotionFinish
+    orchestrator->tick(); // -> WaitingMotionFinish
 
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 0.8, .relPos = 0.8, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->tick();
@@ -381,16 +381,16 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldNotCompleteIfNotInPosition)
 }
 
 /**
- * @test Idle + 未到位 → 必须保持 WaitingMotionFinish
+ * @test Idle + 未到位 -> 必须保持 WaitingMotionFinish
  */
 TEST_F(AutoRelMoveOrchestratorTest, ShouldNotCompleteIfNotInPosition2)
 {
     orchestrator->startRel(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     axis().applyFeedback({.state = AxisState::MovingRelative, .absPos = 0.5, .relPos = 0.5, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
-    orchestrator->tick(); // → WaitingMotionFinish
+    orchestrator->tick(); // -> WaitingMotionFinish
 
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 0.3, .relPos = 0.3, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->tick();
@@ -405,8 +405,8 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldNotCompleteIfNotInPosition2)
 TEST_F(AutoRelMoveOrchestratorTest, ShouldNotCompleteIfMotionNeverObserved)
 {
     orchestrator->startRel(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 1.0, .relPos = 1.0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->tick();
@@ -425,11 +425,11 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldCompleteRelativeMoveFromNonZeroStart)
 {
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 5.0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->startRel(targetId, 3.0); // 期望终点 = 5.0 + 3.0 = 8.0
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     axis().applyFeedback({.state = AxisState::MovingRelative, .absPos = 6.0, .relPos = 1.0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
-    orchestrator->tick(); // → WaitingMotionFinish
+    orchestrator->tick(); // -> WaitingMotionFinish
 
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 8.0, .relPos = 3.0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->tick();
@@ -447,11 +447,11 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldNotCompleteIfNotReachingStartPlusDista
 {
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 5.0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->startRel(targetId, 3.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     axis().applyFeedback({.state = AxisState::MovingRelative, .absPos = 6.0, .relPos = 1.0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
-    orchestrator->tick(); // → WaitingMotionFinish
+    orchestrator->tick(); // -> WaitingMotionFinish
 
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 7.0, .relPos = 2.0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->tick();
@@ -464,7 +464,7 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldNotCompleteIfNotReachingStartPlusDista
 // =====================================================================
 
 /**
- * @test 分组不存在 → 立即 Error + GroupNotFound
+ * @test 分组不存在 -> 立即 Error + GroupNotFound
  */
 TEST_F(AutoRelMoveOrchestratorTest, ShouldEnterErrorWhenGroupNotFound)
 {
@@ -484,7 +484,7 @@ TEST_F(AutoRelMoveOrchestratorTest, ShouldRemainInErrorAfterMultipleTicks)
 {
     axis().applyFeedback({.state = AxisState::Error, .absPos = 0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->startRel(targetId, 1.0);
-    orchestrator->tick(); // → Error
+    orchestrator->tick(); // -> Error
     orchestrator->tick();
     orchestrator->tick();
 

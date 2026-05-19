@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * @brief 系统安全状态 — 五态工业安全状态机
+ * @brief 系统安全状态 -- 五态工业安全状态机
  *
  * 设计依据：
  *   1. PLC 拥有独立寄存器：设备急停（命令） / 设备急停中（状态反馈）
@@ -43,19 +43,19 @@
  */
 enum class SafetyState {
     // ==========================================
-    // 状态 0：NotSynchronized — 初始启动态，尚未同步 PLC 真实安全状态
+    // 状态 0：NotSynchronized -- 初始启动态，尚未同步 PLC 真实安全状态
     // ==========================================
     // • 程序刚启动，软件不知道 PLC 是否处于急停中
     // • 禁止一切运动和使能（真相未知，宁可保守）
     // • 必须调用 synchronize(plcEmergencyStopped) 才能退出此状态
     // • 退出路径：
-    //     synchronize(false) → Running（PLC 未急停）
-    //     synchronize(true)  → EmergencyStopped（PLC 已急停）
+    //     synchronize(false) -> Running（PLC 未急停）
+    //     synchronize(true)  -> EmergencyStopped（PLC 已急停）
     // • 拒绝所有 requestEmergencyStop() / requestReleaseEmergencyStop()
     NotSynchronized,
 
     // ==========================================
-    // 状态 1：Running — 系统运行许可有效
+    // 状态 1：Running -- 系统运行许可有效
     // ==========================================
     // • 所有轴可运动、可使能
     // • 轴默认 Disabled，运动时由 enable() 自动使能
@@ -63,7 +63,7 @@ enum class SafetyState {
     Running,
 
     // ==========================================
-    // 状态 2：EmergencyStopping — 急停命令已下发，等待 PLC 停机确认
+    // 状态 2：EmergencyStopping -- 急停命令已下发，等待 PLC 停机确认
     // ==========================================
     // • 禁止一切运动和使能
     // • UI 显示"急停处理中..."
@@ -71,7 +71,7 @@ enum class SafetyState {
     EmergencyStopping,
 
     // ==========================================
-    // 状态 3：EmergencyStopped — 系统已锁定
+    // 状态 3：EmergencyStopped -- 系统已锁定
     // ==========================================
     // • 禁止一切运动和使能
     // • UI 显示"设备已急停"，运动控件全部置灰
@@ -80,7 +80,7 @@ enum class SafetyState {
     EmergencyStopped,
 
     // ==========================================
-    // 状态 4：ReleasingEmergencyStop — 解除命令已下发，等待 PLC 解锁确认
+    // 状态 4：ReleasingEmergencyStop -- 解除命令已下发，等待 PLC 解锁确认
     // ==========================================
     // • 禁止一切运动
     // • UI 显示"急停解除中..."

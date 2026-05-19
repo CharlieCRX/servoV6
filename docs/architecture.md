@@ -153,17 +153,17 @@ servoV6/
 
 - **状态机**：`AxisState` 枚举定义了轴的 7 种状态
   ```
-  Unknown → Disabled → Idle → Jogging / MovingAbsolute / MovingRelative → Error
+  Unknown -> Disabled -> Idle -> Jogging / MovingAbsolute / MovingRelative -> Error
   ```
 
 - **命令意图系统**：使用 `std::variant` 实现统一的类型安全命令槽位 `AxisCommand`，支持：
-  - `JogCommand` — 点动指令（方向 + 启停标记）
-  - `MoveCommand` — 定位指令（绝对/相对 + 目标值）
-  - `StopCommand` — 急停指令
-  - `EnableCommand` — 使能/掉电指令
-  - `SetJogVelocityCommand` / `SetMoveVelocityCommand` — 速度配置
-  - `ZeroAbsoluteCommand` — 绝对零点归零
-  - `SetRelativeZeroCommand` / `ClearRelativeZeroCommand` — 相对零点管理
+  - `JogCommand` -- 点动指令（方向 + 启停标记）
+  - `MoveCommand` -- 定位指令（绝对/相对 + 目标值）
+  - `StopCommand` -- 急停指令
+  - `EnableCommand` -- 使能/掉电指令
+  - `SetJogVelocityCommand` / `SetMoveVelocityCommand` -- 速度配置
+  - `ZeroAbsoluteCommand` -- 绝对零点归零
+  - `SetRelativeZeroCommand` / `ClearRelativeZeroCommand` -- 相对零点管理
 
 - **反馈镜像**：通过 `applyFeedback()` 方法接收 PLC 反馈数据 `AxisFeedback`，刷新内部位置、限位、速度等状态。
 
@@ -228,13 +228,13 @@ public:
 
 | 用例 | 职责 | 核心流程 |
 |------|------|---------|
-| `EnableUseCase` | 使能/掉电 | `axis.enable(active)` → 规则校验 → `driver.send()` |
-| `JogAxisUseCase` | 点动控制 | `axis.jog(dir)` → 规则校验 → `driver.send()` |
-| `MoveAbsoluteUseCase` | 绝对定位 | `axis.moveAbsolute(target)` → 规则校验 → `driver.send()` |
-| `MoveRelativeUseCase` | 相对定位 | `axis.moveRelative(distance)` → 规则校验 → `driver.send()` |
-| `StopAxisUseCase` | 急停 | `axis.stop()` → `driver.send()` |
+| `EnableUseCase` | 使能/掉电 | `axis.enable(active)` -> 规则校验 -> `driver.send()` |
+| `JogAxisUseCase` | 点动控制 | `axis.jog(dir)` -> 规则校验 -> `driver.send()` |
+| `MoveAbsoluteUseCase` | 绝对定位 | `axis.moveAbsolute(target)` -> 规则校验 -> `driver.send()` |
+| `MoveRelativeUseCase` | 相对定位 | `axis.moveRelative(distance)` -> 规则校验 -> `driver.send()` |
+| `StopAxisUseCase` | 急停 | `axis.stop()` -> `driver.send()` |
 
-**流程模式**：UseCase 从 `AxisRepository` 获取轴引用 → 调用领域方法 → 若领域层通过校验，则将产生的 `AxisCommand` 通过 `IAxisDriver` 下发。若被拒绝，则透传 `RejectionReason`。
+**流程模式**：UseCase 从 `AxisRepository` 获取轴引用 -> 调用领域方法 -> 若领域层通过校验，则将产生的 `AxisCommand` 通过 `IAxisDriver` 下发。若被拒绝，则透传 `RejectionReason`。
 
 ### 5.5 编排层 (Policy / Orchestrator)
 
@@ -244,7 +244,7 @@ public:
 
 状态流转：
 ```
-Idle → EnsuringEnabled → IssuingJog → Jogging → IssuingStop → WaitingForIdle → EnsuringDisabled → Done
+Idle -> EnsuringEnabled -> IssuingJog -> Jogging -> IssuingStop -> WaitingForIdle -> EnsuringDisabled -> Done
 ```
 
 特性：
@@ -257,12 +257,12 @@ Idle → EnsuringEnabled → IssuingJog → Jogging → IssuingStop → WaitingF
 
 状态流转：
 ```
-Initial → EnsuringEnabled → IssuingMove → WaitingMotionStart → WaitingMotionFinish → Done
+Initial -> EnsuringEnabled -> IssuingMove -> WaitingMotionStart -> WaitingMotionFinish -> Done
 ```
 
 特性：
 - 物理级终极验证：不仅检查领域意图完成，还验证实际位置是否到达目标
-- 异常检测：若意图消失但物理未到位 → 标记为 ABORTED
+- 异常检测：若意图消失但物理未到位 -> 标记为 ABORTED
 - 全局错误拦截：任何状态下检测到 `AxisState::Error` 立即中断
 
 #### AutoRelMoveOrchestrator（相对定位编排器）
@@ -284,7 +284,7 @@ Initial → EnsuringEnabled → IssuingMove → WaitingMotionStart → WaitingMo
 实现 `IAxisDriver` 接口，将命令路由到 `FakePLC`：
 
 ```
-Axis(领域层) → UseCase(应用层) → FakeAxisDriver(基础层) → FakePLC(物理仿真)
+Axis(领域层) -> UseCase(应用层) -> FakeAxisDriver(基础层) -> FakePLC(物理仿真)
 ```
 
 #### FakePLC（模拟 PLC / 物理引擎）
@@ -319,10 +319,10 @@ Axis(领域层) → UseCase(应用层) → FakeAxisDriver(基础层) → FakePLC
 ### 7.2 架构模式：MVVM
 
 ```
-        View (QML)          ←→       ViewModel (C++)        ←→     Model (Domain)
+        View (QML)          ←->       ViewModel (C++)        ←->     Model (Domain)
    ┌─────────────────┐         ┌───────────────────┐         ┌─────────────────┐
    │ MainDashboard    │  bind   │ QtAxisViewModel   │  hold   │ Axis (领域实体)  │
-   │ ActionControl    │ ←─────→ │     (Qt 适配)     │ ←─────→ │ Orchestrator    │
+   │ ActionControl    │ ←─────-> │     (Qt 适配)     │ ←─────-> │ Orchestrator    │
    │ TelemetryBlock   │         │ AxisViewModelCore │         │ UseCases        │
    └─────────────────┘         └───────────────────┘         └─────────────────┘
 ```
@@ -372,7 +372,7 @@ Axis(领域层) → UseCase(应用层) → FakeAxisDriver(基础层) → FakePLC
 
 ### 8.3 测试特点
 
-- **FakePLC 驱动的集成测试**：使用 `FakePLC` + `FakeAxisDriver` 组合实现完整的反馈闭环，无需真实硬件即可验证完整的"命令→运动→状态变化"链路
+- **FakePLC 驱动的集成测试**：使用 `FakePLC` + `FakeAxisDriver` 组合实现完整的反馈闭环，无需真实硬件即可验证完整的"命令->运动->状态变化"链路
 - **纯逻辑单元测试**：领域层的 `Axis` 实体不依赖任何外部组件，可直接单元测试
 
 ---
@@ -428,7 +428,7 @@ cd build && ctest
 ## 11. 扩展方向（规划）
 
 1. **龙门防撕裂**：`abs(X1-X2)` 超差检查 + `GantrySafetyPolicy` 安全拦截
-2. **真实硬件对接**：替换 `FakeAxisDriver` → `RealAxisDriver`（Modbus/EtherCAT）
+2. **真实硬件对接**：替换 `FakeAxisDriver` -> `RealAxisDriver`（Modbus/EtherCAT）
 3. **表现层激活**：取消 CMakeLists 中 presentation 的注释，启用完整 QML UI
 4. **AxisSyncService 完善**：完善反馈同步与状态分发机制
 5. **多分组支持**：多 SystemContext 实例并行（如龙门组 + 辅助轴组）

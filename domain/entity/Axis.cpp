@@ -47,7 +47,7 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
     if (prevState != m_state) {
         LOG_DEBUG(LogLayer::DOM, "Axis",
             "applyFeedback: state " + std::to_string(static_cast<int>(prevState))
-            + " → " + std::to_string(static_cast<int>(m_state)));
+            + " -> " + std::to_string(static_cast<int>(m_state)));
     }
 
     // ═══════════════════════════════════════════════
@@ -57,7 +57,7 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
         if (std::holds_alternative<MoveCommand>(m_pending_intent) || 
             std::holds_alternative<JogCommand>(m_pending_intent)) {
             LOG_DEBUG(LogLayer::DOM, "Axis",
-                "applyFeedback: LIMIT FUSE — clearing motion intent: " + utils::format(m_pending_intent));
+                "applyFeedback: LIMIT FUSE -- clearing motion intent: " + utils::format(m_pending_intent));
             m_pending_intent = std::monostate{};
         }
     }
@@ -72,7 +72,7 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
         if (std::holds_alternative<JogCommand>(m_pending_intent)) {
             LOG_DEBUG(LogLayer::DOM, "Axis",
                 "applyFeedback: axis=" + std::to_string(static_cast<int>(m_state))
-                + " → clearing Jog intent");
+                + " -> clearing Jog intent");
             m_pending_intent = std::monostate{};
         }
     }
@@ -87,7 +87,7 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
         if (std::holds_alternative<StopCommand>(m_pending_intent)) {
             LOG_DEBUG(LogLayer::DOM, "Axis",
                 "applyFeedback: state=" + std::to_string(static_cast<int>(m_state))
-                + " → clearing Stop intent");
+                + " -> clearing Stop intent");
             m_pending_intent = std::monostate{};
         }
     }
@@ -98,8 +98,8 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
     if (std::holds_alternative<ZeroAbsoluteCommand>(m_pending_intent)) {
         if (std::abs(m_current_abs_pos) < POSITION_EPSILON) {
             LOG_DEBUG(LogLayer::DOM, "Axis",
-                "applyFeedback: ZeroAbsolute CLOSED — abs=" + std::to_string(m_current_abs_pos)
-                + " < ε=" + std::to_string(POSITION_EPSILON));
+                "applyFeedback: ZeroAbsolute CLOSED -- abs=" + std::to_string(m_current_abs_pos)
+                + " < eps=" + std::to_string(POSITION_EPSILON));
             m_pending_intent = std::monostate{};
         }
     }
@@ -113,7 +113,7 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
 
         if (isRelPosZero && isBaseMatched) {
             LOG_DEBUG(LogLayer::DOM, "Axis",
-                "applyFeedback: SetRelativeZero CLOSED — rel=" + std::to_string(m_current_rel_pos)
+                "applyFeedback: SetRelativeZero CLOSED -- rel=" + std::to_string(m_current_rel_pos)
                 + " base=" + std::to_string(m_rel_zero_abs_pos)
                 + " expected=" + std::to_string(m_expected_zero_base));
             m_pending_intent = std::monostate{};
@@ -121,7 +121,7 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
         // 仅状态变更时输出delta DEBUG
         else if (isRelPosZero != (std::abs(m_current_rel_pos - (m_rel_zero_abs_pos - m_expected_zero_base)) < POSITION_EPSILON * 2)) {
             LOG_TRACE_EVERY_N(20, LogLayer::DOM, "Axis",
-                "applyFeedback: SetRelativeZero waiting — rel=" + std::to_string(m_current_rel_pos)
+                "applyFeedback: SetRelativeZero waiting -- rel=" + std::to_string(m_current_rel_pos)
                 + " base=" + std::to_string(m_rel_zero_abs_pos)
                 + " expected=" + std::to_string(m_expected_zero_base));
         }
@@ -136,7 +136,7 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
 
         if (isRelPosRestored && isBaseReset) {
             LOG_DEBUG(LogLayer::DOM, "Axis",
-                "applyFeedback: ClearRelativeZero CLOSED — rel=" + std::to_string(m_current_rel_pos)
+                "applyFeedback: ClearRelativeZero CLOSED -- rel=" + std::to_string(m_current_rel_pos)
                 + " abs=" + std::to_string(m_current_abs_pos)
                 + " base=" + std::to_string(m_rel_zero_abs_pos));
             m_pending_intent = std::monostate{};
@@ -158,9 +158,9 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
 
             if (std::abs(m_current_abs_pos - physicalTarget) < POSITION_EPSILON) {
                 LOG_DEBUG(LogLayer::DOM, "Axis",
-                    "applyFeedback: Move CLOSED — abs=" + std::to_string(m_current_abs_pos)
+                    "applyFeedback: Move CLOSED -- abs=" + std::to_string(m_current_abs_pos)
                     + " target=" + std::to_string(physicalTarget)
-                    + " Δ=" + std::to_string(std::abs(m_current_abs_pos - physicalTarget)));
+                    + " diff=" + std::to_string(std::abs(m_current_abs_pos - physicalTarget)));
                 m_pending_intent = std::monostate{};
             }
         }
@@ -173,13 +173,13 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
         if (cmd->active) {
             if (m_state != AxisState::Disabled && m_state != AxisState::Unknown) {
                 LOG_DEBUG(LogLayer::DOM, "Axis",
-                    "applyFeedback: Enable CLOSED — state=" + std::to_string(static_cast<int>(m_state)));
+                    "applyFeedback: Enable CLOSED -- state=" + std::to_string(static_cast<int>(m_state)));
                 m_pending_intent = std::monostate{};
             }
         } else {
             if (m_state == AxisState::Disabled) {
                 LOG_DEBUG(LogLayer::DOM, "Axis",
-                    "applyFeedback: Disable CLOSED — state=Disabled");
+                    "applyFeedback: Disable CLOSED -- state=Disabled");
                 m_pending_intent = std::monostate{};
             }
         }
@@ -191,7 +191,7 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
     if (auto* cmd = std::get_if<SetJogVelocityCommand>(&m_pending_intent)) {
         if (m_jog_velocity == cmd->velocity) {
             LOG_DEBUG(LogLayer::DOM, "Axis",
-                "applyFeedback: SetJogVelocity CLOSED — v=" + std::to_string(m_jog_velocity));
+                "applyFeedback: SetJogVelocity CLOSED -- v=" + std::to_string(m_jog_velocity));
             m_pending_intent = std::monostate{};
         }
     }
@@ -199,7 +199,7 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
     if (auto* cmd = std::get_if<SetMoveVelocityCommand>(&m_pending_intent)) {
         if (m_move_velocity == cmd->velocity) {
             LOG_DEBUG(LogLayer::DOM, "Axis",
-                "applyFeedback: SetMoveVelocity CLOSED — v=" + std::to_string(m_move_velocity));
+                "applyFeedback: SetMoveVelocity CLOSED -- v=" + std::to_string(m_move_velocity));
             m_pending_intent = std::monostate{};
         }
     }
@@ -233,12 +233,12 @@ bool Axis::enable(bool active)
     // 约束 3：幂等性处理 - 如果状态已经达标，不产生新指令
     if (active && (m_state != AxisState::Disabled && m_state != AxisState::Unknown)) {
         LOG_DEBUG(LogLayer::DOM, "Axis",
-            "enable: IDEMPOTENT — already enabled, state=" + std::to_string(static_cast<int>(m_state)));
+            "enable: IDEMPOTENT -- already enabled, state=" + std::to_string(static_cast<int>(m_state)));
         return true; 
     }
     if (!active && m_state == AxisState::Disabled) {
         LOG_DEBUG(LogLayer::DOM, "Axis",
-            "enable: IDEMPOTENT — already disabled");
+            "enable: IDEMPOTENT -- already disabled");
         return true;
     }
 
@@ -246,7 +246,7 @@ bool Axis::enable(bool active)
     m_pending_intent = EnableCommand{ active };
     m_last_rejection = RejectionReason::None;
     LOG_DEBUG(LogLayer::DOM, "Axis",
-        "enable: PASS → pending=" + utils::format(m_pending_intent));
+        "enable: PASS -> pending=" + utils::format(m_pending_intent));
     return true;
 }
 
@@ -312,7 +312,7 @@ bool Axis::jog(Direction dir)
     m_pending_intent = JogCommand{ dir, true };
     m_last_rejection = RejectionReason::None;
     LOG_DEBUG(LogLayer::DOM, "Axis",
-        "jog: PASS → pending=" + utils::format(m_pending_intent));
+        "jog: PASS -> pending=" + utils::format(m_pending_intent));
     return true;
 }
 
@@ -327,7 +327,7 @@ bool Axis::stopJog(Direction dir) {
     m_pending_intent = JogCommand{ dir, false };
     m_last_rejection = RejectionReason::None;
     LOG_DEBUG(LogLayer::DOM, "Axis",
-        "stopJog: PASS → pending=" + utils::format(m_pending_intent));
+        "stopJog: PASS -> pending=" + utils::format(m_pending_intent));
     return true;
 }
 
@@ -390,7 +390,7 @@ bool Axis::moveAbsolute(double target)
     m_pending_intent = MoveCommand{ MoveType::Absolute, target, m_current_abs_pos };
     m_last_rejection = RejectionReason::None;
     LOG_DEBUG(LogLayer::DOM, "Axis",
-        "moveAbsolute: PASS → pending=" + utils::format(m_pending_intent));
+        "moveAbsolute: PASS -> pending=" + utils::format(m_pending_intent));
     return true;
 }
 
@@ -453,7 +453,7 @@ bool Axis::moveRelative(double distance)
     m_pending_intent = MoveCommand{ MoveType::Relative, distance, m_current_abs_pos };
     m_last_rejection = RejectionReason::None;
     LOG_DEBUG(LogLayer::DOM, "Axis",
-        "moveRelative: PASS → pending=" + utils::format(m_pending_intent));
+        "moveRelative: PASS -> pending=" + utils::format(m_pending_intent));
     return true;
 }
 
@@ -468,7 +468,7 @@ bool Axis::stop()
     m_last_rejection = RejectionReason::None;
 
     LOG_DEBUG(LogLayer::DOM, "Axis",
-        "stop: PASS → pending=" + utils::format(m_pending_intent));
+        "stop: PASS -> pending=" + utils::format(m_pending_intent));
     return true;
 }
 
@@ -484,7 +484,7 @@ bool Axis::zeroAbsolutePosition()
         m_pending_intent = ZeroAbsoluteCommand{};
         m_last_rejection = RejectionReason::None;
         LOG_DEBUG(LogLayer::DOM, "Axis",
-            "zeroAbsolutePosition: PASS → pending=" + utils::format(m_pending_intent));
+            "zeroAbsolutePosition: PASS -> pending=" + utils::format(m_pending_intent));
         return true;
     }
     m_last_rejection = RejectionReason::InvalidState;
@@ -514,7 +514,7 @@ bool Axis::setRelativeZero() {
     m_pending_intent = SetRelativeZeroCommand{};
     m_last_rejection = RejectionReason::None;
     LOG_DEBUG(LogLayer::DOM, "Axis",
-        "setRelativeZero: PASS → pending=" + utils::format(m_pending_intent)
+        "setRelativeZero: PASS -> pending=" + utils::format(m_pending_intent)
         + " expectedBase=" + std::to_string(m_expected_zero_base));
     return true;
 }
@@ -539,7 +539,7 @@ bool Axis::clearRelativeZero() {
     m_pending_intent = ClearRelativeZeroCommand{};
     m_last_rejection = RejectionReason::None;
     LOG_DEBUG(LogLayer::DOM, "Axis",
-        "clearRelativeZero: PASS → pending=" + utils::format(m_pending_intent));
+        "clearRelativeZero: PASS -> pending=" + utils::format(m_pending_intent));
     return true;
 }
 
@@ -598,7 +598,7 @@ bool Axis::setJogVelocity(double v)
         m_pending_intent = SetJogVelocityCommand{ .velocity = v };
         m_last_rejection = RejectionReason::None;
         LOG_DEBUG(LogLayer::DOM, "Axis",
-            "setJogVelocity: PASS → pending=" + utils::format(m_pending_intent));
+            "setJogVelocity: PASS -> pending=" + utils::format(m_pending_intent));
         return true;
     }
     m_last_rejection = RejectionReason::InvalidState;
@@ -626,7 +626,7 @@ bool Axis::setMoveVelocity(double v)
         m_pending_intent = SetMoveVelocityCommand{ .velocity = v };
         m_last_rejection = RejectionReason::None;
         LOG_DEBUG(LogLayer::DOM, "Axis",
-            "setMoveVelocity: PASS → pending=" + utils::format(m_pending_intent));
+            "setMoveVelocity: PASS -> pending=" + utils::format(m_pending_intent));
         return true;
     }
     m_last_rejection = RejectionReason::InvalidState;

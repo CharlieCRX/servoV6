@@ -12,12 +12,12 @@
 // MoveRelativeUseCase TDD 测试套件
 //
 // 验证完整调用链：
-//   UI → MoveRelativeUseCase.execute(manager, groupName, axisId, distance)
-//      → 阶段 0: SystemManager::tryGetGroup
-//      → 阶段 1: SystemContext::tryGetAxis (含龙门校验)
-//      → 阶段 2: Axis::moveRelative (领域状态判定 + 限位预检)
-//      → 阶段 3: 驱动下发
-//      → 返回 UseCaseError
+//   UI -> MoveRelativeUseCase.execute(manager, groupName, axisId, distance)
+//      -> 阶段 0: SystemManager::tryGetGroup
+//      -> 阶段 1: SystemContext::tryGetAxis (含龙门校验)
+//      -> 阶段 2: Axis::moveRelative (领域状态判定 + 限位预检)
+//      -> 阶段 3: 驱动下发
+//      -> 返回 UseCaseError
 // ============================================================
 
 // ── 辅助 ─────────────────────────────────────────────────────
@@ -112,7 +112,7 @@ TEST_F(MoveRelativeUseCaseTest, NonExistentGroup_ReturnsGroupNotFound) {
 }
 
 // ============================================================
-// 第三部分：SystemContext 层错误 — 龙门联动锁定
+// 第三部分：SystemContext 层错误 -- 龙门联动锁定
 // ============================================================
 
 TEST_F(MoveRelativeUseCaseTest, MoveX1_WhenGantryCoupled_ReturnsPhysicalAxisLocked) {
@@ -153,7 +153,7 @@ TEST_F(MoveRelativeUseCaseTest, MoveX1_WhenGantryDecoupled_PassesThrough) {
 }
 
 // ============================================================
-// 第四部分：Axis 领域层错误 — 状态非法
+// 第四部分：Axis 领域层错误 -- 状态非法
 // ============================================================
 
 TEST_F(MoveRelativeUseCaseTest, Move_WhenAxisDisabled_ReturnsInvalidState) {
@@ -198,11 +198,11 @@ TEST_F(MoveRelativeUseCaseTest, Move_WhenAxisInError_ReturnsInvalidState) {
 }
 
 // ============================================================
-// 第五部分：Axis 领域层错误 — 限位预检
+// 第五部分：Axis 领域层错误 -- 限位预检
 // ============================================================
 
 TEST_F(MoveRelativeUseCaseTest, Move_TargetExceedsPositiveLimit_ReturnsTargetOutOfPositiveLimit) {
-    // Given: 当前位置 900，正限位 1000，delta +200 → 终点 1100 超限
+    // Given: 当前位置 900，正限位 1000，delta +200 -> 终点 1100 超限
     Axis* y = getAxis(Y);
     ASSERT_NE(y, nullptr);
     y->applyFeedback({
@@ -224,7 +224,7 @@ TEST_F(MoveRelativeUseCaseTest, Move_TargetExceedsPositiveLimit_ReturnsTargetOut
 }
 
 TEST_F(MoveRelativeUseCaseTest, Move_TargetExceedsNegativeLimit_ReturnsTargetOutOfNegativeLimit) {
-    // Given: 当前位置 -900，负限位 -1000，delta -200 → 终点 -1100 超限
+    // Given: 当前位置 -900，负限位 -1000，delta -200 -> 终点 -1100 超限
     Axis* y = getAxis(Y);
     ASSERT_NE(y, nullptr);
     y->applyFeedback({

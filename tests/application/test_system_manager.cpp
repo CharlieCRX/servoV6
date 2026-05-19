@@ -19,7 +19,7 @@ protected:
 };
 
 // ============================================================
-// 一、createGroup — 成功路径
+// 一、createGroup -- 成功路径
 // ============================================================
 
 TEST_F(SystemManagerTest, CreateGroup_Success_ReturnsTrue) {
@@ -43,7 +43,7 @@ TEST_F(SystemManagerTest, CreateGroup_Success_ThenTryGetReturnsIt) {
 }
 
 // ============================================================
-// 二、createGroup — 错误路径：空名称
+// 二、createGroup -- 错误路径：空名称
 // ============================================================
 
 TEST_F(SystemManagerTest, CreateGroup_EmptyName_ReturnsFalseWithGroupNameInvalid) {
@@ -67,7 +67,7 @@ TEST_F(SystemManagerTest, CreateGroup_EmptyName_DoesNotCreateGroup) {
 }
 
 // ============================================================
-// 三、createGroup — 错误路径：重复名称
+// 三、createGroup -- 错误路径：重复名称
 // ============================================================
 
 TEST_F(SystemManagerTest, CreateGroup_DuplicateName_ReturnsFalseWithGroupAlreadyExists) {
@@ -100,7 +100,7 @@ TEST_F(SystemManagerTest, CreateGroup_DuplicateName_OriginalGroupRemainsIntact) 
 }
 
 // ============================================================
-// 四、tryGetGroup — 成功路径
+// 四、tryGetGroup -- 成功路径
 // ============================================================
 
 TEST_F(SystemManagerTest, TryGetGroup_ExistingGroup_ReturnsTrueAndNonNullPointer) {
@@ -127,7 +127,7 @@ TEST_F(SystemManagerTest, TryGetGroup_ExistingGroup_ReasonIsNone) {
 }
 
 // ============================================================
-// 五、tryGetGroup — 错误路径：不存在的分组
+// 五、tryGetGroup -- 错误路径：不存在的分组
 // ============================================================
 
 TEST_F(SystemManagerTest, TryGetGroup_NonExistent_ReturnsFalseWithGroupNotFound) {

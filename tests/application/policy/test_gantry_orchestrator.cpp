@@ -48,7 +48,7 @@ protected:
 // ============================================================
 
 // 1. 完整联动流程：
-//    EnsuringEnabled → WaitingEnabled → Coupling → WaitingCoupled → Done
+//    EnsuringEnabled -> WaitingEnabled -> Coupling -> WaitingCoupled -> Done
 TEST_F(GantryOrchestratorTest, full_coupling_flow)
 {
     // Given: 电机掉电
@@ -56,24 +56,24 @@ TEST_F(GantryOrchestratorTest, full_coupling_flow)
 
     orchestrator->startCoupling();
 
-    // Step 1: EnsuringEnabled → 调用 GantryPowerController::requestEnable(true)
-    //         下发 GantryPowerCommand → WaitingEnabled
+    // Step 1: EnsuringEnabled -> 调用 GantryPowerController::requestEnable(true)
+    //         下发 GantryPowerCommand -> WaitingEnabled
     orchestrator->tick();
     EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingEnabled);
     // 验证编排器已消费 pending command 并发送到驱动
     EXPECT_FALSE(gantryPower->hasPendingCommand());
 
-    // Step 2: PLC 反馈电机已使能 → Coupling
+    // Step 2: PLC 反馈电机已使能 -> Coupling
     gantryPower->applyFeedback({ .enable = true });
     orchestrator->tick();
     EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Coupling);
 
-    // Step 3: Coupling 下发联动命令 → WaitingCoupled
+    // Step 3: Coupling 下发联动命令 -> WaitingCoupled
     orchestrator->tick();
     EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingCoupled);
     EXPECT_TRUE(gantryCoupling->isCouplingRequested());
 
-    // Step 4: PLC 反馈联动成功 → Done
+    // Step 4: PLC 反馈联动成功 -> Done
     gantryCoupling->applyFeedback({ .isCoupled = true, .errorCode = 0 });
     orchestrator->tick();
     EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Done);
@@ -89,13 +89,13 @@ TEST_F(GantryOrchestratorTest, skip_waiting_when_power_already_enabled)
     EXPECT_TRUE(gantryPower->isEnabled());
 
     orchestrator->startCoupling();
-    orchestrator->tick(); // EnsuringEnabled → requestEnable(true) 幂等 → WaitingEnabled
-    orchestrator->tick(); // power 已 Enabled → Coupling
+    orchestrator->tick(); // EnsuringEnabled -> requestEnable(true) 幂等 -> WaitingEnabled
+    orchestrator->tick(); // power 已 Enabled -> Coupling
 
     EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Coupling);
 }
 
-// 3. 联动时 GantryCouplingController 拦截（状态冲突） → Error
+// 3. 联动时 GantryCouplingController 拦截（状态冲突） -> Error
 TEST_F(GantryOrchestratorTest, error_when_state_conflict_during_coupling_request)
 {
     // Given: 电机已使能，但联动控制器处于解耦请求进行中（状态冲突场景）
@@ -105,24 +105,24 @@ TEST_F(GantryOrchestratorTest, error_when_state_conflict_during_coupling_request
     EXPECT_TRUE(gantryCoupling->isDecouplingRequested());
 
     orchestrator->startCoupling();
-    orchestrator->tick(); // EnsuringEnabled → WaitingEnabled
-    orchestrator->tick(); // WaitingEnabled → Coupling (set, not processed)
-    orchestrator->tick(); // Coupling → requestCouple(true) → StateConflict → Error
+    orchestrator->tick(); // EnsuringEnabled -> WaitingEnabled
+    orchestrator->tick(); // WaitingEnabled -> Coupling (set, not processed)
+    orchestrator->tick(); // Coupling -> requestCouple(true) -> StateConflict -> Error
 
     EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Error);
     EXPECT_TRUE(std::holds_alternative<GantryRejection>(orchestrator->lastError()));
     EXPECT_EQ(std::get<GantryRejection>(orchestrator->lastError()), GantryRejection::StateConflict);
 }
 
-// 4. 等待联动中 PLC 返回位置超差错误 → Error
+// 4. 等待联动中 PLC 返回位置超差错误 -> Error
 TEST_F(GantryOrchestratorTest, error_when_plc_reports_position_error)
 {
     // Given: 电机已使能
     gantryPower->applyFeedback({ .enable = true });
     orchestrator->startCoupling();
-    orchestrator->tick(); // → WaitingEnabled
-    orchestrator->tick(); // → Coupling
-    orchestrator->tick(); // → WaitingCoupled
+    orchestrator->tick(); // -> WaitingEnabled
+    orchestrator->tick(); // -> Coupling
+    orchestrator->tick(); // -> WaitingCoupled
 
     gantryCoupling->applyFeedback({ .isCoupled = false, .errorCode = 1 }); // PositionToleranceExceeded
     orchestrator->tick();
@@ -132,23 +132,23 @@ TEST_F(GantryOrchestratorTest, error_when_plc_reports_position_error)
     EXPECT_EQ(std::get<GantryRejection>(orchestrator->lastError()), GantryRejection::PositionToleranceExceeded);
 }
 
-// 5. 完整解耦流程：Done → Decoupling → WaitingDecoupled → Done
+// 5. 完整解耦流程：Done -> Decoupling -> WaitingDecoupled -> Done
 TEST_F(GantryOrchestratorTest, full_decoupling_flow)
 {
     // Given: 已联动成功
     gantryPower->applyFeedback({ .enable = true });
     orchestrator->startCoupling();
-    orchestrator->tick(); // → WaitingEnabled
-    orchestrator->tick(); // → Coupling
-    orchestrator->tick(); // → WaitingCoupled
+    orchestrator->tick(); // -> WaitingEnabled
+    orchestrator->tick(); // -> Coupling
+    orchestrator->tick(); // -> WaitingCoupled
     gantryCoupling->applyFeedback({ .isCoupled = true, .errorCode = 0 });
-    orchestrator->tick(); // → Done
+    orchestrator->tick(); // -> Done
     EXPECT_TRUE(orchestrator->isDone());
     EXPECT_TRUE(gantryCoupling->isCoupled());
 
     // When: 启动解耦
     orchestrator->startDecoupling();
-    orchestrator->tick(); // Decoupling → WaitingDecoupled
+    orchestrator->tick(); // Decoupling -> WaitingDecoupled
 
     EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingDecoupled);
     EXPECT_TRUE(gantryCoupling->isDecouplingRequested());
@@ -169,14 +169,14 @@ TEST_F(GantryOrchestratorTest, should_not_error_on_error_code_during_decoupling)
     // Given: 已联动成功
     gantryPower->applyFeedback({ .enable = true });
     orchestrator->startCoupling();
-    orchestrator->tick(); // → WaitingEnabled
-    orchestrator->tick(); // → Coupling
-    orchestrator->tick(); // → WaitingCoupled
+    orchestrator->tick(); // -> WaitingEnabled
+    orchestrator->tick(); // -> Coupling
+    orchestrator->tick(); // -> WaitingCoupled
     gantryCoupling->applyFeedback({ .isCoupled = true, .errorCode = 0 });
-    orchestrator->tick(); // → Done
+    orchestrator->tick(); // -> Done
     EXPECT_TRUE(orchestrator->isDone());
 
-    // 启动解耦 → WaitingDecoupled
+    // 启动解耦 -> WaitingDecoupled
     orchestrator->startDecoupling();
     orchestrator->tick();
     EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingDecoupled);
@@ -201,7 +201,7 @@ TEST_F(GantryOrchestratorTest, should_not_error_on_error_code_during_decoupling)
 // 边界 & 错误路径
 // ============================================================
 
-// 7. 分组不存在 → 立即 Error + GroupNotFound
+// 7. 分组不存在 -> 立即 Error + GroupNotFound
 TEST_F(GantryOrchestratorTest, error_when_group_not_found)
 {
     GantryOrchestrator badOrch(manager, "NonExistentGroup");
@@ -220,9 +220,9 @@ TEST_F(GantryOrchestratorTest, tick_after_done_is_idempotent)
     orchestrator->startCoupling();
     orchestrator->tick();
     orchestrator->tick();
-    orchestrator->tick(); // → WaitingCoupled
+    orchestrator->tick(); // -> WaitingCoupled
     gantryCoupling->applyFeedback({ .isCoupled = true, .errorCode = 0 });
-    orchestrator->tick(); // → Done
+    orchestrator->tick(); // -> Done
 
     orchestrator->tick(); // 再次 tick
 
@@ -234,12 +234,12 @@ TEST_F(GantryOrchestratorTest, tick_after_error_is_idempotent)
 {
     gantryPower->applyFeedback({ .enable = true });
     orchestrator->startCoupling();
-    orchestrator->tick(); // → WaitingEnabled
-    orchestrator->tick(); // → Coupling
-    orchestrator->tick(); // → WaitingCoupled
+    orchestrator->tick(); // -> WaitingEnabled
+    orchestrator->tick(); // -> Coupling
+    orchestrator->tick(); // -> WaitingCoupled
 
     gantryCoupling->applyFeedback({ .isCoupled = false, .errorCode = 1 }); // PositionToleranceExceeded
-    orchestrator->tick(); // → Error
+    orchestrator->tick(); // -> Error
 
     orchestrator->tick(); // 再次 tick
 

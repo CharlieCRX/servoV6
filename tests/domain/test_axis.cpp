@@ -954,7 +954,7 @@ TEST(AxisTest, SetJogVelocityShouldEmitCommandWhenAxisIsIdle)
 }
 
 
-// 2. Disabled → 也允许
+// 2. Disabled -> 也允许
 TEST(AxisTest, SetJogVelocityShouldWorkEvenWhenAxisIsDisabled)
 {
     Axis axis;
@@ -968,7 +968,7 @@ TEST(AxisTest, SetJogVelocityShouldWorkEvenWhenAxisIsDisabled)
     EXPECT_TRUE(ok);
 }
 
-// 3. Moving → 必须拒绝
+// 3. Moving -> 必须拒绝
 TEST(AxisTest, SetJogVelocityShouldBeRejectedWhenAxisIsMoving)
 {
     Axis axis;
@@ -983,7 +983,7 @@ TEST(AxisTest, SetJogVelocityShouldBeRejectedWhenAxisIsMoving)
     EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidState);
 }
 
-// 5. Error → 必须拒绝
+// 5. Error -> 必须拒绝
 TEST(AxisTest, SetJogVelocityShouldWorkEvenInErrorState)
 {
     Axis axis;

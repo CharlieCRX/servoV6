@@ -92,7 +92,7 @@
             "group": "build",
             "dependsOn": [],
             "problemMatcher": [],
-            "detail": "删除 build → 再运行 cmake-build 重新配置并编译"
+            "detail": "删除 build -> 再运行 cmake-build 重新配置并编译"
         }
     ]
 }

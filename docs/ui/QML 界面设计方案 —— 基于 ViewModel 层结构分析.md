@@ -1,10 +1,10 @@
-# QML 界面设计方案 —— 基于 ViewModel 层结构分析
+# QML 界面设计方案 ---- 基于 ViewModel 层结构分析
 
 ---
 
 ## 一、ViewModel 层能力全景
 
-分析完 `AxisViewModelCore` → `QtAxisViewModel` → `ErrorTranslator` 链路后，ViewModel 暴露给 QML 的完整契约如下：
+分析完 `AxisViewModelCore` -> `QtAxisViewModel` -> `ErrorTranslator` 链路后，ViewModel 暴露给 QML 的完整契约如下：
 
 ### 1. 状态投射 (Properties)
 
@@ -69,7 +69,7 @@
 │                    ✅ 速度弹窗                                    │
 │                    ✅ 急停按钮                                    │
 │                                                                  │
-│  (缺失)            —                     ❌ 错误提示面板        │
+│  (缺失)            --                     ❌ 错误提示面板        │
 │                                          ❌ 错误列表/确认       │
 │                                          ❌ Inline/Modal 路由   │
 │                                          ❌ 底部错误计数徽标    │
@@ -129,7 +129,7 @@
 属性变更：
   - 新增 property list<QtAxisViewModel*> axisViewModels
   - 新增 property int currentIndex
-  - axisChanged → 触发 Main.qml 切换 TelemetryBlock/ActionControlBlock 的 viewModel 绑定
+  - axisChanged -> 触发 Main.qml 切换 TelemetryBlock/ActionControlBlock 的 viewModel 绑定
 
 每个 AxisItemDelegate 新增：
   - 显示该轴的 isEnabled 状态 (绿灯/灰灯)
@@ -150,7 +150,7 @@
 
 ```
 新增属性绑定：
-  Text { text: viewModel ? viewModel.stateText : "—" }
+  Text { text: viewModel ? viewModel.stateText : "--" }
   Text { text: viewModel ? "+" + viewModel.relPos.toFixed(3) : "0.000" }
   
 零位按钮：
@@ -201,8 +201,8 @@
 ┌─────────────────────────────────────────────────────────────┐
 │  ⚠ 2 条提醒            [全部确认]                          │
 ├─────────────────────────────────────────────────────────────┤
-│  ⓘ 轴已到达正向限位 — 当前位置已超出允许范围  Inline   [×] │
-│  ⚡ 通讯中断 — 与驱动器通讯失败，请检查连接  Modal    [×] │
+│  ⓘ 轴已到达正向限位 -- 当前位置已超出允许范围  Inline   [×] │
+│  ⚡ 通讯中断 -- 与驱动器通讯失败，请检查连接  Modal    [×] │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -216,13 +216,13 @@ visible: viewModel ? viewModel.errorCount > 0 : false
 ```
 
 **错误分类路由**：
-- `Inline` → 直接在面板内显示，不打断操作
-- `Modal` → 额外弹出 `MessageDialog`，需要显式确认
-- `Silent` → 不显示，仅记录（可通过 `visible: category !== "Silent"` 过滤）
+- `Inline` -> 直接在面板内显示，不打断操作
+- `Modal` -> 额外弹出 `MessageDialog`，需要显式确认
+- `Silent` -> 不显示，仅记录（可通过 `visible: category !== "Silent"` 过滤）
 
 **实现方式**：
 ```qml
-// 使用 getAllErrors() 获取全部错误 → ListView 展示
+// 使用 getAllErrors() 获取全部错误 -> ListView 展示
 // 每行绑定 error.code (图标), error.message (文本), error.category (颜色/行为)
 // [×] 按钮调用 viewModel.acknowledgeError(index)
 // [全部确认] 调用 viewModel.acknowledgeAllErrors()
@@ -287,11 +287,11 @@ Rectangle {
 
 ## 六、总结
 
-ViewModel 层接口设计得非常规范——**状态投射、控制指令、错误管理三组接口分离清晰**，`QtAxisViewModel` 通过 Q_PROPERTY + signal 将 C++ 数据完整映射到 Qt 属性系统。当前 QML 界面**已覆盖约 60% 的 ViewModel 能力**，主要缺口在于：
+ViewModel 层接口设计得非常规范----**状态投射、控制指令、错误管理三组接口分离清晰**，`QtAxisViewModel` 通过 Q_PROPERTY + signal 将 C++ 数据完整映射到 Qt 属性系统。当前 QML 界面**已覆盖约 60% 的 ViewModel 能力**，主要缺口在于：
 
-1. **错误系统完全沉默** — 这是最大的功能空白
-2. **使能/去使能无 UI 入口** — 核心安全操作缺失
-3. **零位操作无入口** — 辅机校准功能缺失
-4. **状态文本硬编码** — 维护风险
+1. **错误系统完全沉默** -- 这是最大的功能空白
+2. **使能/去使能无 UI 入口** -- 核心安全操作缺失
+3. **零位操作无入口** -- 辅机校准功能缺失
+4. **状态文本硬编码** -- 维护风险
 
 建议从 ErrorPanelBlock 开始补全，这是投入产出比最高的模块。

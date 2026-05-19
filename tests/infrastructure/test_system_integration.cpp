@@ -13,16 +13,16 @@
 #include <cmath>
 
 // ============================================================================
-// 端到端系统集成测试（分组感知版本 v3 — 适配 pollFeedback 统一反馈）
+// 端到端系统集成测试（分组感知版本 v3 -- 适配 pollFeedback 统一反馈）
 //
 // ╔══════════════════════════════════════════════════════════════╗
 // ║  架构变更：使用 ISystemDriver::pollFeedback() 替代手动      ║
 // ║  tickA/tickB/syncA/syncB 泵送                              ║
 // ║                                                              ║
 // ║  SystemManager                                               ║
-// ║  ├── "Machine_A" → SystemContext_A (driver → plcA)          ║
+// ║  ├── "Machine_A" -> SystemContext_A (driver -> plcA)          ║
 // ║  │   └── 使用 Y, Z, R 轴                                    ║
-// ║  └── "Machine_B" → SystemContext_B (driver → plcB)          ║
+// ║  └── "Machine_B" -> SystemContext_B (driver -> plcB)          ║
 // ║      └── 使用 X1, X2 轴                                     ║
 // ╚══════════════════════════════════════════════════════════════╝
 // ============================================================================
@@ -106,7 +106,7 @@ protected:
 };
 
 // ============================================================================
-// 案例 1：端到端绝对定位（Enable → MoveAbs → WaitDone）
+// 案例 1：端到端绝对定位（Enable -> MoveAbs -> WaitDone）
 // ============================================================================
 TEST_F(SystemIntegrationTest, ShouldCompleteAbsoluteMoveEndToEnd) {
     plcA.forceState(AxisId::Y, AxisState::Disabled);
@@ -115,12 +115,12 @@ TEST_F(SystemIntegrationTest, ShouldCompleteAbsoluteMoveEndToEnd) {
 
     double targetPos = 100.0;
 
-    // Enable → Idle
+    // Enable -> Idle
     auto enableResult = enableUc.execute(manager, GROUP_A, AxisId::Y, true);
     ASSERT_TRUE(std::holds_alternative<std::monostate>(enableResult));
     tickA(20); // 200ms > 150ms enable delay
 
-    // MoveAbsolute → MovingAbsolute
+    // MoveAbsolute -> MovingAbsolute
     auto moveResult = moveAbsUc.execute(manager, GROUP_A, AxisId::Y, targetPos);
     ASSERT_TRUE(std::holds_alternative<std::monostate>(moveResult));
 
@@ -171,7 +171,7 @@ TEST_F(SystemIntegrationTest, ShouldCompleteRelativeMoveEndToEnd) {
 
     EXPECT_NEAR(axis->currentAbsolutePosition(), 50.0, 0.01);
 
-    // 第二次相对定位 -20 → 预期 30
+    // 第二次相对定位 -20 -> 预期 30
     auto move2Result = moveRelUc.execute(manager, GROUP_A, AxisId::Y, -20.0);
     ASSERT_TRUE(std::holds_alternative<std::monostate>(move2Result));
 
@@ -186,7 +186,7 @@ TEST_F(SystemIntegrationTest, ShouldCompleteRelativeMoveEndToEnd) {
 }
 
 // ============================================================================
-// 案例 3：事前拦截 — 目标超出软限位应被 MoveUseCase 拒绝
+// 案例 3：事前拦截 -- 目标超出软限位应被 MoveUseCase 拒绝
 // ============================================================================
 TEST_F(SystemIntegrationTest, ShouldRejectMoveWhenTargetExceedsLimit) {
     plcA.forceState(AxisId::Y, AxisState::Disabled);
@@ -218,7 +218,7 @@ TEST_F(SystemIntegrationTest, ShouldRejectMoveWhenTargetExceedsLimit) {
 }
 
 // ============================================================================
-// 案例 4：半路夭折 — 运行中硬错误注入
+// 案例 4：半路夭折 -- 运行中硬错误注入
 // ============================================================================
 TEST_F(SystemIntegrationTest, ShouldDetectMidMoveError) {
     plcA.forceState(AxisId::Y, AxisState::Disabled);
@@ -250,7 +250,7 @@ TEST_F(SystemIntegrationTest, ShouldDetectMidMoveError) {
 }
 
 // ============================================================================
-// 案例 5：限位处 Jog 操作死锁 — 到达正限位后禁止正向点动和定位
+// 案例 5：限位处 Jog 操作死锁 -- 到达正限位后禁止正向点动和定位
 // ============================================================================
 TEST_F(SystemIntegrationTest, ShouldRejectOperationsAtPositiveLimit) {
     plcA.forceState(AxisId::Y, AxisState::Disabled);
@@ -295,7 +295,7 @@ TEST_F(SystemIntegrationTest, ShouldRejectOperationsAtPositiveLimit) {
 }
 
 // ============================================================================
-// 案例 6：急停 — StopUseCase 中断运动
+// 案例 6：急停 -- StopUseCase 中断运动
 // ============================================================================
 TEST_F(SystemIntegrationTest, ShouldStopMidMove) {
     plcA.forceState(AxisId::Y, AxisState::Disabled);
@@ -336,7 +336,7 @@ TEST_F(SystemIntegrationTest, ShouldStopMidMove) {
 }
 
 // ============================================================================
-// 案例 7：分组隔离 — A 组运动不影响 B 组
+// 案例 7：分组隔离 -- A 组运动不影响 B 组
 // ============================================================================
 TEST_F(SystemIntegrationTest, ShouldIsolateGroupAFromGroupB) {
     // A 组 Y 轴使能
@@ -349,7 +349,7 @@ TEST_F(SystemIntegrationTest, ShouldIsolateGroupAFromGroupB) {
     tickA(20);
 
     // B 组先解耦龙门，使 X1 可独立操作
-    // 通过 GantryCouplingController 注入解耦反馈，使状态机从 NotSynchronized → Decoupled
+    // 通过 GantryCouplingController 注入解耦反馈，使状态机从 NotSynchronized -> Decoupled
     ctxB->gantryCouplingController().applyFeedback(GantryFeedback{false, false, 0});
 
     // B 组 X1 轴使能（独立）
@@ -395,7 +395,7 @@ TEST_F(SystemIntegrationTest, ShouldIsolateGroupAFromGroupB) {
 }
 
 // ============================================================================
-// 案例 8：SystemManager 层错误 — 查询不存在的分组
+// 案例 8：SystemManager 层错误 -- 查询不存在的分组
 // ============================================================================
 TEST_F(SystemIntegrationTest, ShouldRejectWhenGroupNotFound) {
     auto result = enableUc.execute(manager, "NonExistentGroup", AxisId::Y, true);
@@ -404,7 +404,7 @@ TEST_F(SystemIntegrationTest, ShouldRejectWhenGroupNotFound) {
 }
 
 // ============================================================================
-// 案例 9：SystemContext 层错误 — 查询未注册的轴
+// 案例 9：SystemContext 层错误 -- 查询未注册的轴
 //
 // 注：SystemContext 默认构造包含全部 6 个轴，因此不再存在"未注册轴"场景。
 // 改为测试龙门联动拦截：联动时 X1 被 tryGetAxis 拒绝。
@@ -416,7 +416,7 @@ TEST_F(SystemIntegrationTest, ShouldRejectPhysicalAxisWhenGantryCoupled) {
     driverB.pollFeedback(*ctxB);  // ctxB 是 GROUP_B 的 context
     // 同步 GantryCouplingController 到 Decoupled（绕过 NotSynchronized）
     plcB.forceGantryFeedback(GantryFeedback{false, false, 0});
-    // 发起耦合请求（现在 Decoupled → CouplingRequested）
+    // 发起耦合请求（现在 Decoupled -> CouplingRequested）
     ctxB->gantryCouplingController().requestCouple(true);
     // 模拟 PLC 确认耦合成功
     plcB.forceGantryFeedback(GantryFeedback{true, true, 0});
@@ -429,7 +429,7 @@ TEST_F(SystemIntegrationTest, ShouldRejectPhysicalAxisWhenGantryCoupled) {
 }
 
 // ============================================================================
-// 案例 10：Axis 领域层错误 — 故障态使能应被拒绝
+// 案例 10：Axis 领域层错误 -- 故障态使能应被拒绝
 // ============================================================================
 TEST_F(SystemIntegrationTest, ShouldRejectEnableWhenInErrorState) {
     plcA.forceState(AxisId::Y, AxisState::Error);
@@ -464,7 +464,7 @@ TEST_F(SystemIntegrationTest, ShouldJogContinuouslyAndStop) {
     auto jogResult = jogUc.execute(manager, GROUP_A, AxisId::Y, Direction::Forward);
     ASSERT_TRUE(std::holds_alternative<std::monostate>(jogResult));
 
-    // 推进 100ms（速度 10 → 位移 1.0），注意 tickA(10) 内部已做 10 次 pollFeedback
+    // 推进 100ms（速度 10 -> 位移 1.0），注意 tickA(10) 内部已做 10 次 pollFeedback
     tickA(10);
 
     EXPECT_EQ(axis->state(), AxisState::Jogging);

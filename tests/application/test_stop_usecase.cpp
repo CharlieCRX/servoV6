@@ -12,11 +12,11 @@
 // StopAxisUseCase TDD 测试套件
 //
 // 验证完整调用链：
-//   UI → StopAxisUseCase.execute(manager, groupName, axisId)
-//      → 阶段 0: SystemManager::tryGetGroup
-//      → 阶段 1: SystemContext::tryGetAxis (含龙门校验)
-//      → 阶段 2: Axis::stop (领域层不可拒绝)
-//      → 返回 UseCaseError
+//   UI -> StopAxisUseCase.execute(manager, groupName, axisId)
+//      -> 阶段 0: SystemManager::tryGetGroup
+//      -> 阶段 1: SystemContext::tryGetAxis (含龙门校验)
+//      -> 阶段 2: Axis::stop (领域层不可拒绝)
+//      -> 返回 UseCaseError
 //
 // 设计要点：停止是安全指令，在领域层被设计为不可拒绝，
 // 即使 Error / Disabled 状态也必须能下发停止命令。
@@ -76,7 +76,7 @@ protected:
 };
 
 // ============================================================
-// 第一部分：成功路径 — 语义为不可拒绝的安全指令
+// 第一部分：成功路径 -- 语义为不可拒绝的安全指令
 // ============================================================
 
 TEST_F(StopAxisUseCaseTest, ShouldSendStopCommand_WhenIdle) {
@@ -122,7 +122,7 @@ TEST_F(StopAxisUseCaseTest, ShouldSendStopCommand_WhenMovingAbsolute) {
 }
 
 // ============================================================
-// 第二部分：安全穿透 — Error / Disabled 状态下也必须能停止
+// 第二部分：安全穿透 -- Error / Disabled 状态下也必须能停止
 // ============================================================
 
 TEST_F(StopAxisUseCaseTest, ShouldSendStopCommand_EvenInErrorState) {
@@ -168,7 +168,7 @@ TEST_F(StopAxisUseCaseTest, ShouldSendStopCommand_EvenWhenDisabled) {
 }
 
 // ============================================================
-// 第三部分：SystemManager 层错误 — 分组不存在
+// 第三部分：SystemManager 层错误 -- 分组不存在
 // ============================================================
 
 TEST_F(StopAxisUseCaseTest, NonExistentGroup_ReturnsGroupNotFound) {
@@ -179,7 +179,7 @@ TEST_F(StopAxisUseCaseTest, NonExistentGroup_ReturnsGroupNotFound) {
 }
 
 // ============================================================
-// 第四部分：SystemContext 层错误 — 龙门联动锁定
+// 第四部分：SystemContext 层错误 -- 龙门联动锁定
 // ============================================================
 
 TEST_F(StopAxisUseCaseTest, StopX1_WhenGantryCoupled_ReturnsPhysicalAxisLocked) {
@@ -220,7 +220,7 @@ TEST_F(StopAxisUseCaseTest, StopX1_WhenGantryDecoupled_PassesThrough) {
 }
 
 // ============================================================
-// 第五部分：多轴隔离 — 只停止目标轴
+// 第五部分：多轴隔离 -- 只停止目标轴
 // ============================================================
 
 TEST_F(StopAxisUseCaseTest, ShouldOnlyStopTargetAxis) {

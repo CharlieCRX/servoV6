@@ -1,4 +1,4 @@
-# 急停逻辑重构方案 —— pending command 消费与 tick loop 统一
+# 急停逻辑重构方案 ---- pending command 消费与 tick loop 统一
 
 > **文档版本**: v1 (2026-05-18)
 >
@@ -12,12 +12,12 @@
 
 ```
 用户点击急停按钮
-  → QtAxisViewModel::emergencyStop()
-    → AxisViewModelCore::emergencyStop()
-      → EmergencyStopUseCase::execute(manager, groupName)
-        → ctx->emergencyStopController().requestEmergencyStop()
-          → m_pending_intent = EmergencyStopCommand{ true };  // ⚠️ 生成了命令但没有消费！
-          → m_state = EmergencyStopping
+  -> QtAxisViewModel::emergencyStop()
+    -> AxisViewModelCore::emergencyStop()
+      -> EmergencyStopUseCase::execute(manager, groupName)
+        -> ctx->emergencyStopController().requestEmergencyStop()
+          -> m_pending_intent = EmergencyStopCommand{ true };  // ⚠️ 生成了命令但没有消费！
+          -> m_state = EmergencyStopping
 ```
 
 **问题**: `EmergencyStopController::requestEmergencyStop()` 将命令写入 `m_pending_intent`，但没有任何地方调用 `popPendingCommand()` 并通过 `ISystemDriver::send()` 发送到 PLC。急停命令永远不会到达硬件。
@@ -30,7 +30,7 @@
 void pollFeedback(SystemContext& ctx) override {
     m_plc.tick(10);
 
-    // ✅ 急停反馈注入 — 已正确实现
+    // ✅ 急停反馈注入 -- 已正确实现
     ctx.emergencyStopController().applyFeedback(m_plc.getEmergencyStopFeedback());
 
     // ✅ 龙门反馈注入
@@ -68,7 +68,7 @@ void pollFeedback(SystemContext& ctx) override {
 │    │                                                      │     │
 │    │ 2. consume pending command ←── 🆕 新增              │     │
 │    │    ├─ poll estopCtrl.hasPendingCommand()             │     │
-│    │    ├─ pop command → drv->send(cmd)                   │     │
+│    │    ├─ pop command -> drv->send(cmd)                   │     │
 │    │    └─ log delivery result                            │     │
 │    └──────────────────────────────────────────────────────┘     │
 │                                                                  │
@@ -77,17 +77,17 @@ void pollFeedback(SystemContext& ctx) override {
 │                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 
-用户操作 → EmergencyStopUseCase → requestEmergencyStop()
-  → m_pending_intent = EmergencyStopCommand{true}
-  → m_state = EmergencyStopping
+用户操作 -> EmergencyStopUseCase -> requestEmergencyStop()
+  -> m_pending_intent = EmergencyStopCommand{true}
+  -> m_state = EmergencyStopping
          │
          ▼ (下一个 tick)
-  tick loop 消费 pending command → drv->send(cmd) → PLC 寄存器
+  tick loop 消费 pending command -> drv->send(cmd) -> PLC 寄存器
          │
          ▼ (后续 tick)
-  pollFeedback → drv->pollFeedback()
-    → ctx.emergencyStopController().applyFeedback(plcEmergencyStopped=true)
-      → m_state = EmergencyStopped  ✅ 急停完成
+  pollFeedback -> drv->pollFeedback()
+    -> ctx.emergencyStopController().applyFeedback(plcEmergencyStopped=true)
+      -> m_state = EmergencyStopped  ✅ 急停完成
 ```
 
 ### 2.2 仅需修改 main.cpp tick loop
@@ -208,9 +208,9 @@ UseCase 是无状态的值语义对象，不持有 Driver 引用。它只负责"
 
 ## 6. 验证清单
 
-- [ ] 点击 QML 急停按钮 → `EmergencyStopController` 状态进入 `EmergencyStopping`
-- [ ] tick loop 消费 pending command → `FakeAxisDriver::send()` 被调用
-- [ ] FakePLC 设置急停状态 → 后续 tick 的 pollFeedback 注入 `plcEmergencyStopped=true`
+- [ ] 点击 QML 急停按钮 -> `EmergencyStopController` 状态进入 `EmergencyStopping`
+- [ ] tick loop 消费 pending command -> `FakeAxisDriver::send()` 被调用
+- [ ] FakePLC 设置急停状态 -> 后续 tick 的 pollFeedback 注入 `plcEmergencyStopped=true`
 - [ ] `EmergencyStopController` 状态跃迁到 `EmergencyStopped`
-- [ ] ViewModel tick 检测到系统锁定 → UI 正确禁用操作
+- [ ] ViewModel tick 检测到系统锁定 -> UI 正确禁用操作
 - [ ] 日志中出现 command delivery 成功/失败的 TRACE 记录

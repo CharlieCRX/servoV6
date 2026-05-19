@@ -40,7 +40,7 @@ TEST(GantryPowerController, should_reject_request_disable_when_not_synchronized)
 }
 
 // ============================================================
-// NotSynchronized → Disabled（首次 feedback）
+// NotSynchronized -> Disabled（首次 feedback）
 // ============================================================
 
 TEST(GantryPowerController, should_transition_to_disabled_on_first_feedback_disable)
@@ -56,7 +56,7 @@ TEST(GantryPowerController, should_transition_to_disabled_on_first_feedback_disa
 }
 
 // ============================================================
-// NotSynchronized → Enabled（首次 feedback 即已使能）
+// NotSynchronized -> Enabled（首次 feedback 即已使能）
 // ============================================================
 
 TEST(GantryPowerController, should_transition_to_enabled_on_first_feedback_enable)
@@ -71,7 +71,7 @@ TEST(GantryPowerController, should_transition_to_enabled_on_first_feedback_enabl
 }
 
 // ============================================================
-// Disabled → Enabling
+// Disabled -> Enabling
 // ============================================================
 
 TEST(GantryPowerController, should_transition_to_enabling_when_request_enable_from_disabled)
@@ -89,7 +89,7 @@ TEST(GantryPowerController, should_transition_to_enabling_when_request_enable_fr
 }
 
 // ============================================================
-// Enabling → Enabled（PLC 确认使能）
+// Enabling -> Enabled（PLC 确认使能）
 // ============================================================
 
 TEST(GantryPowerController, should_transition_to_enabled_when_feedback_confirm_enable)
@@ -106,7 +106,7 @@ TEST(GantryPowerController, should_transition_to_enabled_when_feedback_confirm_e
 }
 
 // ============================================================
-// Enabling → Disabled（PLC 拒绝/未确认，反馈仍为 disabled）
+// Enabling -> Disabled（PLC 拒绝/未确认，反馈仍为 disabled）
 // ============================================================
 
 TEST(GantryPowerController, should_transition_to_disabled_when_feedback_still_disabled)
@@ -124,7 +124,7 @@ TEST(GantryPowerController, should_transition_to_disabled_when_feedback_still_di
 }
 
 // ============================================================
-// Enabled → Disabling
+// Enabled -> Disabling
 // ============================================================
 
 TEST(GantryPowerController, should_transition_to_disabling_when_request_disable_from_enabled)
@@ -141,7 +141,7 @@ TEST(GantryPowerController, should_transition_to_disabling_when_request_disable_
 }
 
 // ============================================================
-// Disabling → Disabled（PLC 确认掉电）
+// Disabling -> Disabled（PLC 确认掉电）
 // ============================================================
 
 TEST(GantryPowerController, should_transition_to_disabled_when_feedback_confirm_disable)
@@ -158,7 +158,7 @@ TEST(GantryPowerController, should_transition_to_disabled_when_feedback_confirm_
 }
 
 // ============================================================
-// Disabling → Enabled（PLC 拒绝掉电，反馈仍为 enabled）
+// Disabling -> Enabled（PLC 拒绝掉电，反馈仍为 enabled）
 // ============================================================
 
 TEST(GantryPowerController, should_transition_to_enabled_when_feedback_still_enabled)
@@ -211,7 +211,7 @@ TEST(GantryPowerController, should_reject_request_enable_when_enabling)
 {
     GantryPowerController motor;
     motor.applyFeedback({ .enable = false, .isCoupled = false, .errorCode = 0 });
-    motor.requestEnable(true);  // → Enabling
+    motor.requestEnable(true);  // -> Enabling
 
     // Enabling 中再次请求使能
     GantryRejection result = motor.requestEnable(true);
@@ -224,7 +224,7 @@ TEST(GantryPowerController, should_reject_request_disable_when_disabling)
 {
     GantryPowerController motor;
     motor.applyFeedback({ .enable = true, .isCoupled = false, .errorCode = 0 });
-    motor.requestEnable(false);  // → Disabling
+    motor.requestEnable(false);  // -> Disabling
 
     GantryRejection result = motor.requestEnable(false);
 
@@ -236,7 +236,7 @@ TEST(GantryPowerController, should_reject_request_enable_when_disabling)
 {
     GantryPowerController motor;
     motor.applyFeedback({ .enable = true, .isCoupled = false, .errorCode = 0 });
-    motor.requestEnable(false);  // → Disabling
+    motor.requestEnable(false);  // -> Disabling
 
     GantryRejection result = motor.requestEnable(true);
 
@@ -247,7 +247,7 @@ TEST(GantryPowerController, should_reject_request_disable_when_enabling)
 {
     GantryPowerController motor;
     motor.applyFeedback({ .enable = false, .isCoupled = false, .errorCode = 0 });
-    motor.requestEnable(true);  // → Enabling
+    motor.requestEnable(true);  // -> Enabling
 
     GantryRejection result = motor.requestEnable(false);
 
@@ -302,7 +302,7 @@ TEST(GantryPowerController, should_stay_synchronized_after_multiple_feedbacks)
 }
 
 // ============================================================
-// 全链路：false → true → false → true
+// 全链路：false -> true -> false -> true
 // ============================================================
 
 TEST(GantryPowerController, full_enable_disable_cycle)
@@ -311,27 +311,27 @@ TEST(GantryPowerController, full_enable_disable_cycle)
     motor.applyFeedback({ .enable = false, .isCoupled = false, .errorCode = 0 });
     EXPECT_EQ(motor.status(), Status::Disabled);
 
-    // Disabled → Enabling
+    // Disabled -> Enabling
     EXPECT_EQ(motor.requestEnable(true), GantryRejection::None);
     EXPECT_EQ(motor.status(), Status::Enabling);
     EXPECT_TRUE(motor.hasPendingCommand());
     EXPECT_EQ(motor.popPendingCommand().enable, true);
 
-    // Enabling → Enabled
+    // Enabling -> Enabled
     motor.applyFeedback({ .enable = true, .isCoupled = false, .errorCode = 0 });
     EXPECT_EQ(motor.status(), Status::Enabled);
 
-    // Enabled → Disabling
+    // Enabled -> Disabling
     EXPECT_EQ(motor.requestEnable(false), GantryRejection::None);
     EXPECT_EQ(motor.status(), Status::Disabling);
     EXPECT_TRUE(motor.hasPendingCommand());
     EXPECT_EQ(motor.popPendingCommand().enable, false);
 
-    // Disabling → Disabled
+    // Disabling -> Disabled
     motor.applyFeedback({ .enable = false, .isCoupled = false, .errorCode = 0 });
     EXPECT_EQ(motor.status(), Status::Disabled);
 
-    // Disabled → Enabling（再次）
+    // Disabled -> Enabling（再次）
     EXPECT_EQ(motor.requestEnable(true), GantryRejection::None);
     EXPECT_EQ(motor.status(), Status::Enabling);
 }

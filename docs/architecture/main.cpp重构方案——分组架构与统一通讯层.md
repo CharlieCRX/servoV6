@@ -1,4 +1,4 @@
-# main.cpp 重构方案 —— 分组架构与统一通讯层
+# main.cpp 重构方案 ---- 分组架构与统一通讯层
 
 > **文档版本**: v2 (更新于 2026-05-18)
 >
@@ -22,8 +22,8 @@ axis.applyFeedback(plc.getFeedback());   // ← tick loop 中再次调用
 **根因：** 新架构引入了 `ISystemDriver::pollFeedback(SystemContext&)` 统一反馈通路。`FakeAxisDriver::pollFeedback()` 内部已经：
 
 1. 推进 `FakePLC::tick(10)` 一个扫描周期
-2. 注入急停反馈 → `ctx.emergencyStopController().applyFeedback()`
-3. 注入龙门反馈 → `ctx.gantryPowerController().applyFeedback()` + `ctx.gantryCouplingController().applyFeedback()`
+2. 注入急停反馈 -> `ctx.emergencyStopController().applyFeedback()`
+3. 注入龙门反馈 -> `ctx.gantryPowerController().applyFeedback()` + `ctx.gantryCouplingController().applyFeedback()`
 4. 遍历全部 6 个轴，逐一调用 `axis->applyFeedback(plc.getFeedback(axisId))`
 
 **主程序不应再绕过 `SystemContext` 直接操作 `Axis` 对象或手动调用 `applyFeedback()`。** 反馈注入已被 `pollFeedback()` 完全封装。
@@ -47,13 +47,13 @@ MoveAbsoluteUseCase moveAbsUc(driver);   // ← 旧接口
 
 ```
 SystemManager
-├── "Machine_A" → SystemContext_A ──绑定──→ FakeAxisDriver(plcA)
+├── "Machine_A" -> SystemContext_A ──绑定──-> FakeAxisDriver(plcA)
 │   └── Axis Y, Z, R （由 SystemContext 自动创建）
-└── "Machine_B" → SystemContext_B ──绑定──→ FakeAxisDriver(plcB)
+└── "Machine_B" -> SystemContext_B ──绑定──-> FakeAxisDriver(plcB)
     └── Axis X1, X2  （由 SystemContext 自动创建）
 ```
 
-所有 UseCase 的 `execute()` 方法接受 `(SystemManager&, groupName, axisId, ...)` 参数，内部通过 `SystemManager::tryGetGroup()` → `SystemContext::tryGetAxis()` 获取轴对象。**直接注入裸 Driver 到 UseCase 构造器是旧的遗留行为，已不再需要。**
+所有 UseCase 的 `execute()` 方法接受 `(SystemManager&, groupName, axisId, ...)` 参数，内部通过 `SystemManager::tryGetGroup()` -> `SystemContext::tryGetAxis()` 获取轴对象。**直接注入裸 Driver 到 UseCase 构造器是旧的遗留行为，已不再需要。**
 
 **当前正确的 UseCase 用法（已在 SystemIntegrationTest 中验证）：**
 ```cpp
@@ -100,21 +100,21 @@ moveAbsUc.execute(manager, "Machine_B", AxisId::X1, 100.0);
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  SystemManager (全局单例)                                        │
-│  ├── "Machine_A" → SystemContext_A                              │
+│  ├── "Machine_A" -> SystemContext_A                              │
 │  │   ├── Axis Y, Z, R                      ← 6轴自动初始化       │
 │  │   ├── GantryCouplingController                               │
 │  │   ├── GantryPowerController                                  │
 │  │   ├── EmergencyStopController                                │
-│  │   └── driver → FakeAxisDriver(plcA)    ← 绑定                │
+│  │   └── driver -> FakeAxisDriver(plcA)    ← 绑定                │
 │  │                    ↑                                         │
 │  │              FakePLC_A                   ← 独立物理态         │
 │  │                                                                 │
-│  └── "Machine_B" → SystemContext_B                              │
+│  └── "Machine_B" -> SystemContext_B                              │
 │      ├── Axis X1, X2                     ← 6轴自动初始化         │
 │      ├── GantryCouplingController                               │
 │      ├── GantryPowerController                                  │
 │      ├── EmergencyStopController                                │
-│      └── driver → FakeAxisDriver(plcB)    ← 绑定                │
+│      └── driver -> FakeAxisDriver(plcB)    ← 绑定                │
 │                       ↑                                         │
 │                  FakePLC_B                  ← 独立物理态         │
 │                                                                  │
@@ -128,10 +128,10 @@ moveAbsUc.execute(manager, "Machine_B", AxisId::X1, 100.0);
 │      AxisViewModelCore vm_B_X2(mgr, "Machine_B", AxisId::X2)   │
 │                                                                  │
 │  QML 注入: 按分组名注册上下文属性                                 │
-│      "group_A_Y"  → QtAxisViewModel(&vm_A_Y)                    │
-│      "group_A_Z"  → QtAxisViewModel(&vm_A_Z)                    │
-│      "group_B_X1" → QtAxisViewModel(&vm_B_X1)                   │
-│      "group_B_X2" → QtAxisViewModel(&vm_B_X2)                   │
+│      "group_A_Y"  -> QtAxisViewModel(&vm_A_Y)                    │
+│      "group_A_Z"  -> QtAxisViewModel(&vm_A_Z)                    │
+│      "group_B_X1" -> QtAxisViewModel(&vm_B_X1)                   │
+│      "group_B_X2" -> QtAxisViewModel(&vm_B_X2)                   │
 │                                                                  │
 │  全局 Tick Loop (QTimer, 10ms):                                  │
 │      for (auto& name : manager.groupNames()) {                  │
@@ -513,13 +513,13 @@ int main(int argc, char *argv[])
 | UseCase 构造器注 Driver | UseCase 无状态，通过 `SystemManager` 寻址 |
 | 一个 ViewModel 硬编码 | 按分组+轴维度创建多个 ViewModel |
 | tick loop 手动 `plc.tick()` + `axis.applyFeedback()` | tick loop 遍历分组调用 `pollFeedback()` |
-| 无分组概念 | SystemManager → 多分组隔离 |
+| 无分组概念 | SystemManager -> 多分组隔离 |
 | QML 只有一个 `"axisX1VM"` | QML 有 `"group_A_Y"`, `"group_B_X1"` 等多个上下文属性 |
 
 ---
 
 ## 7. 后续展望
 
-1. **QtAxisViewModel 分组切换** — 当前每个 VM 绑定一个 (groupName, axisId) 组合。若需动态切换，可增加 `rebind(SystemManager&, groupName, axisId)` 方法。
-2. **QML 分组选择器 UI** — 设计 ComboBox/TabBar 切换活动分组，联动显示对应轴的 ViewModel。
-3. **真实硬件驱动** — 当 FakeAxisDriver 替换为真实 Modbus TCP 驱动时，`main.cpp` 的结构无需改动，仅需替换 `FakeAxisDriver` 为 `RealAxisDriver` 并配置 IP 地址。
+1. **QtAxisViewModel 分组切换** -- 当前每个 VM 绑定一个 (groupName, axisId) 组合。若需动态切换，可增加 `rebind(SystemManager&, groupName, axisId)` 方法。
+2. **QML 分组选择器 UI** -- 设计 ComboBox/TabBar 切换活动分组，联动显示对应轴的 ViewModel。
+3. **真实硬件驱动** -- 当 FakeAxisDriver 替换为真实 Modbus TCP 驱动时，`main.cpp` 的结构无需改动，仅需替换 `FakeAxisDriver` 为 `RealAxisDriver` 并配置 IP 地址。

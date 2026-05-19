@@ -76,7 +76,7 @@ protected:
         int elapsed = 0;
         while (elapsed < totalMs) {
             vm->tick();                                   // ViewModel 帧驱动
-            driver.pollFeedback(*ctx);                    // 硬件反馈 → 领域层同步
+            driver.pollFeedback(*ctx);                    // 硬件反馈 -> 领域层同步
             elapsed += TICK_MS;
         }
     }
@@ -117,7 +117,7 @@ TEST_F(AxisViewModelCoreTest, ShouldReflectInitialDisabledState) {
 }
 
 // =========================================================
-// 测试 2：使能生命周期（Enable → Idle）
+// 测试 2：使能生命周期（Enable -> Idle）
 // =========================================================
 TEST_F(AxisViewModelCoreTest, ShouldEnableAxisAndReflectState) {
     // Act: 使能
@@ -137,8 +137,8 @@ TEST_F(AxisViewModelCoreTest, ShouldEnableAxisAndReflectState) {
 }
 
 // =========================================================
-// 测试 3：点动全生命周期（Jog Forward → Jogging → Stop → Disabled）
-//   验证：使能 → 点动 → 物理位移 → 停止 → 自动掉电
+// 测试 3：点动全生命周期（Jog Forward -> Jogging -> Stop -> Disabled）
+//   验证：使能 -> 点动 -> 物理位移 -> 停止 -> 自动掉电
 // =========================================================
 TEST_F(AxisViewModelCoreTest, ShouldExecuteJogForwardLifecycle) {
     // 前置：使能
@@ -154,7 +154,7 @@ TEST_F(AxisViewModelCoreTest, ShouldExecuteJogForwardLifecycle) {
     bool jogging = waitUntil([this]() { return vm->state() == AxisState::Jogging; });
     ASSERT_TRUE(jogging) << "Failed to enter Jogging state!";
 
-    // Act 2: 保持点动 500ms → 产生物理位移
+    // Act 2: 保持点动 500ms -> 产生物理位移
     advanceTime(500);
 
     // Assert 2: 位置应显著增加（速度 20 × 0.5s ≈ 10.0）
@@ -163,7 +163,7 @@ TEST_F(AxisViewModelCoreTest, ShouldExecuteJogForwardLifecycle) {
     // Act 3: 松开点动
     vm->jogStop(Direction::Forward);
 
-    // Assert 3: 等待刹车 + 自动掉电 → Disabled
+    // Assert 3: 等待刹车 + 自动掉电 -> Disabled
     bool stopped = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 5000);
     ASSERT_TRUE(stopped) << "Axis did not disable after jog stop!";
 
@@ -208,7 +208,7 @@ TEST_F(AxisViewModelCoreTest, ShouldExecuteJogBackwardLifecycle) {
 
 // =========================================================
 // 测试 5：绝对定位全生命周期
-//   验证：moveAbsolute → MovingAbsolute → Idle（到位后自动掉电）→ 位置准确
+//   验证：moveAbsolute -> MovingAbsolute -> Idle（到位后自动掉电）-> 位置准确
 // =========================================================
 TEST_F(AxisViewModelCoreTest, ShouldCompleteAbsoluteMoveEndToEnd) {
     double target = 100.0;
@@ -240,20 +240,20 @@ TEST_F(AxisViewModelCoreTest, ShouldCompleteRelativeMoveEndToEnd) {
     bool moving = waitUntil([this]() { return vm->state() == AxisState::MovingRelative; });
     ASSERT_TRUE(moving);
 
-    // 等待完成 → Disabled
+    // 等待完成 -> Disabled
     bool done = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 10000);
     ASSERT_TRUE(done);
 
     EXPECT_NEAR(vm->absPos(), distance, 0.01) << "Relative move did not reach expected position!";
 
-    // 第二次相对定位（轴当前是 Disabled，Orchestrator 会先自动 Enable → Move → Disable）
+    // 第二次相对定位（轴当前是 Disabled，Orchestrator 会先自动 Enable -> Move -> Disable）
     vm->moveRelative(30.0);
 
-    // 先等进入 MovingRelative（证明 Orchestrator 已走完 EnsuringEnabled → IssuingMove）
+    // 先等进入 MovingRelative（证明 Orchestrator 已走完 EnsuringEnabled -> IssuingMove）
     done = waitUntil([this]() { return vm->state() == AxisState::MovingRelative; }, 10000);
     ASSERT_TRUE(done) << "Second move did not start!";
 
-    // 再等完成 → Disabled
+    // 再等完成 -> Disabled
     done = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 10000);
     ASSERT_TRUE(done);
     EXPECT_NEAR(vm->absPos(), 80.0, 0.01) << "Second relative move position incorrect!";
@@ -261,7 +261,7 @@ TEST_F(AxisViewModelCoreTest, ShouldCompleteRelativeMoveEndToEnd) {
 
 // =========================================================
 // 测试 7：急停中断运动
-//   验证：运动中 stop() → 立即停止 → 回到 Disabled
+//   验证：运动中 stop() -> 立即停止 -> 回到 Disabled
 // =========================================================
 TEST_F(AxisViewModelCoreTest, ShouldHaltImmediatelyWhenStopPressed) {
     // 发起一个较远的定位任务
@@ -278,7 +278,7 @@ TEST_F(AxisViewModelCoreTest, ShouldHaltImmediatelyWhenStopPressed) {
     // 💥 按下停止
     vm->stop();
 
-    // 等待中断 → Disabled
+    // 等待中断 -> Disabled
     bool stopped = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 5000);
     ASSERT_TRUE(stopped) << "Failed to stop!";
 
@@ -293,12 +293,12 @@ TEST_F(AxisViewModelCoreTest, ShouldHaltImmediatelyWhenStopPressed) {
 
 // =========================================================
 // 测试 8：禁用状态下不可运动（领域层拦截）
-//   验证：Disabled 时 moveAbsolute → 状态保持 Disabled + 产生错误
+//   验证：Disabled 时 moveAbsolute -> 状态保持 Disabled + 产生错误
 // =========================================================
 TEST_F(AxisViewModelCoreTest, ShouldRejectMoveWhenDisabled) {
     // 新架构语义：Disabled 状态下 moveAbsolute 会触发 Orchestrator 自动
-    // EnsuringEnabled → IssuingMove → WaitingMotionStart → WaitingMotionFinish → Done 流程，
-    // 即 Disabled → Enable → Move → Disable 的完整生命周期，运动能正常完成。
+    // EnsuringEnabled -> IssuingMove -> WaitingMotionStart -> WaitingMotionFinish -> Done 流程，
+    // 即 Disabled -> Enable -> Move -> Disable 的完整生命周期，运动能正常完成。
     double beforePos = vm->absPos();
     EXPECT_EQ(vm->state(), AxisState::Disabled);
 
@@ -327,7 +327,7 @@ TEST_F(AxisViewModelCoreTest, ShouldReportAndClearErrors) {
     auto e = vm->lastError();
     EXPECT_FALSE(e.isValid());
 
-    // 使能 → 正常完成
+    // 使能 -> 正常完成
     vm->enable(true);
     ASSERT_TRUE(waitUntil([this]() { return vm->state() == AxisState::Idle; }));
     EXPECT_FALSE(vm->hasError());
@@ -420,7 +420,7 @@ TEST_F(AxisViewModelCoreTest, ShouldReportIsEnabledCorrectly) {
 }
 
 // =========================================================
-// ⭐ 测试 14：错误列表收集模式 — 追加而非覆盖
+// ⭐ 测试 14：错误列表收集模式 -- 追加而非覆盖
 //   验证：多次操作产生的错误会累积在列表中
 // =========================================================
 TEST_F(AxisViewModelCoreTest, ShouldAccumulateErrorsWithoutOverwriting) {

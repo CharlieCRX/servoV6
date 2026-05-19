@@ -12,12 +12,12 @@
 // MoveAbsoluteUseCase TDD 测试套件
 //
 // 验证完整调用链：
-//   UI → MoveAbsoluteUseCase.execute(manager, groupName, axisId, target)
-//      → 阶段 0: SystemManager::tryGetGroup
-//      → 阶段 1: SystemContext::tryGetAxis (含龙门校验)
-//      → 阶段 2: Axis::moveAbsolute (领域状态判定 + 限位预检)
-//      → 阶段 3: 驱动下发
-//      → 返回 UseCaseError
+//   UI -> MoveAbsoluteUseCase.execute(manager, groupName, axisId, target)
+//      -> 阶段 0: SystemManager::tryGetGroup
+//      -> 阶段 1: SystemContext::tryGetAxis (含龙门校验)
+//      -> 阶段 2: Axis::moveAbsolute (领域状态判定 + 限位预检)
+//      -> 阶段 3: 驱动下发
+//      -> 返回 UseCaseError
 // ============================================================
 
 // ── 辅助：将 UseCaseError 断言为某一具体类型 ──────────────────
@@ -101,7 +101,7 @@ TEST_F(MoveAbsoluteUseCaseTest, MoveAbsolute_StandardAxisY_Success) {
 }
 
 // ============================================================
-// 第二部分：SystemManager 层错误 — 分组不存在
+// 第二部分：SystemManager 层错误 -- 分组不存在
 // ============================================================
 
 TEST_F(MoveAbsoluteUseCaseTest, NonExistentGroup_ReturnsGroupNotFound) {
@@ -112,7 +112,7 @@ TEST_F(MoveAbsoluteUseCaseTest, NonExistentGroup_ReturnsGroupNotFound) {
 }
 
 // ============================================================
-// 第三部分：SystemContext 层错误 — 龙门联动锁定
+// 第三部分：SystemContext 层错误 -- 龙门联动锁定
 // ============================================================
 
 TEST_F(MoveAbsoluteUseCaseTest, MoveX1_WhenGantryCoupled_ReturnsPhysicalAxisLocked) {
@@ -159,7 +159,7 @@ TEST_F(MoveAbsoluteUseCaseTest, MoveX1_WhenGantryDecoupled_PassesThrough) {
 }
 
 // ============================================================
-// 第四部分：Axis 领域层错误 — 状态非法
+// 第四部分：Axis 领域层错误 -- 状态非法
 // ============================================================
 
 TEST_F(MoveAbsoluteUseCaseTest, Move_WhenAxisDisabled_ReturnsInvalidState) {
@@ -210,7 +210,7 @@ TEST_F(MoveAbsoluteUseCaseTest, Move_WhenAxisInError_ReturnsInvalidState) {
 }
 
 // ============================================================
-// 第五部分：Axis 领域层错误 — 限位预检
+// 第五部分：Axis 领域层错误 -- 限位预检
 // ============================================================
 
 TEST_F(MoveAbsoluteUseCaseTest, Move_TargetExceedsPositiveLimit_ReturnsTargetOutOfPositiveLimit) {
@@ -308,7 +308,7 @@ TEST_F(MoveAbsoluteUseCaseTest, Move_AtNegativeLimit_ReturnsAtNegativeLimit) {
 }
 
 // ============================================================
-// 第六部分：多轴操作 — 不同轴错误互不干扰
+// 第六部分：多轴操作 -- 不同轴错误互不干扰
 // ============================================================
 
 TEST_F(MoveAbsoluteUseCaseTest, X1LockedByGantry_YStillSucceeds) {
@@ -342,7 +342,7 @@ TEST_F(MoveAbsoluteUseCaseTest, X1LockedByGantry_YStillSucceeds) {
 }
 
 // ============================================================
-// 第七部分：UseCase 无状态 — 多次调用互不影响
+// 第七部分：UseCase 无状态 -- 多次调用互不影响
 // ============================================================
 
 TEST_F(MoveAbsoluteUseCaseTest, Stateless_RepeatedCallsProduceConsistentResult) {

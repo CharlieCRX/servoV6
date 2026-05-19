@@ -12,9 +12,9 @@ presentation/
 │
 ├── viewmodel/                              # C++ ViewModel 层
 │   ├── AxisViewModelCore.h                 # 纯 C++ ViewModel 核心（无 Qt 依赖）
-│   ├── AxisViewModelCore.cpp               # — 状态投影 + 控制转发 + Tick 驱动
+│   ├── AxisViewModelCore.cpp               # -- 状态投影 + 控制转发 + Tick 驱动
 │   ├── QtAxisViewModel.h                   # Qt QObject 适配层
-│   └── QtAxisViewModel.cpp                 # — Q_PROPERTY / Q_INVOKABLE / 信号发射
+│   └── QtAxisViewModel.cpp                 # -- Q_PROPERTY / Q_INVOKABLE / 信号发射
 │
 ├── qml/
 │   ├── views/
@@ -38,7 +38,7 @@ tests/presentation/
 **构建依赖关系（来自 CMakeLists.txt）：**
 
 ```
-presentation → Qt6::Core + domain + application
+presentation -> Qt6::Core + domain + application
 ```
 
 ---
@@ -65,42 +65,42 @@ AxisViewModelCore(Axis& axis,
 | 参数 | 类型 | 来源层级 | 职责 |
 |------|------|---------|------|
 | `axis` | `Axis&` | Domain | 领域实体，持有轴状态与物理位置 |
-| `jogOrch` | `JogOrchestrator&` | Application/Policy | 点动策略编排（自动上电 → Jog → 自动断电） |
+| `jogOrch` | `JogOrchestrator&` | Application/Policy | 点动策略编排（自动上电 -> Jog -> 自动断电） |
 | `absOrch` | `AutoAbsMoveOrchestrator&` | Application/Policy | 绝对定位策略编排 |
 | `relOrch` | `AutoRelMoveOrchestrator&` | Application/Policy | 相对定位策略编排 |
 | `stopUc` | `StopAxisUseCase&` | Application/Axis | 急停用例 |
 
 #### 核心方法分类
 
-**① 状态投影（State Projection）—— 查询方法（const）：**
+**① 状态投影（State Projection）---- 查询方法（const）：**
 
 ```
-state()        → AxisState      # 轴状态枚举
-absPos()       → double         # 当前绝对位置
-relPos()       → double         # 当前相对位置
-isEnabled()    → bool           # 是否使能
-hasError()     → bool           # 是否错误
-errorMessage() → std::string    # 错误信息
-jogVelocity()  → double         # 点动速度
-moveVelocity() → double         # 定位速度
-posLimit()     → double         # 正限位
-negLimit()     → double         # 负限位
+state()        -> AxisState      # 轴状态枚举
+absPos()       -> double         # 当前绝对位置
+relPos()       -> double         # 当前相对位置
+isEnabled()    -> bool           # 是否使能
+hasError()     -> bool           # 是否错误
+errorMessage() -> std::string    # 错误信息
+jogVelocity()  -> double         # 点动速度
+moveVelocity() -> double         # 定位速度
+posLimit()     -> double         # 正限位
+negLimit()     -> double         # 负限位
 ```
 
 **关键设计原则：** 所有状态查询均为**直接透传**（`return m_axis.state()`），不做任何缓存，确保 ViewModel 始终反映底层最新状态。
 
-**② 控制指令（Control Inputs）—— 修改方法：**
+**② 控制指令（Control Inputs）---- 修改方法：**
 
 ```
-jogPositivePressed()     → m_jogOrch.startJog(Direction::Forward)
-jogPositiveReleased()    → m_jogOrch.stopJog(Direction::Forward)
-jogNegativePressed()     → m_jogOrch.startJog(Direction::Backward)
-jogNegativeReleased()    → m_jogOrch.stopJog(Direction::Backward)
-moveAbsolute(targetPos)  → m_absOrch.start(targetPos)
-moveRelative(distance)   → m_relOrch.start(distance)
-stop()                   → m_stopUc.execute(m_axis)
-setJogVelocity(v)        → m_axis.setJogVelocity(v)
-setMoveVelocity(v)       → m_axis.setMoveVelocity(v)
+jogPositivePressed()     -> m_jogOrch.startJog(Direction::Forward)
+jogPositiveReleased()    -> m_jogOrch.stopJog(Direction::Forward)
+jogNegativePressed()     -> m_jogOrch.startJog(Direction::Backward)
+jogNegativeReleased()    -> m_jogOrch.stopJog(Direction::Backward)
+moveAbsolute(targetPos)  -> m_absOrch.start(targetPos)
+moveRelative(distance)   -> m_relOrch.start(distance)
+stop()                   -> m_stopUc.execute(m_axis)
+setJogVelocity(v)        -> m_axis.setJogVelocity(v)
+setMoveVelocity(v)       -> m_axis.setMoveVelocity(v)
 ```
 
 每个控制方法都映射到一个具体的 `Application` 层策略器或用例，形成清晰的调用链。
@@ -136,7 +136,7 @@ void AxisViewModelCore::moveAbsolute(double targetPos) {
 
 **文件：** `QtAxisViewModel.h / .cpp`
 
-**设计模式：** **适配器模式（Adapter Pattern）** — 将非 Qt 的 `AxisViewModelCore` 桥接到 Qt 属性系统和 QML。
+**设计模式：** **适配器模式（Adapter Pattern）** -- 将非 Qt 的 `AxisViewModelCore` 桥接到 Qt 属性系统和 QML。
 
 #### Q_PROPERTY 暴露
 
@@ -190,7 +190,7 @@ void QtAxisViewModel::tick() {
 **目的：** 防止 Qt 信号风暴。在 10ms 的 Tick 周期下，若每次都不加节流直接 `emit`，QML 端绑定会被频繁触发导致 UI 卡顿。
 
 **阈值常量：**
-- `EPSILON = 0.001` — 位置变化超过 0.001 mm 才认为有变化
+- `EPSILON = 0.001` -- 位置变化超过 0.001 mm 才认为有变化
 - 状态枚举用 `!=` 直接比较，天然节流
 
 ---
@@ -201,11 +201,11 @@ void QtAxisViewModel::tick() {
 
 ```
 MainDashboard (views/)
-  ├── AxisSelectorBlock (blocks/)       — 轴选择
-  ├── ActionControlBlock (blocks/)      — 动作控制
-  │     └── IndustrialButton (components/) — JOG ± / GO / 急停
-  │     └── VelocitySettingsPopup (components/) — 速度设置弹窗
-  └── TelemetryBlock (blocks/)          — 遥测看板
+  ├── AxisSelectorBlock (blocks/)       -- 轴选择
+  ├── ActionControlBlock (blocks/)      -- 动作控制
+  │     └── IndustrialButton (components/) -- JOG ± / GO / 急停
+  │     └── VelocitySettingsPopup (components/) -- 速度设置弹窗
+  └── TelemetryBlock (blocks/)          -- 遥测看板
 ```
 
 #### 2.3.2 组件详细分析
@@ -234,7 +234,7 @@ property var viewModel: null
 if(viewModel) viewModel.jogPositivePressed()
 ```
 
-这种模式实现了 QML 组件与 C++ 后端的**松耦合**——组件只知有 viewModel，不知其具体类型。
+这种模式实现了 QML 组件与 C++ 后端的**松耦合**----组件只知有 viewModel，不知其具体类型。
 
 **② Theme 单例**
 
@@ -286,7 +286,7 @@ readonly property double progressRatio: {
 
 ## 3. 数据流路径
 
-### 3.1 用户操作 → 物理动作（正向路径）
+### 3.1 用户操作 -> 物理动作（正向路径）
 
 ```
 用户点击 "JOG +" 按钮
@@ -307,7 +307,7 @@ plc.tick(TICK_MS)
 AxisSyncService::sync(axis, plc.getFeedback())
   ↓ 下一轮 tick()
 QtAxisViewModel::tick()
-  ↓ 状态/位置变化检测 → emit signal
+  ↓ 状态/位置变化检测 -> emit signal
 QML 绑定更新 UI
 ```
 
@@ -316,13 +316,13 @@ QML 绑定更新 UI
 ```
 QTimer (10ms)
   │
-  ├─→ QtAxisViewModel::tick()
-  │      ├─→ AxisViewModelCore::tick()       ← 推进所有策略器
-  │      └─→ 检测变化 → emit 信号             ← 通知 QML 更新
+  ├─-> QtAxisViewModel::tick()
+  │      ├─-> AxisViewModelCore::tick()       ← 推进所有策略器
+  │      └─-> 检测变化 -> emit 信号             ← 通知 QML 更新
   │
-  ├─→ plc.tick(10ms)                          ← 推进物理世界
+  ├─-> plc.tick(10ms)                          ← 推进物理世界
   │
-  └─→ AxisSyncService::sync()                 ← 同步传感器反馈
+  └─-> AxisSyncService::sync()                 ← 同步传感器反馈
 ```
 
 ---
@@ -377,11 +377,11 @@ bool waitUntil(std::function<bool()> condition, int timeoutMs = 5000) {
 | 测试 | 场景 | 验证点 |
 |------|------|--------|
 | `ShouldReflectInitialDisabledState` | 初始状态 | 初始状态为 `Disabled`，位置为 0 |
-| `ShouldExecuteJogPositiveRealistically` | 完整点动生命周期 | 按下→进入 Jogging→位移→松开→自动断电→不漂移 |
-| `ShouldCompleteAbsoluteMoveRealistically` | 完整绝对定位生命周期 | 启动→MovingAbsolute→到达→自动断电→精准到达目标 |
-| `ShouldHaltImmediatelyWhenStopPressed` | 急停打断 | 运动中被停→进入 Disabled→位置截断在半路 |
+| `ShouldExecuteJogPositiveRealistically` | 完整点动生命周期 | 按下->进入 Jogging->位移->松开->自动断电->不漂移 |
+| `ShouldCompleteAbsoluteMoveRealistically` | 完整绝对定位生命周期 | 启动->MovingAbsolute->到达->自动断电->精准到达目标 |
+| `ShouldHaltImmediatelyWhenStopPressed` | 急停打断 | 运动中被停->进入 Disabled->位置截断在半路 |
 
-**关键测试设计原则：** 测试验证的是 `AxisViewModelCore` 的**对外行为**而非内部实现——测试只断言状态和位置的变化，不关心内部分支细节。
+**关键测试设计原则：** 测试验证的是 `AxisViewModelCore` 的**对外行为**而非内部实现----测试只断言状态和位置的变化，不关心内部分支细节。
 
 ---
 
@@ -392,7 +392,7 @@ bool waitUntil(std::function<bool()> condition, int timeoutMs = 5000) {
 | **Adapter（适配器）** | `QtAxisViewModel` 封装 `AxisViewModelCore` | 桥接纯 C++ 核心与 Qt 属性系统 |
 | **Command（命令）** | 所有控制方法转发到 UseCase/Orchestrator | 将 UI 操作封装为命令对象 |
 | **Mediator（中介者）** | `AxisViewModelCore` 作为中介 | 协调多个 Orchestrator 的交互与调度 |
-| **Observer（观察者）** | Qt 信号 → QML 绑定 | 状态变化自动通知 UI 更新 |
+| **Observer（观察者）** | Qt 信号 -> QML 绑定 | 状态变化自动通知 UI 更新 |
 | **Strategy（策略）** | 不同的 Orchestrator 代表不同运动策略 | Jog / Abs / Rel 可替换 |
 | **Singleton（单例）** | `Theme` QML 单例 | 统一 UI 风格管理 |
 | **Property Injection（属性注入）** | QML 功能块通过 `viewModel` 属性注入 | 松耦合 C++/QML 桥接 |

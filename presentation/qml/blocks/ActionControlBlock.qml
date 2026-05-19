@@ -47,7 +47,7 @@ Rectangle {
             color: "#D32F2F"  // 工业红色
             radius: 4 * Theme.scale
 
-            // 闪烁动画 — 仅在 EmergencyStopped 时闪烁
+            // 闪烁动画 -- 仅在 EmergencyStopped 时闪烁
             Rectangle {
                 anchors.fill: parent
                 color: "#D32F2F"
@@ -330,9 +330,9 @@ Rectangle {
             baseColor: {
                 if (!emergencyViewModel) return Theme.colorError
                 if (emergencyViewModel.isNotSynchronized)    return Theme.colorDisabled
-                if (emergencyViewModel.isEmergencyStopped)   return "#FF5252"   // 橙红色 — 表示急停锁定中，点击解除
+                if (emergencyViewModel.isEmergencyStopped)   return "#FF5252"   // 橙红色 -- 表示急停锁定中，点击解除
                 if (emergencyViewModel.isTransitioning)      return Theme.colorDisabled
-                return Theme.colorError  // Running — 正常红色
+                return Theme.colorError  // Running -- 正常红色
             }
 
             activeColor: {
@@ -342,9 +342,9 @@ Rectangle {
             }
 
             // ── 可点击性 ──
-            // Running → 可以按急停
-            // EmergencyStopped → 可以解除急停
-            // 其他过渡态 → 不可点击
+            // Running -> 可以按急停
+            // EmergencyStopped -> 可以解除急停
+            // 其他过渡态 -> 不可点击
             enabled: {
                 if (!emergencyViewModel) return false
                 if (emergencyViewModel.isNotSynchronized)    return false
@@ -356,12 +356,12 @@ Rectangle {
                 if (!emergencyViewModel) return
 
                 if (emergencyViewModel.isEmergencyStopped) {
-                    // 当前已急停 → 执行解除操作
-                    console.log("EmergencyStopButton: 解除急停 → releaseEmergencyStop()")
+                    // 当前已急停 -> 执行解除操作
+                    console.log("EmergencyStopButton: 解除急停 -> releaseEmergencyStop()")
                     emergencyViewModel.releaseEmergencyStop()
                 } else {
-                    // 当前 Running → 执行急停操作
-                    console.log("EmergencyStopButton: 触发急停 → triggerEmergencyStop()")
+                    // 当前 Running -> 执行急停操作
+                    console.log("EmergencyStopButton: 触发急停 -> triggerEmergencyStop()")
                     emergencyViewModel.triggerEmergencyStop()
                 }
             }

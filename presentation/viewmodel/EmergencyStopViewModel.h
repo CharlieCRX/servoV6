@@ -11,11 +11,11 @@
 #include "domain/safety/SafetyState.h"
 
 /**
- * @brief 急停 ViewModel — UI ↔ 安全域的桥梁
+ * @brief 急停 ViewModel -- UI ↔ 安全域的桥梁
  *
  * 职责：
- *   1. 向 QML 暴露分组级安全状态（SafetyState → Q_PROPERTY）
- *   2. 接收 UI 指令 → 调用 EmergencyStopUseCase / ReleaseEmergencyStopUseCase
+ *   1. 向 QML 暴露分组级安全状态（SafetyState -> Q_PROPERTY）
+ *   2. 接收 UI 指令 -> 调用 EmergencyStopUseCase / ReleaseEmergencyStopUseCase
  *   3. 每帧 tick() 从 EmergencyStopController 读取最新状态并通知 UI
  *
  * 设计原则：
@@ -90,7 +90,7 @@ public:
      * @brief 触发紧急急停
      *
      * 调用链：EmergencyStopUseCase.execute(m_manager, m_groupName)
-     *   → requestEmergencyStop() → send(EmergencyStopCommand{true})
+     *   -> requestEmergencyStop() -> send(EmergencyStopCommand{true})
      *
      * 成功时 lastError 被清空；失败时写入错误描述。
      * 发送命令后，状态变更由下一帧 feedback loop 完成。
@@ -111,7 +111,7 @@ public:
      *
      * 前置条件：EmergencyStopController 必须处于 EmergencyStopped
      * 调用链：ReleaseEmergencyStopUseCase.execute(m_manager, m_groupName)
-     *   → requestReleaseEmergencyStop() → send(EmergencyStopCommand{false})
+     *   -> requestReleaseEmergencyStop() -> send(EmergencyStopCommand{false})
      */
     Q_INVOKABLE void releaseEmergencyStop() {
         ReleaseEmergencyStopUseCase uc;

@@ -1,4 +1,4 @@
-# ISystemDriver 重构实践文档 — CommunicationResult 与 Modbus TCP 通讯分层
+# ISystemDriver 重构实践文档 -- CommunicationResult 与 Modbus TCP 通讯分层
 
 > 版本: v3.0  
 > 日期: 2026-05-15  
@@ -32,9 +32,9 @@ enum class Status { Sent, Failed, Busy };
 
 这个模型有两个不足：
 
-1. **`Failed` 太粗粒度**。在工业现场，"网线断开"和"Modbus 返回 0x01 Illegal Function"是两种截然不同的问题——前者是物理层/网络层故障，后者是应用层协议拒绝。把它们统一标记为 `Failed`，丢失了**故障定位的关键信息**。
+1. **`Failed` 太粗粒度**。在工业现场，"网线断开"和"Modbus 返回 0x01 Illegal Function"是两种截然不同的问题----前者是物理层/网络层故障，后者是应用层协议拒绝。把它们统一标记为 `Failed`，丢失了**故障定位的关键信息**。
 
-2. **缺少 `Timeout`**。在工业控制中，"超时"是一个非常特殊的状态——它不等于断线（NetworkError），也不等于 PLC 拒绝（ProtocolError）。PLC 可能只是扫描周期过长，超时后下一秒就能正常响应。**Timeout 应该是 `retryable` 的**。
+2. **缺少 `Timeout`**。在工业控制中，"超时"是一个非常特殊的状态----它不等于断线（NetworkError），也不等于 PLC 拒绝（ProtocolError）。PLC 可能只是扫描周期过长，超时后下一秒就能正常响应。**Timeout 应该是 `retryable` 的**。
 
 3. **缺少 `Disconnected`**。"从未连接过"与"连接后意外断线"在 UI 层需要不同提示。`Disconnected` 表示驱动处于未初始化/已显式断开状态，与 `NetworkError`（已连接但通信尝试中失败）语义不同。
 
@@ -46,9 +46,9 @@ enum class Status { Sent, Failed, Busy };
 │                 UseCase / Orchestrator                       │
 │                                                              │
 │   根据 CommunicationResult 决定:                             │
-│     - ok()         → 继续 (通讯成功)                         │
-│     - retryable()  → 重试 (Timeout/Busy)                    │
-│     - !retryable() → 报错并终止当前操作                      │
+│     - ok()         -> 继续 (通讯成功)                         │
+│     - retryable()  -> 重试 (Timeout/Busy)                    │
+│     - !retryable() -> 报错并终止当前操作                      │
 └───────────────────────┬──────────────────────────────────────┘
                         │
                         ▼
@@ -57,7 +57,7 @@ enum class Status { Sent, Failed, Busy };
 │              ISystemDriver::send()                           │
 │                                                              │
 │  ┌──────────────┐   ┌──────────────┐   ┌──────────────┐     │
-│  │  L1 网络层   │ → │  L2 传输层   │ → │  L3 应用层   │     │
+│  │  L1 网络层   │ -> │  L2 传输层   │ -> │  L3 应用层   │     │
 │  │              │   │              │   │              │     │
 │  │ connect()    │   │ write()      │   │ 解析响应     │     │
 │  │ ECONNREFUSED │   │ recv() 超时  │   │ Exception    │     │
@@ -74,7 +74,7 @@ enum class Status { Sent, Failed, Busy };
 ┌──────────────────────────────────────────────────────────────┐
 │                   汇川 PLC (H3U/H5U)                         │
 │                                                              │
-│   接收 Modbus 帧 → 校验 CRC → 写入寄存器 → 返回响应          │
+│   接收 Modbus 帧 -> 校验 CRC -> 写入寄存器 -> 返回响应          │
 │   异常时返回 Exception Code                                  │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -83,7 +83,7 @@ enum class Status { Sent, Failed, Busy };
 
 | Status | 含义 | 典型场景 | retryable | 行号/日志级别 |
 |--------|------|---------|-----------|-------------|
-| `Sent` | 通讯成功 | Modbus 正常响应 | — | TRACE |
+| `Sent` | 通讯成功 | Modbus 正常响应 | -- | TRACE |
 | `NetworkError` | TCP 连接失败 | 网线断开、PLC 掉电、ECONNRESET、ECONNREFUSED | ❌ | ERROR |
 | `Timeout` | 通讯超时 | PLC 忙导致响应延迟、交换机抖动、扫描周期过长 | ✅ | WARN |
 | `Busy` | PLC 忙 | Modbus Exception 0x06 (Server Device Busy) | ✅ | INFO |
@@ -104,7 +104,7 @@ enum class Status { Sent, Failed, Busy };
   T4: PLC 返回响应
   
   如果 Qt 端的 recv timeout 设为 3ms:
-  → T1 到 T4 共 4ms > 3ms → Timeout
+  -> T1 到 T4 共 4ms > 3ms -> Timeout
   
   此时 TCP 连接完全正常！
   下次通信（隔 10ms 后）很可能立即成功。
@@ -212,7 +212,7 @@ struct CommunicationResult {
 2. 实现 `pollFeedback(SystemContext&)`：
    - 自动推进 FakePLC::tick(10)
    - 遍历 6 个轴注入 AxisFeedback
-   - 注入急停反馈 → EmergencyStopController
+   - 注入急停反馈 -> EmergencyStopController
 3. 修复成员名匹配：`enableCoupling` 替代 `couple`，`enable` 替代 `powerOn`
 4. 新增 `#include <variant>` 以支持 `std::visit`
 
@@ -225,17 +225,17 @@ struct CommunicationResult {
 ### 阶段路线图
 
 ```
-阶段 A (已完成)  ISystemDriver.h — CommunicationResult + pollFeedback
-阶段 B (已完成)  FakeAxisDriver.h — 适配新接口
-阶段 C (待执行)  UseCaseError.h — 新增 CommunicationResult 到 variant
-阶段 D (待执行)  8 个 UseCase / Orchestrator — 检查 CommunicationResult
-阶段 E (待执行)  ContextRejection.h — 补充 DriverNotReady 粒度（可选）
-阶段 F (待执行)  测试文件适配 — send() 返回值变更
+阶段 A (已完成)  ISystemDriver.h -- CommunicationResult + pollFeedback
+阶段 B (已完成)  FakeAxisDriver.h -- 适配新接口
+阶段 C (待执行)  UseCaseError.h -- 新增 CommunicationResult 到 variant
+阶段 D (待执行)  8 个 UseCase / Orchestrator -- 检查 CommunicationResult
+阶段 E (待执行)  ContextRejection.h -- 补充 DriverNotReady 粒度（可选）
+阶段 F (待执行)  测试文件适配 -- send() 返回值变更
 阶段 G (待执行)  编译验证 + 全量单元测试
 阶段 H (未来)    ModbusTcpAxisDriver 生产驱动实现
 ```
 
-### 阶段 C: UseCaseError.h — 新增 CommunicationResult
+### 阶段 C: UseCaseError.h -- 新增 CommunicationResult
 
 **影响文件**: `application/UseCaseError.h`
 
@@ -267,7 +267,7 @@ using UseCaseError = std::variant<
 #include "infrastructure/ISystemDriver.h"  // CommunicationResult
 ```
 
-### 阶段 D: 8 个调用点 — 检查 CommunicationResult
+### 阶段 D: 8 个调用点 -- 检查 CommunicationResult
 
 **影响文件清单**:
 
@@ -285,7 +285,7 @@ using UseCaseError = std::variant<
 **统一修改模式**（以 EnableUseCase 为例）:
 
 ```cpp
-// === 当前代码 (阶段 B 之后，编译会失败——send 返回 CommunicationResult 但未被使用) ===
+// === 当前代码 (阶段 B 之后，编译会失败----send 返回 CommunicationResult 但未被使用) ===
 if (axis->hasPendingCommand()) {
     if (auto* drv = group->driver()) {
         drv->send(AxisCommandWithId{axisId, axis->getPendingCommand()});
@@ -315,7 +315,7 @@ GantryOrchestrator 调用 `drv->send()` 后有内部状态机推进（`m_step = 
 2. 若失败，将 `m_step` 推进到 `Error` 并记录 `m_lastError`
 
 ```cpp
-// GantryOrchestrator::tick() — Step::EnsuringEnabled 分支
+// GantryOrchestrator::tick() -- Step::EnsuringEnabled 分支
 if (power.hasPendingCommand() && drv) {
     auto commResult = drv->send(power.popPendingCommand());
     if (!commResult.ok()) {
@@ -519,7 +519,7 @@ ctest --output-on-failure
 |---------|------|
 | 单元测试（领域层） | 不变 |
 | 单元测试（UseCase） | 适配 send() 返回值，断言 Fake 驱动返回 Sent |
-| 集成测试 | `syncA()` → `driver.pollFeedback(*ctx)` |
+| 集成测试 | `syncA()` -> `driver.pollFeedback(*ctx)` |
 | 新增测试 | 通讯失败场景（Disconnected/NetworkError 等） |
 
 ---
@@ -540,17 +540,17 @@ ctest --output-on-failure
  * @brief 基于 Modbus TCP 的生产驱动实现
  *
  * 命令通路:
- *   send(SystemCommand) → 翻译为 Modbus 写寄存器操作 → connect → write → read response
- *     → 成功: Sent
- *     → Socket 错误: NetworkError
- *     → 超时: Timeout
- *     → Modbus Exception: ProtocolError / Busy
- *     → 响应格式错误: InvalidResponse
+ *   send(SystemCommand) -> 翻译为 Modbus 写寄存器操作 -> connect -> write -> read response
+ *     -> 成功: Sent
+ *     -> Socket 错误: NetworkError
+ *     -> 超时: Timeout
+ *     -> Modbus Exception: ProtocolError / Busy
+ *     -> 响应格式错误: InvalidResponse
  *
  * 反馈通路:
- *   pollFeedback(SystemContext) → 批量读保持寄存器/输入寄存器
- *     → 翻译为 AxisFeedback / GantryFeedback → dispatch
- *     → 读失败: 保留上次反馈值，记 WARN
+ *   pollFeedback(SystemContext) -> 批量读保持寄存器/输入寄存器
+ *     -> 翻译为 AxisFeedback / GantryFeedback -> dispatch
+ *     -> 读失败: 保留上次反馈值，记 WARN
  */
 class ModbusTcpAxisDriver : public ISystemDriver {
 public:
@@ -669,7 +669,7 @@ CommunicationResult ModbusTcpAxisDriver::writeRegister(int addr, uint16_t value)
 
 ## 8. 附录：调用链全景图
 
-### 8.1 完整的命令→反馈闭环
+### 8.1 完整的命令->反馈闭环
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -680,25 +680,25 @@ CommunicationResult ModbusTcpAxisDriver::writeRegister(int addr, uint16_t value)
 │  UseCase::execute(manager, groupName, axisId, params)                │
 │    ↓                                                                │
 │  ┌───────────── 四层拦截 ─────────────┐                              │
-│  │ L0: SystemManager::tryGetGroup()   │ → ContextRejection           │
-│  │ L1: SystemContext::tryGetAxis()    │ → ContextRejection           │
+│  │ L0: SystemManager::tryGetGroup()   │ -> ContextRejection           │
+│  │ L1: SystemContext::tryGetAxis()    │ -> ContextRejection           │
 │  │     (含安全/龙门/注册检查)          │    (安全/龙门/注册)           │
-│  │ L2: Axis::enable/move/jog/...     │ → RejectionReason            │
-│  │ L3: ISystemDriver::send(cmd)      │ → CommunicationResult ✅      │
+│  │ L2: Axis::enable/move/jog/...     │ -> RejectionReason            │
+│  │ L3: ISystemDriver::send(cmd)      │ -> CommunicationResult ✅      │
 │  └────────────────────────────────────┘                              │
 │    ↓                                                                │
 │  UseCase 返回 UseCaseError                                           │
-│    ├─ monostate           → 成功 ✅                                  │
-│    ├─ ContextRejection    → 分组/轴查找失败                           │
-│    ├─ RejectionReason     → 领域规则拒绝                              │
-│    ├─ CommunicationResult → 通讯失败 ✅ (新增)                        │
-│    ├─ GantryRejection     → 龙门拒绝                                  │
-│    └─ SafetyRejection     → 安全拒绝                                  │
+│    ├─ monostate           -> 成功 ✅                                  │
+│    ├─ ContextRejection    -> 分组/轴查找失败                           │
+│    ├─ RejectionReason     -> 领域规则拒绝                              │
+│    ├─ CommunicationResult -> 通讯失败 ✅ (新增)                        │
+│    ├─ GantryRejection     -> 龙门拒绝                                  │
+│    └─ SafetyRejection     -> 安全拒绝                                  │
 │                                                                      │
 │  ┌──────────────── 反馈通路（每 10ms） ────────────────┐              │
 │  │ ISystemDriver::pollFeedback(ctx)                    │              │
 │  │   ├─ Read:  从硬件读取状态                          │              │
-│  │   ├─ Translate: 硬件数据 → 领域结构体               │              │
+│  │   ├─ Translate: 硬件数据 -> 领域结构体               │              │
 │  │   └─ Dispatch:                                     │              │
 │  │       ├─ Axis::applyFeedback(fb)                   │              │
 │  │       ├─ EmergencyStopController::applyFeedback()  │              │
@@ -740,7 +740,7 @@ if (!commResult.ok()) {
             return std::monostate{};  // 静默重试
         }
     }
-    return commResult;  // 超限或不可重试 → 报错
+    return commResult;  // 超限或不可重试 -> 报错
 }
 ```
 
@@ -768,20 +768,20 @@ if (!commResult.ok()) {
   ☐ 新增 ISystemDriver.h include
 
 阶段 D: 8 个 UseCase/Orchestrator
-  ☐ EnableUseCase.h — 检查 commResult.ok()
-  ☐ JogAxisUseCase.h — 2 处调用点
+  ☐ EnableUseCase.h -- 检查 commResult.ok()
+  ☐ JogAxisUseCase.h -- 2 处调用点
   ☐ MoveAbsoluteUseCase.h
   ☐ MoveRelativeUseCase.h
   ☐ StopAxisUseCase.h
   ☐ EmergencyStopUseCase.h
   ☐ ReleaseEmergencyStopUseCase.h
-  ☐ GantryOrchestrator.h — 3 处调用点 + 状态机处理
+  ☐ GantryOrchestrator.h -- 3 处调用点 + 状态机处理
 
 阶段 E: ContextRejection.h (可选)
   ☐ 确认 DriverNotReady 已满足需求
 
 阶段 F: 测试文件适配
-  ☐ test_system_integration.cpp — syncA → pollFeedback
+  ☐ test_system_integration.cpp -- syncA -> pollFeedback
   ☐ test_enable_usecase.cpp
   ☐ test_jog_usecase.cpp
   ☐ test_move_absolute_usecase.cpp
@@ -797,8 +797,8 @@ if (!commResult.ok()) {
 
 阶段 H: ModbusTcpAxisDriver (未来)
   ☐ 新建 infrastructure/ModbusTcpAxisDriver.h
-  ☐ 实现 send() — 完整错误映射
-  ☐ 实现 pollFeedback() — 批量读 + dispatch
+  ☐ 实现 send() -- 完整错误映射
+  ☐ 实现 pollFeedback() -- 批量读 + dispatch
   ☐ 硬件联调
 ```
 

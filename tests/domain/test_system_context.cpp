@@ -11,14 +11,14 @@ protected:
 
     void SetUp() override {
         // 安全域首次同步：注入 PLC 反馈"设备急停中 = false"
-        // 完成 NotSynchronized → Running，使所有现有测试不受安全域干扰
+        // 完成 NotSynchronized -> Running，使所有现有测试不受安全域干扰
         context.emergencyStopController().applyFeedback(false);
         // 此时 isSystemLocked() == false，tryGetAxis() 的 Layer 0 拦截不生效
     }
 };
 
 // ============================================================
-// 安全急停 — 拦截优先级 Layer 0 测试
+// 安全急停 -- 拦截优先级 Layer 0 测试
 // ============================================================
 
 // 默认 SetUp 后，安全域状态为 Running，访问不受影响
@@ -46,15 +46,15 @@ TEST_F(SystemContextTest, Safety_EmergencyStopped_RejectsAllAxes) {
     EXPECT_FALSE(context.tryGetAxis(AxisId::R, outAxis, reason));
     EXPECT_EQ(reason, ContextRejection::SystemSafetyLocked);
 
-    // X 轴（龙门逻辑轴）被拒绝 — Layer 0 先于龙门检查
+    // X 轴（龙门逻辑轴）被拒绝 -- Layer 0 先于龙门检查
     EXPECT_FALSE(context.tryGetAxis(AxisId::X, outAxis, reason));
     EXPECT_EQ(reason, ContextRejection::SystemSafetyLocked);
 
-    // X1 轴（龙门物理轴）被拒绝 — Layer 0 先于龙门检查
+    // X1 轴（龙门物理轴）被拒绝 -- Layer 0 先于龙门检查
     EXPECT_FALSE(context.tryGetAxis(AxisId::X1, outAxis, reason));
     EXPECT_EQ(reason, ContextRejection::SystemSafetyLocked);
 
-    // X2 轴（龙门物理轴）被拒绝 — Layer 0 先于龙门检查
+    // X2 轴（龙门物理轴）被拒绝 -- Layer 0 先于龙门检查
     EXPECT_FALSE(context.tryGetAxis(AxisId::X2, outAxis, reason));
     EXPECT_EQ(reason, ContextRejection::SystemSafetyLocked);
 }
@@ -65,7 +65,7 @@ TEST_F(SystemContextTest, Safety_ReleasingEmergencyStop_RejectsAllAxes) {
     context.emergencyStopController().applyFeedback(true);
     ASSERT_TRUE(context.emergencyStopController().isEmergencyStopped());
 
-    // Step 2: 请求解除 → 进入 ReleasingEmergencyStop
+    // Step 2: 请求解除 -> 进入 ReleasingEmergencyStop
     auto result = context.emergencyStopController().requestReleaseEmergencyStop();
     ASSERT_EQ(result, SafetyRejection::None);
     ASSERT_EQ(context.emergencyStopController().state(), SafetyState::ReleasingEmergencyStop);
@@ -99,15 +99,15 @@ TEST_F(SystemContextTest, Safety_AfterRelease_AccessRestored) {
 TEST_F(SystemContextTest, Safety_Layer0_BeforeGantryNotSynchronized) {
     // 即使龙门状态未同步，安全域锁定后 Layer 0 率先拦截
     // 默认 GantryCouplingController 处于 NotSynchronized（SetUp 未对其做同步）
-    // 但 SetUp 中已对安全域做了同步 → Running
+    // 但 SetUp 中已对安全域做了同步 -> Running
 
-    // 验证：安全域 Running + 龙门 NotSynchronized → 返回 GantryNotSynchronized
+    // 验证：安全域 Running + 龙门 NotSynchronized -> 返回 GantryNotSynchronized
     {
         EXPECT_FALSE(context.tryGetAxis(AxisId::X, outAxis, reason));
         EXPECT_EQ(reason, ContextRejection::GantryNotSynchronized);
     }
 
-    // 现在激活急停 → Layer 0 优先拦截，不再返回 GantryNotSynchronized
+    // 现在激活急停 -> Layer 0 优先拦截，不再返回 GantryNotSynchronized
     context.emergencyStopController().applyFeedback(true);
     {
         EXPECT_FALSE(context.tryGetAxis(AxisId::X, outAxis, reason));
@@ -197,7 +197,7 @@ TEST_F(SystemContextTest, GantryMotor_SynchronizationIndependentOfGantry) {
     // GantryGroup 未同步
     EXPECT_TRUE(context.gantryCouplingController().isNotSynchronized());
 
-    // 直接向 GantryPowerController 注入反馈 → 独立同步
+    // 直接向 GantryPowerController 注入反馈 -> 独立同步
     GantryPowerController& motor = context.gantryPowerController();
     motor.applyFeedback({ .enable = true, .isCoupled = true, .errorCode = 0 });
     EXPECT_TRUE(motor.isSynchronized());
@@ -221,7 +221,7 @@ TEST_F(SystemContextTest, GantryMotor_DriverInjectionWorks) {
 
 // ============================================================
 // 龙门 NotSynchronized 态：X / X1 / X2 全部拒绝
-// （安全域已同步 → Running，龙门 NotSynchronized 拦截生效）
+// （安全域已同步 -> Running，龙门 NotSynchronized 拦截生效）
 // ============================================================
 
 TEST_F(SystemContextTest, TryGet_X_ShouldFail_WhenNotSynchronized) {

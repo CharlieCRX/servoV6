@@ -28,13 +28,13 @@ SystemContext::SystemContext() {
 
 ```
 SystemManager                    ← 全局单例，管理所有分组
-├── "Machine_A" → SystemContext_A (driver → plcA)
+├── "Machine_A" -> SystemContext_A (driver -> plcA)
 │   ├── X, X1, X2, Y, Z, R   （全部 6 轴）
 │   ├── GantryCouplingController
 │   ├── GantryPowerController
 │   └── EmergencyStopController
 │
-└── "Machine_B" → SystemContext_B (driver → plcB)
+└── "Machine_B" -> SystemContext_B (driver -> plcB)
     ├── X, X1, X2, Y, Z, R   （全部 6 轴）
     ├── GantryCouplingController
     ├── GantryPowerController
@@ -63,7 +63,7 @@ AxisViewModelCore vm(yAxis, jogOrch, absOrch, relOrch, stopUc);
 | 需要控制 Machine_A 的 Y 轴 | 创建一个 ViewModel | ✅ 勉强可用 |
 | 需要同时控制 Machine_A 的 Y 和 Z | 创建两个 ViewModel | ❌ 但 jogOrch/absOrch/relOrch 是外部传入的，谁持有它们？ |
 | 需要切换到 Machine_B 的 X1 | 销毁再创建？ | ❌ 无 groupName 概念，完全无法路由 |
-| Machine_B 的 X1 正联动中，UI 要读 X 逻辑轴 | — | ❌ 没有 SystemContext，不知道龙门状态 |
+| Machine_B 的 X1 正联动中，UI 要读 X 逻辑轴 | -- | ❌ 没有 SystemContext，不知道龙门状态 |
 
 **根本原因**：ViewModel 应该是一个"访问器"（Accessor），而不是"持有者"（Owner）。它应该能通过 `(manager, groupName, axisId)` 三元组动态解析到任意一个轴，而不是在构造期固化。
 
@@ -80,9 +80,9 @@ AxisViewModelCore vm(manager, "Machine_B", AxisId::Y);
 
 ```
 vm.enable()
-  → m_manager.tryGetGroup("Machine_B")    // 解析分组
-  → group->tryGetAxis(AxisId::Y)          // 解析轴（含龙门/安全拦截）
-  → EnableUseCase.execute(manager, "Machine_B", AxisId::Y, true)
+  -> m_manager.tryGetGroup("Machine_B")    // 解析分组
+  -> group->tryGetAxis(AxisId::Y)          // 解析轴（含龙门/安全拦截）
+  -> EnableUseCase.execute(manager, "Machine_B", AxisId::Y, true)
 ```
 
 这带来了**组合爆炸式的灵活性**：不需要为每种 `{组, 轴}` 组合写单独的类，同一个 `AxisViewModelCore` 类可以服务所有组合。
@@ -127,7 +127,7 @@ Repeater {
      │ (测试中主要      │     │ (测试中主要     │   │                 │
      │  使用 Y/Z/R)     │     │  使用 X/X1/X2) │   │                 │
      │                  │     │               │   │                 │
-     │ driver → driverA │     │ driver → driverB│  │                 │
+     │ driver -> driverA │     │ driver -> driverB│  │                 │
      └───┬────┬────┬────┘     └──┬───┬───┬────┘   └─────────────────┘
          │    │    │             │   │   │
          │    │    │             │   │   │
@@ -158,15 +158,15 @@ Repeater {
   创建 FakeAxisDriver_A, FakeAxisDriver_B
   创建 SystemContext_A, 注册 driverA
   创建 SystemContext_B, 注册 driverB
-  manager.createGroup("Machine_A")  → 持有 ctxA
-  manager.createGroup("Machine_B")  → 持有 ctxB
+  manager.createGroup("Machine_A")  -> 持有 ctxA
+  manager.createGroup("Machine_B")  -> 持有 ctxB
 
 UI 加载时（QML 解析）：
-  为 Machine_A 的 Y  创建 QtAxisViewModel(manager, "Machine_A", Y)   → 内部 new AxisViewModelCore
-  为 Machine_A 的 Z  创建 QtAxisViewModel(manager, "Machine_A", Z)   → 内部 new AxisViewModelCore
-  为 Machine_B 的 X1 创建 QtAxisViewModel(manager, "Machine_B", X1)  → 内部 new AxisViewModelCore
-  为 Machine_B 的 X2 创建 QtAxisViewModel(manager, "Machine_B", X2)  → 内部 new AxisViewModelCore
-  为 Machine_B 的 X  创建 QtAxisViewModel(manager, "Machine_B", X)   → 内部 new AxisViewModelCore
+  为 Machine_A 的 Y  创建 QtAxisViewModel(manager, "Machine_A", Y)   -> 内部 new AxisViewModelCore
+  为 Machine_A 的 Z  创建 QtAxisViewModel(manager, "Machine_A", Z)   -> 内部 new AxisViewModelCore
+  为 Machine_B 的 X1 创建 QtAxisViewModel(manager, "Machine_B", X1)  -> 内部 new AxisViewModelCore
+  为 Machine_B 的 X2 创建 QtAxisViewModel(manager, "Machine_B", X2)  -> 内部 new AxisViewModelCore
+  为 Machine_B 的 X  创建 QtAxisViewModel(manager, "Machine_B", X)   -> 内部 new AxisViewModelCore
   为 Machine_B 创建    QtGantryViewModel(manager, "Machine_B")
   为 Machine_B 创建    QtEmergencyStopViewModel(manager, "Machine_B")
 
@@ -186,7 +186,7 @@ UI 加载时（QML 解析）：
 ## 三、模拟：UI 控制 Machine_A 的 Y 轴进行点动
 
 > 每个 SystemContext 都拥有全部 6 个轴（X/X1/X2/Y/Z/R），因此 UI 可以绑定任意 `{组, 轴}` 组合。
-> 此模拟以 Machine_A 的 Y 轴为例，展示从 QML 按钮 → ViewModel → UseCase → driver → PLC 的完整数据流。
+> 此模拟以 Machine_A 的 Y 轴为例，展示从 QML 按钮 -> ViewModel -> UseCase -> driver -> PLC 的完整数据流。
 > SystemIntegrationTest 中 Machine_A 主要使用 Y/Z/R，但 Y 轴在 ctxA 和 ctxB 内都是合法可操作的实体。
 
 ### 3.1 初始化：世界状态
@@ -197,13 +197,13 @@ UI 加载时（QML 解析）：
 ═══════════════════════════════════════════════════════════════
 
 SystemManager
-├── "Machine_A" → ctxA (driver → plcA)
+├── "Machine_A" -> ctxA (driver -> plcA)
 │   ├── X, X1, X2, Y, Z, R （全部 6 轴，均 Disabled, pos=0.0）
 │   │   在 SystemIntegrationTest 中主要使用 Y, Z, R
 │   ├── GantryCouplingController
 │   ├── GantryPowerController
 │   └── EmergencyStopController
-└── "Machine_B" → ctxB (driver → plcB)
+└── "Machine_B" -> ctxB (driver -> plcB)
     ├── X, X1, X2, Y, Z, R （全部 6 轴，均 Disabled, pos=0.0）
     │   在 SystemIntegrationTest 中主要使用 X, X1, X2
     ├── GantryCouplingController
@@ -234,7 +234,7 @@ QML 状态：
 ═══════════════════════════════════════════════════════════════
 
 【QML 层】
-  Button.onClicked → QtAxisViewModel_Y_A.enable()
+  Button.onClicked -> QtAxisViewModel_Y_A.enable()
 
 【QtAxisViewModel 层】  (QtAxisViewModel.h)
   void enable() { m_core->enable(); emit enabledChanged(); }
@@ -271,7 +271,7 @@ QML 状态：
 
       // 阶段 3：通过统一命令总线包装下发
       if (axis->hasPendingCommand()) {
-          drv = group->driver();  // → FakeAxisDriver_A
+          drv = group->driver();  // -> FakeAxisDriver_A
           drv->send(AxisCommandWithId{AxisId::Y, axis->getPendingCommand()});
           //                            ──┬──  ──────────┬──────────
           //                          轴ID     EnableCommand {active:true}
@@ -282,8 +282,8 @@ QML 状态：
 
 【FakeAxisDriver 层】  (FakeAxisDriver.h)
   send(AxisCommandWithId{AxisId::Y, EnableCommand{true}})
-    → plcA.writeCommand(AxisId::Y, EnableCommand{true})
-    → 设置 PLC 内部寄存器 Modbus[Y_ENABLE_REG] = 1
+    -> plcA.writeCommand(AxisId::Y, EnableCommand{true})
+    -> 设置 PLC 内部寄存器 Modbus[Y_ENABLE_REG] = 1
 
 【FakePLC 层】  (FakePLC.h)
   内部状态变更：
@@ -305,23 +305,23 @@ QML 状态：
 ```
 ═══════════════════════════════════════════════════════════════
  时间 T=2 到 T=20（每个 tick = 10ms）
- 主循环：pollFeedback → tickAllViewModels → emitSignals
+ 主循环：pollFeedback -> tickAllViewModels -> emitSignals
 ═══════════════════════════════════════════════════════════════
 
-【主循环 — 每帧】
+【主循环 -- 每帧】
   driverA.pollFeedback(*ctxA);   // ← 关键：统一反馈泵送
-    → plcA.tick() 推进物理模拟
-    → 读取 PLC 寄存器状态
-    → 分发反馈到 ctxA 内的各轴（通过 axisMap）
+    -> plcA.tick() 推进物理模拟
+    -> 读取 PLC 寄存器状态
+    -> 分发反馈到 ctxA 内的各轴（通过 axisMap）
 
   vm_Y_A.tick();                // 驱动 Orchestrator（当前为空，无操作）
   vm_Y_A.emitSignalsIfChanged(); // Qt 属性变更检测
 
-【FakePLC 内部 — T=2..T=15】
-  axisStates[Y].enableCounter: 15 → 14 → ... → 1
+【FakePLC 内部 -- T=2..T=15】
+  axisStates[Y].enableCounter: 15 -> 14 -> ... -> 1
   状态：Enabling
 
-【FakePLC 内部 — T=16】
+【FakePLC 内部 -- T=16】
   enableCounter 归零
   axisStates[Y].state = AxisState::Idle  ← 使能完成！
   axisStates[Y].actualPosition = 0.0
@@ -329,16 +329,16 @@ QML 状态：
 
 【pollFeedback 在 T=16 时检测到状态变化】
   FakeAxisDriver::pollFeedback(ctxA)
-    → 遍历 ctxA 的所有轴
-    → 读取 plcA 的 Y 轴反馈
-    → Axis::applyFeedback(...) 更新 Y 轴内部状态
-    → Y.state() = Idle ✅
+    -> 遍历 ctxA 的所有轴
+    -> 读取 plcA 的 Y 轴反馈
+    -> Axis::applyFeedback(...) 更新 Y 轴内部状态
+    -> Y.state() = Idle ✅
 
-【QtAxisViewModel — emitSignalsIfChanged】
-  检测到 state 从 Disabled → Idle
-    → emit stateChanged()
-  检测到 enabled 从 false → true
-    → emit enabledChanged()
+【QtAxisViewModel -- emitSignalsIfChanged】
+  检测到 state 从 Disabled -> Idle
+    -> emit stateChanged()
+  检测到 enabled 从 false -> true
+    -> emit enabledChanged()
 
 ═══════════════════════════════════════════════════════════════
  时间 T=16 结束时的 QML 状态
@@ -359,7 +359,7 @@ QML 状态：
 ═══════════════════════════════════════════════════════════════
 
 【QML 层】
-  MouseArea.onPressed → QtAxisViewModel_Y_A.jogPositivePressed()
+  MouseArea.onPressed -> QtAxisViewModel_Y_A.jogPositivePressed()
 
 【QtAxisViewModel 层】
   void jogPositivePressed() { m_core->jogPositivePressed(); }
@@ -377,7 +377,7 @@ QML 状态：
           return;  // ← 错误已在 QML 内联显示
       }
 
-      // 3. 通知 JogOrchestrator 开始编排（用于后续的停止→掉电流程）
+      // 3. 通知 JogOrchestrator 开始编排（用于后续的停止->掉电流程）
       m_jogOrch->startJog(AxisId::Y, Direction::Forward);
       //           ↓
       //  JogOrchestrator 内部：
@@ -398,16 +398,16 @@ QML 状态：
 
       // 阶段 2：领域层判定
       axis->jog(Direction::Forward)
-        → Axis::jog() 检查：
-          - state == Idle? → ✅ 是
-          - 正向限位？ → 当前位置 0.0，正限位 +1000.0 → ✅ 未触发
-          → 生成 JogCommand{active: true, direction: Forward}
-          → 存入 pendingCommand
+        -> Axis::jog() 检查：
+          - state == Idle? -> ✅ 是
+          - 正向限位？ -> 当前位置 0.0，正限位 +1000.0 -> ✅ 未触发
+          -> 生成 JogCommand{active: true, direction: Forward}
+          -> 存入 pendingCommand
 
       // 阶段 3：下发命令
       driverA->send(AxisCommandWithId{AxisId::Y, JogCommand{true, Forward}})
-        → plcA.writeCommand(AxisId::Y, JogCommand{true, Forward})
-        → PLC 内部：
+        -> plcA.writeCommand(AxisId::Y, JogCommand{true, Forward})
+        -> PLC 内部：
             axisStates[Y].jogActive = true
             axisStates[Y].jogDirection = Forward
             axisStates[Y].state = AxisState::Jogging
@@ -420,7 +420,7 @@ QML 状态：
 ═══════════════════════════════════════════════════════════════
 
   轴 Y 已进入 Jogging 状态
-  JogOrchestrator 内部状态机 = Jogging（快速跳过了 EnsuringEnabled→IssuingJog）
+  JogOrchestrator 内部状态机 = Jogging（快速跳过了 EnsuringEnabled->IssuingJog）
 ```
 
 ### 3.5 T=22~50：持续点动，位置变化
@@ -428,25 +428,25 @@ QML 状态：
 ```
 ═══════════════════════════════════════════════════════════════
  时间 T=22 到 T=50（持续按下中）
- 每帧：pollFeedback → tickAllViewModels → emitSignals
+ 每帧：pollFeedback -> tickAllViewModels -> emitSignals
 ═══════════════════════════════════════════════════════════════
 
-【主循环 — 每帧】
+【主循环 -- 每帧】
   driverA.pollFeedback(*ctxA);
-    → plcA.tick()
-    → Y.jogActive == true, jogDirection == Forward
-    → 速度：10.0 mm/tick（假设）
-    → Y.actualPosition += 10.0
+    -> plcA.tick()
+    -> Y.jogActive == true, jogDirection == Forward
+    -> 速度：10.0 mm/tick（假设）
+    -> Y.actualPosition += 10.0
 
   vm_Y_A.tick()
-    → m_jogOrch->tick()
-        → JogOrchestrator::tick() case Step::Jogging:
-            → axis->state() == Jogging → 正常，保持 Jogging
-    → m_jogOrch 无错误 → 无错误上报
+    -> m_jogOrch->tick()
+        -> JogOrchestrator::tick() case Step::Jogging:
+            -> axis->state() == Jogging -> 正常，保持 Jogging
+    -> m_jogOrch 无错误 -> 无错误上报
 
   vm_Y_A.emitSignalsIfChanged()
-    → absPos: 0.0 → 10.0 → 20.0 → ... → 300.0
-    → 每秒触发一次 absPosChanged() 信号（节流）
+    -> absPos: 0.0 -> 10.0 -> 20.0 -> ... -> 300.0
+    -> 每秒触发一次 absPosChanged() 信号（节流）
 
 ═══════════════════════════════════════════════════════════════
  时间 T=50 (300ms 后)
@@ -467,7 +467,7 @@ QML 状态：
 ═══════════════════════════════════════════════════════════════
 
 【QML 层】
-  MouseArea.onReleased → QtAxisViewModel_Y_A.jogPositiveReleased()
+  MouseArea.onReleased -> QtAxisViewModel_Y_A.jogPositiveReleased()
 
 【QtAxisViewModel 层】
   void jogPositiveReleased() { m_core->jogPositiveReleased(); }
@@ -480,8 +480,8 @@ QML 状态：
       m_jogOrch->stopJog(AxisId::Y, Direction::Forward);
       //           ↓
       // JogOrchestrator::stopJog(id, dir)
-      //   → 检查 id==m_targetId && dir==m_dir → ✅ 匹配
-      //   → m_step 当前为 Jogging → 更新为 IssuingStop
+      //   -> 检查 id==m_targetId && dir==m_dir -> ✅ 匹配
+      //   -> m_step 当前为 Jogging -> 更新为 IssuingStop
   }
 
 ═══════════════════════════════════════════════════════════════
@@ -492,30 +492,30 @@ QML 状态：
     m_step = IssuingStop  ← 下一步 tick() 执行停止
 ```
 
-### 3.7 T=52~70：Orchestrator 编排停止 → 等待空闲 → 掉电
+### 3.7 T=52~70：Orchestrator 编排停止 -> 等待空闲 -> 掉电
 
 ```
 ═══════════════════════════════════════════════════════════════
  时间 T=52
- vm_Y_A.tick() → m_jogOrch->tick()
+ vm_Y_A.tick() -> m_jogOrch->tick()
 ═══════════════════════════════════════════════════════════════
 
-【JogOrchestrator::tick() — case Step::IssuingStop】
+【JogOrchestrator::tick() -- case Step::IssuingStop】
   // 第 0 层：分组解析
-  manager.tryGetGroup("Machine_A", group) → ctxA ✅
+  manager.tryGetGroup("Machine_A", group) -> ctxA ✅
 
   // 第 1 层：轴获取（含龙门/安全拦截）
-  group->tryGetAxis(AxisId::Y, axis) → ✅
+  group->tryGetAxis(AxisId::Y, axis) -> ✅
 
   // 全局错误检测
-  axis->state() == Error? → ❌ 否
+  axis->state() == Error? -> ❌ 否
 
   // 下发停止指令
   if (!m_stopIssued) {
       axis->stopJog(Direction::Forward)
-        → Axis::stopJog() 生成 JogCommand{active: false, dir: Forward}
-        → driverA->send(AxisCommandWithId{Y, JogCommand{false, Forward}})
-        → plcA 收到停止指令，开始减速
+        -> Axis::stopJog() 生成 JogCommand{active: false, dir: Forward}
+        -> driverA->send(AxisCommandWithId{Y, JogCommand{false, Forward}})
+        -> plcA 收到停止指令，开始减速
 
       m_stopIssued = true;
   }
@@ -527,19 +527,19 @@ QML 状态：
 
 【每帧 tick】
   driverA.pollFeedback(*ctxA);
-    → plcA 减速模拟：速度 10→8→5→2→0
-    → Y.state: Jogging → Stopping → Idle
+    -> plcA 减速模拟：速度 10->8->5->2->0
+    -> Y.state: Jogging -> Stopping -> Idle
 
   vm_Y_A.tick()
-    → T=53..T=68: 仍在 WaitingForIdle
-    → T=69: axis->state() == Idle → m_step = EnsuringDisabled
-    → T=69: EnableUseCase.execute(manager, "Machine_A", Y, false)
-            → axis->enable(false) → ✅
-            → driverA->send(AxisCommandWithId{Y, DisableCommand})
-            → plcA 收到掉电指令
+    -> T=53..T=68: 仍在 WaitingForIdle
+    -> T=69: axis->state() == Idle -> m_step = EnsuringDisabled
+    -> T=69: EnableUseCase.execute(manager, "Machine_A", Y, false)
+            -> axis->enable(false) -> ✅
+            -> driverA->send(AxisCommandWithId{Y, DisableCommand})
+            -> plcA 收到掉电指令
 
-    → T=70: axis->state() == Disabled → m_step = Done ✅
-            LOG_SUMMARY: "Jog → SUCCESS (Safely Stopped)"
+    -> T=70: axis->state() == Disabled -> m_step = Done ✅
+            LOG_SUMMARY: "Jog -> SUCCESS (Safely Stopped)"
 
 ═══════════════════════════════════════════════════════════════
  时间 T=70 结束时的最终状态
@@ -567,7 +567,7 @@ QML 状态：
 
   if (!std::holds_alternative<std::monostate>(err)) {
       m_lastError = translate(err);
-      //           = std::visit → {
+      //           = std::visit -> {
       //               code:        "AXIS_AT_POSITIVE_LIMIT"
       //               userMessage: "轴已到达正向限位"
       //               debugMessage:"Axis is at positive limit, forward motion blocked"
@@ -582,8 +582,8 @@ QML 状态：
   AxisPanel_Y_A.errorUserMessage = "轴已到达正向限位"
 
   QML 根据 errorCategory == "Inline"：
-    → 在轴面板旁显示橙色内联提示（不弹窗）
-    → Jog+ 按钮图标变灰（根据 errorCode 做行为分发）
+    -> 在轴面板旁显示橙色内联提示（不弹窗）
+    -> Jog+ 按钮图标变灰（根据 errorCode 做行为分发）
 
   QML 根据 errorCode 做图标/行为分发：
     switch(errorCode):
@@ -604,16 +604,16 @@ QML 状态：
    Panel B 的 X 轴：点击 MoveAbs(500.0)
 ═══════════════════════════════════════════════════════════════
 
-【主循环 — 每帧】
+【主循环 -- 每帧】
   driverA.pollFeedback(*ctxA);   // ← 推进 A 组 PLC
-    → Y 轴位置变化 (Jogging)
+    -> Y 轴位置变化 (Jogging)
   driverB.pollFeedback(*ctxB);   // ← 推进 B 组 PLC（独立！）
-    → X 轴位置变化 (MovingAbsolute)
+    -> X 轴位置变化 (MovingAbsolute)
 
   vm_Y_A.tick();                // ← JogOrchestrator A 推进
-    → Jogging → 位置 300→310→...
+    -> Jogging -> 位置 300->310->...
   vm_X_B.tick();                // ← AbsOrch B 推进
-    → MovingAbsolute → 位置 0→50→...
+    -> MovingAbsolute -> 位置 0->50->...
 
   vm_Y_A.emitSignalsIfChanged(); // X 面板看不到 Y 面板的变化
   vm_X_B.emitSignalsIfChanged(); // Y 面板看不到 X 面板的变化

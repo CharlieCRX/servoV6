@@ -41,7 +41,7 @@ TEST(GantryCouplingController, should_reject_decouple_when_not_synchronized)
     EXPECT_FALSE(gantry.hasPendingCommand()); // 无命令产生
 }
 
-// 4. applyFeedback 是唯一退出 NotSynchronized 的途径 — 进入 Coupled
+// 4. applyFeedback 是唯一退出 NotSynchronized 的途径 -- 进入 Coupled
 TEST(GantryCouplingController, should_exit_not_synchronized_to_coupled_via_feedback)
 {
     GantryCouplingController gantry;
@@ -57,7 +57,7 @@ TEST(GantryCouplingController, should_exit_not_synchronized_to_coupled_via_feedb
     EXPECT_EQ(reason, GantryRejection::None);
 }
 
-// 5. applyFeedback 是唯一退出 NotSynchronized 的途径 — 进入 Decoupled
+// 5. applyFeedback 是唯一退出 NotSynchronized 的途径 -- 进入 Decoupled
 TEST(GantryCouplingController, should_exit_not_synchronized_to_decoupled_via_feedback)
 {
     GantryCouplingController gantry;
@@ -147,7 +147,7 @@ TEST(GantryCouplingController, should_update_state_based_on_unified_feedback_suc
 }
 
 // 10. 验证统一的 GantryFeedback 错误码映射与状态重置
-//     PLC 拒绝联动 → 回退到 Decoupled（未联动状态）
+//     PLC 拒绝联动 -> 回退到 Decoupled（未联动状态）
 TEST(GantryCouplingController, should_update_state_and_record_error_based_on_unified_feedback)
 {
     GantryCouplingController gantry;
@@ -160,7 +160,7 @@ TEST(GantryCouplingController, should_update_state_and_record_error_based_on_uni
     EXPECT_TRUE(gantry.hasError());
     EXPECT_EQ(gantry.getLastError(), GantryRejection::PositionToleranceExceeded);
     EXPECT_FALSE(gantry.isCouplingRequested());
-    EXPECT_FALSE(gantry.isCoupled()); // PLC 拒绝联动 → 回退到未联动状态
+    EXPECT_FALSE(gantry.isCoupled()); // PLC 拒绝联动 -> 回退到未联动状态
 }
 
 // 10b. 解耦请求中收到 errorCode != 0 时，不应回退到 Coupled 状态

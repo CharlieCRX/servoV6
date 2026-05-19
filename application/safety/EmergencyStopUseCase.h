@@ -8,19 +8,19 @@
  * @brief 设备急停 UseCase
  *
  * 完整调用链：
- *   UI (ViewModel) → EmergencyStopUseCase.execute(manager, groupName) → UseCaseError
+ *   UI (ViewModel) -> EmergencyStopUseCase.execute(manager, groupName) -> UseCaseError
  *
  * 涵盖两层错误：
- *   1. SystemManager 层 — 分组不存在 / 名称非法
- *   2. Safety 领域层 — NotSynchronized / AlreadyInState / InvalidStateTransition
+ *   1. SystemManager 层 -- 分组不存在 / 名称非法
+ *   2. Safety 领域层 -- NotSynchronized / AlreadyInState / InvalidStateTransition
  *
  * 成功时：
  *   1. EmergencyStopController::requestEmergencyStop()
- *        → 产生 EmergencyStopCommand{ true }，本地状态 Running → EmergencyStopping
+ *        -> 产生 EmergencyStopCommand{ true }，本地状态 Running -> EmergencyStopping
  *   2. SystemContext::driver()->send(EmergencyStopCommand{ true })
- *        → 下发到物理层（PLC 命令寄存器）
+ *        -> 下发到物理层（PLC 命令寄存器）
  *   3. 下一帧反馈循环：
- *        → PLC "设备急停中" = true → applyFeedback(true) → EmergencyStopped
+ *        -> PLC "设备急停中" = true -> applyFeedback(true) -> EmergencyStopped
  *
  * 设计原则：
  *   - 急停命令通过统一命令总线 (ISystemDriver::send) 下发，不走特殊通道
@@ -35,7 +35,7 @@ public:
      * @brief 对指定分组触发设备急停
      * @param manager   系统管理器（分组注册表）
      * @param groupName 目标分组名称
-     * @return UseCaseError — monostate 表示成功，否则为具体错误码
+     * @return UseCaseError -- monostate 表示成功，否则为具体错误码
      */
     UseCaseError execute(SystemManager& manager,
                          const std::string& groupName) {

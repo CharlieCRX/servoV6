@@ -8,7 +8,7 @@
 #include "infrastructure/ISystemDriver.h"
 
 // ============================================================================
-// ErrorTranslator 测试 — 覆盖 UseCaseError 所有 variant 分支
+// ErrorTranslator 测试 -- 覆盖 UseCaseError 所有 variant 分支
 // ============================================================================
 
 class ErrorTranslatorTest : public ::testing::Test {
@@ -318,7 +318,7 @@ TEST_F(ErrorTranslatorTest, SafetyRejection_NotEmergencyStopped) {
 }
 
 // ============================================================================
-// ⭐ 7. 参数化测试：验证所有 RejectionReason → code/category 映射
+// ⭐ 7. 参数化测试：验证所有 RejectionReason -> code/category 映射
 // ============================================================================
 
 struct RejectionReasonParam {
@@ -352,7 +352,7 @@ INSTANTIATE_TEST_SUITE_P(AllRejectionReasons,
 );
 
 // ============================================================================
-// ⭐ 8. 参数化测试：验证所有 ContextRejection → code/category 映射
+// ⭐ 8. 参数化测试：验证所有 ContextRejection -> code/category 映射
 // ============================================================================
 
 struct ContextRejectionParam {
@@ -387,7 +387,7 @@ INSTANTIATE_TEST_SUITE_P(AllContextRejections,
 );
 
 // ============================================================================
-// ⭐ 9. 参数化测试：验证所有 GantryRejection → code/category 映射
+// ⭐ 9. 参数化测试：验证所有 GantryRejection -> code/category 映射
 // ============================================================================
 
 struct GantryRejectionParam {
@@ -421,7 +421,7 @@ INSTANTIATE_TEST_SUITE_P(AllGantryRejections,
 );
 
 // ============================================================================
-// ⭐ 10. 参数化测试：验证所有 SafetyRejection → code/category 映射
+// ⭐ 10. 参数化测试：验证所有 SafetyRejection -> code/category 映射
 // ============================================================================
 
 struct SafetyRejectionParam {

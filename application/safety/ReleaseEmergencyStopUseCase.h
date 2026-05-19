@@ -8,7 +8,7 @@
  * @brief 解除设备急停 UseCase
  *
  * 完整调用链：
- *   UI (ViewModel) → ReleaseEmergencyStopUseCase.execute(manager, groupName) → UseCaseError
+ *   UI (ViewModel) -> ReleaseEmergencyStopUseCase.execute(manager, groupName) -> UseCaseError
  *
  * 前置条件：
  *   - EmergencyStopController 必须处于 EmergencyStopped 状态
@@ -16,11 +16,11 @@
  *
  * 成功时：
  *   1. EmergencyStopController::requestReleaseEmergencyStop()
- *        → 产生 EmergencyStopCommand{ false }，本地状态 EmergencyStopped → ReleasingEmergencyStop
+ *        -> 产生 EmergencyStopCommand{ false }，本地状态 EmergencyStopped -> ReleasingEmergencyStop
  *   2. SystemContext::driver()->send(EmergencyStopCommand{ false })
- *        → 下发到物理层（PLC 命令寄存器）
+ *        -> 下发到物理层（PLC 命令寄存器）
  *   3. 下一帧反馈循环：
- *        → PLC "设备急停中" = false → applyFeedback(false) → Running
+ *        -> PLC "设备急停中" = false -> applyFeedback(false) -> Running
  *
  * 设计原则：
  *   - 命令通过统一命令总线 (ISystemDriver::send) 下发
@@ -35,7 +35,7 @@ public:
      * @brief 解除指定分组的设备急停
      * @param manager   系统管理器（分组注册表）
      * @param groupName 目标分组名称
-     * @return UseCaseError — monostate 表示成功，否则为具体错误码
+     * @return UseCaseError -- monostate 表示成功，否则为具体错误码
      */
     UseCaseError execute(SystemManager& manager,
                          const std::string& groupName) {

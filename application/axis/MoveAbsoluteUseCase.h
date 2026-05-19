@@ -10,12 +10,12 @@
  * @brief 绝对定位用例
  *
  * 完整调用链：
- *   UI (ViewModel) → MoveAbsoluteUseCase.execute(manager, groupName, axisId, target) → UseCaseError
+ *   UI (ViewModel) -> MoveAbsoluteUseCase.execute(manager, groupName, axisId, target) -> UseCaseError
  *
  * 涵盖三层错误：
- *   1. SystemManager 层 — 分组不存在 / 名称非法
- *   2. SystemContext 层 — 龙门联动锁定 / 轴未注册
- *   3. Axis 领域层 — 状态非法 / 目标超限 / 已处于限位点
+ *   1. SystemManager 层 -- 分组不存在 / 名称非法
+ *   2. SystemContext 层 -- 龙门联动锁定 / 轴未注册
+ *   3. Axis 领域层 -- 状态非法 / 目标超限 / 已处于限位点
  */
 class MoveAbsoluteUseCase {
 public:
@@ -27,7 +27,7 @@ public:
      * @param groupName 目标分组名称
      * @param axisId    目标轴 ID
      * @param target    目标绝对位置
-     * @return UseCaseError — monostate 表示成功，否则为具体错误码
+     * @return UseCaseError -- monostate 表示成功，否则为具体错误码
      */
     UseCaseError execute(SystemManager& manager,
                          const std::string& groupName,

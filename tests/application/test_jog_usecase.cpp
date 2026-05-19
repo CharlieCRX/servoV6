@@ -207,7 +207,7 @@ TEST_F(JogAxisUseCaseTest, ShouldNotAutoEnableAxis) {
     EXPECT_FALSE(ax->hasPendingCommand());
 }
 
-// 场景 8：多轴隔离——正向点动只影响目标轴
+// 场景 8：多轴隔离----正向点动只影响目标轴
 TEST_F(JogAxisUseCaseTest, ShouldOnlyAffectTargetAxis) {
     UseCaseError result = usecase.execute(mgr, "Default", AxisId::Y, Direction::Forward);
 

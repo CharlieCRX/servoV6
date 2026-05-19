@@ -15,7 +15,7 @@
 /**
  * @brief 绝对定位运动编排器
  *
- * 职责：编排"使能 → 下发绝对定位 → 等待运动开始 → 等待运动完成 → 掉电"的完整流程。
+ * 职责：编排"使能 -> 下发绝对定位 -> 等待运动开始 -> 等待运动完成 -> 掉电"的完整流程。
  *
  * 分层职责：
  *   - EnableUseCase / MoveAbsoluteUseCase 负责：分组路由 + 轴状态幂等检查 + 下发命令
@@ -91,7 +91,7 @@ public:
         if (group->emergencyStopController().isSystemLocked()) {
             if (m_step != Step::Initial && m_step != Step::Done && m_step != Step::Error) {
                 LOG_INFO(LogLayer::APP, "AbsOrch",
-                         "[" + m_groupName + "][" + axisName(m_targetId) + "] Safety locked — aborting gracefully");
+                         "[" + m_groupName + "][" + axisName(m_targetId) + "] Safety locked -- aborting gracefully");
                 m_step = Step::Done;
                 m_lastError = std::monostate{};
             }
@@ -110,7 +110,7 @@ public:
         // 全局最高优先级：硬件/状态错误拦截
         if (axis->state() == AxisState::Error) {
             LOG_ERROR(LogLayer::APP, "AbsOrch",
-                      "[" + m_groupName + "][" + axisName(m_targetId) + "] Axis Error state — aborting");
+                      "[" + m_groupName + "][" + axisName(m_targetId) + "] Axis Error state -- aborting");
             m_step = Step::Error;
             m_lastError = axis->lastRejection();
             return;
@@ -123,7 +123,7 @@ public:
             break;
 
         // ============================================================
-        // EnsuringEnabled：使能 → 等待 Idle
+        // EnsuringEnabled：使能 -> 等待 Idle
         // ============================================================
 
         case Step::EnsuringEnabled:
@@ -140,7 +140,7 @@ public:
             }
             if (axis->state() == AxisState::Idle) {
                 LOG_DEBUG(LogLayer::APP, "AbsOrch",
-                          "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled → IssuingMove");
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -> IssuingMove");
                 m_step = Step::IssuingMove;
                 break;
             }
@@ -148,7 +148,7 @@ public:
             break;
 
         // ============================================================
-        // IssuingMove：下发绝对定位指令 → WaitingMotionStart
+        // IssuingMove：下发绝对定位指令 -> WaitingMotionStart
         // ============================================================
 
         case Step::IssuingMove:
@@ -160,7 +160,7 @@ public:
                     LOG_ERROR(LogLayer::APP, "AbsOrch",
                               "[" + m_groupName + "][" + axisName(m_targetId) + "] MoveAbsolute rejected");
                     m_lastError = err;
-                    // 失败熔断 → 掉电
+                    // 失败熔断 -> 掉电
                     EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, false);
                     m_step = Step::Error;
                     break;
@@ -170,7 +170,7 @@ public:
                 m_startPos = pos;
                 m_moveIssued = true;
                 LOG_DEBUG(LogLayer::APP, "AbsOrch",
-                          "[" + m_groupName + "][" + axisName(m_targetId) + "] IssuingMove → WaitingMotionStart");
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] IssuingMove -> WaitingMotionStart");
                 m_step = Step::WaitingMotionStart;
             }
             break;
@@ -186,7 +186,7 @@ public:
                     axis->isMoveCompleted()) {
                     m_motionObserved = true;
                     LOG_DEBUG(LogLayer::APP, "AbsOrch",
-                              "[" + m_groupName + "][" + axisName(m_targetId) + "] WaitingMotionStart → WaitingMotionFinish");
+                              "[" + m_groupName + "][" + axisName(m_targetId) + "] WaitingMotionStart -> WaitingMotionFinish");
                     m_step = Step::WaitingMotionFinish;
                 }
             }
@@ -202,14 +202,14 @@ public:
             if (axis->isMoveCompleted()) {
                 double currentPos = axis->currentAbsolutePosition();
                 if (std::abs(currentPos - m_target) < m_epsilon) {
-                    // 物理到位 → Done
+                    // 物理到位 -> Done
                     EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, false);
                     LOG_SUMMARY(LogLayer::APP, "AbsOrch",
                                 "[" + m_groupName + "][" + axisName(m_targetId) + "] MoveAbsolute("
                                     + std::to_string(m_target) + ") -> SUCCESS");
                     m_step = Step::Done;
                 } else {
-                    // 物理没到位 → Error
+                    // 物理没到位 -> Error
                     EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, false);
                     m_lastError = RejectionReason::InvalidState;
                     LOG_SUMMARY(LogLayer::APP, "AbsOrch",

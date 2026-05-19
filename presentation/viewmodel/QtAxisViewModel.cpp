@@ -195,7 +195,7 @@ void QtAxisViewModel::tick() {
     // 1. 驱动底层状态机
     m_core->tick();
 
-    // 2. 缓存对比 → 按需 emit
+    // 2. 缓存对比 -> 按需 emit
     bool emitState  = false;
     bool emitPos    = false;
     bool emitLimit  = false;

@@ -68,8 +68,8 @@ struct GantryPhysicalState {
  *   - 状态寄存器（"设备急停中"）：PLC 写入，Domain 读取
  *
  * 两者之间存在硬件延迟：
- *   - 命令写入激活 → 经过 EMERGENCY_STOP_ENGAGE_DELAY_MS → 状态寄存设置为 true
- *   - 命令写入解除 → 经过 EMERGENCY_STOP_RELEASE_DELAY_MS → 状态寄存设置为 false
+ *   - 命令写入激活 -> 经过 EMERGENCY_STOP_ENGAGE_DELAY_MS -> 状态寄存设置为 true
+ *   - 命令写入解除 -> 经过 EMERGENCY_STOP_RELEASE_DELAY_MS -> 状态寄存设置为 false
  *
  * 急停生效时 PLC 行为（与真实 PLC 一致）：
  *   1. 所有轴立即掉电（状态强制 Disabled）
@@ -79,15 +79,15 @@ struct GantryPhysicalState {
  * --- 龙门反馈仿真模型 ---
  *
  * 对应真实 PLC 的龙门相关寄存器：
- *   - GantryPowerCommand{enable}    → 写入使能命令，延迟后 → GantryFeedback::enable
- *   - GantryCouplingCommand{couple} → 写入耦合命令，延迟后 → GantryFeedback::isCoupled
- *   - GantryFeedback::errorCode     → 耦合条件不满足时的错误码
+ *   - GantryPowerCommand{enable}    -> 写入使能命令，延迟后 -> GantryFeedback::enable
+ *   - GantryCouplingCommand{couple} -> 写入耦合命令，延迟后 -> GantryFeedback::isCoupled
+ *   - GantryFeedback::errorCode     -> 耦合条件不满足时的错误码
  *
  * 仿真延迟：
  *   - GANTRY_POWER_DELAY_MS    (150ms) 电机使能延迟
  *   - GANTRY_COUPLING_DELAY_MS (100ms) 耦合/解耦延迟
  *
- * PLC 在每个 tick 中执行扫描周期：刷新物理状态 → 条件检查 → 反馈生成。
+ * PLC 在每个 tick 中执行扫描周期：刷新物理状态 -> 条件检查 -> 反馈生成。
  * 联动建立后会持续监测：超差/报警/掉电/急停任一触发即自动解耦。
  *
  * 使用示例：
@@ -120,7 +120,7 @@ public:
     /**
      * @brief 下发龙门相关命令（GantryCouplingCommand / GantryPowerCommand）
      *
-     * 龙门命令不绑定特定轴，由 GantryOrchestrator 通过 Driver → PLC 路径下发。
+     * 龙门命令不绑定特定轴，由 GantryOrchestrator 通过 Driver -> PLC 路径下发。
      */
     void onGantryCommand(const GantryCouplingCommand& cmd) {
         m_gantryCouplingCmdPending = true;
@@ -148,8 +148,8 @@ public:
      *
      * 执行顺序：
      *   1. 急停延迟状态机
-     *   2. 各轴状态跃迁 → 运动学推演 → 限位检测（先推演轴，让 X1/X2 位置更新）
-     *   3. 龙门状态机（依赖最新 X1/X2 物理状态 → 必须在轴推演之后执行）
+     *   2. 各轴状态跃迁 -> 运动学推演 -> 限位检测（先推演轴，让 X1/X2 位置更新）
+     *   3. 龙门状态机（依赖最新 X1/X2 物理状态 -> 必须在轴推演之后执行）
      */
     void tick(int ms) {
         // --- 急停延迟状态机 ---
@@ -178,7 +178,7 @@ public:
                 + " rel=" + std::to_string(axis.feedback.relPos));
         }
 
-        // --- 龙门状态机（依赖最新的X1/X2物理状态 → 必须在轴推演之后执行） ---
+        // --- 龙门状态机（依赖最新的X1/X2物理状态 -> 必须在轴推演之后执行） ---
         tickGantry(ms);
     }
 
@@ -438,7 +438,7 @@ private:
         return 0;
     }
 
-    /// @brief 龙门状态机 — 每个 tick 周期推进（扫描周期模型）
+    /// @brief 龙门状态机 -- 每个 tick 周期推进（扫描周期模型）
     void tickGantry(int ms) {
         // 测试注入模式：跳过自动刷新，保护测试注入的数据
         if (m_gantryFeedbackLocked) return;
@@ -502,7 +502,7 @@ private:
 
             int errorCode = checkCouplingConditions();
             if (errorCode != 0) {
-                // 条件不满足 → 拒绝联动，写入错误码
+                // 条件不满足 -> 拒绝联动，写入错误码
                 m_gantryFeedback.errorCode = errorCode;
                 m_gantryFeedback.isCoupled = false;
                 m_gantryCouplingCmdPending = false;
@@ -510,7 +510,7 @@ private:
                 return;
             }
 
-            // 所有条件满足 → 联动成功
+            // 所有条件满足 -> 联动成功
             m_gantryFeedback.isCoupled = true;
             m_gantryFeedback.errorCode = 0;
             m_gantryCouplingCmdPending = false;
@@ -599,7 +599,7 @@ private:
         if (m_emergencyStoppedReg) {
             LOG_WARN(LogLayer::HAL, "PLC",
                 "Enable REJECTED: axis=" + axisIdToString(id)
-                + " EMERGENCY STOP ACTIVE — ignoring Enable");
+                + " EMERGENCY STOP ACTIVE -- ignoring Enable");
             return;
         }
         if (cmd.active && axis.feedback.state == AxisState::Disabled) {
@@ -710,7 +710,7 @@ private:
             axis.feedback.absPos = 0.0;
             LOG_DEBUG(LogLayer::HAL, "PLC",
                 "ZeroAbsolute executed: axis=" + axisIdToString(id)
-                + " abs " + std::to_string(oldAbs) + " → 0.0");
+                + " abs " + std::to_string(oldAbs) + " -> 0.0");
         } else {
             LOG_WARN(LogLayer::HAL, "PLC",
                 "ZeroAbsolute REJECTED: axis=" + axisIdToString(id)
@@ -735,7 +735,7 @@ private:
             axis.feedback.relZeroAbsPos = axis.feedback.absPos;
             LOG_DEBUG(LogLayer::HAL, "PLC",
                 "SetRelativeZero executed: axis=" + axisIdToString(id)
-                + " base " + std::to_string(oldBase) + " → " + std::to_string(axis.feedback.relZeroAbsPos));
+                + " base " + std::to_string(oldBase) + " -> " + std::to_string(axis.feedback.relZeroAbsPos));
         } else {
             LOG_WARN(LogLayer::HAL, "PLC",
                 "SetRelativeZero REJECTED: axis=" + axisIdToString(id)
@@ -760,7 +760,7 @@ private:
             axis.feedback.relZeroAbsPos = 0.0;
             LOG_DEBUG(LogLayer::HAL, "PLC",
                 "ClearRelativeZero executed: axis=" + axisIdToString(id)
-                + " base " + std::to_string(oldBase) + " → 0.0");
+                + " base " + std::to_string(oldBase) + " -> 0.0");
         } else {
             LOG_WARN(LogLayer::HAL, "PLC",
                 "ClearRelativeZero REJECTED: axis=" + axisIdToString(id)

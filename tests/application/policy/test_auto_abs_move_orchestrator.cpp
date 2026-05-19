@@ -2,12 +2,12 @@
  * @file test_auto_abs_move_orchestrator.cpp
  * @brief AutoAbsMoveOrchestrator 的单元测试套件
  *
- * 本文件测试 AutoAbsMoveOrchestrator——绝对定位运动编排器的完整状态机行为。
- * 编排器负责协调多轴场景下的 "Enable → IssueMove → WaitMotionStart → WaitMotionFinish → Done"
+ * 本文件测试 AutoAbsMoveOrchestrator----绝对定位运动编排器的完整状态机行为。
+ * 编排器负责协调多轴场景下的 "Enable -> IssueMove -> WaitMotionStart -> WaitMotionFinish -> Done"
  * 全生命周期，覆盖正常流程、异常恢复、幂等性保障等关键路径。
  *
  * 架构变更（组管理重构）：
- *   编排器不再直接持有 AxisRepository，改为通过 SystemManager → SystemContext 获取轴。
+ *   编排器不再直接持有 AxisRepository，改为通过 SystemManager -> SystemContext 获取轴。
  *   EnableUseCase 已改为无状态（execute 时传入 manager + groupName + axisId）。
  *   指令下发通过 group->driver()->send() 完成。
  *
@@ -17,7 +17,7 @@
  *     提供便捷的轴状态注入与状态机快速推进工具方法
  *
  * 状态机流转示意：
- *   Initial → EnsuringEnabled → IssuingMove → WaitingMotionStart → WaitingMotionFinish → Done
+ *   Initial -> EnsuringEnabled -> IssuingMove -> WaitingMotionStart -> WaitingMotionFinish -> Done
  *               ↓                    ↓              ↓                    ↓
  *             Error ←────────── Error ←───────── Error ←───────────── Error
  */
@@ -90,7 +90,7 @@ protected:
 // =====================================================================
 // Error 状态测试
 // =====================================================================
-// 全局最高优先级的错误拦截：任何阶段检测到 AxisState::Error → 立即熔断
+// 全局最高优先级的错误拦截：任何阶段检测到 AxisState::Error -> 立即熔断
 // =====================================================================
 
 /**
@@ -117,10 +117,10 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldEnterErrorWhenAxisIsInErrorState)
 // EnsuringEnabled 阶段测试
 // =====================================================================
 // 编排器启动后首先进入 EnsuringEnabled 阶段。在此阶段：
-//   - 如果轴处于 Error 状态 → 直接进入 Error
-//   - 如果轴处于 Disabled 状态 → 发送 EnableCommand(true)
-//   - 如果轴处于 Idle 状态 → 跳至 IssuingMove
-//   - 如果轴处于其他状态 → 保持等待
+//   - 如果轴处于 Error 状态 -> 直接进入 Error
+//   - 如果轴处于 Disabled 状态 -> 发送 EnableCommand(true)
+//   - 如果轴处于 Idle 状态 -> 跳至 IssuingMove
+//   - 如果轴处于其他状态 -> 保持等待
 // 关键约束：在此阶段不得发送 Move 指令（幂等入口保护）
 // =====================================================================
 
@@ -132,7 +132,7 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldEnterErrorWhenAxisIsInErrorState)
  *   - 发出 EnableCommand(true)
  *   - 阶段保持在 EnsuringEnabled（等待轴变为 Idle）
  *
- * 这是正常启动流程的入口测试：Disabled → 主动使能
+ * 这是正常启动流程的入口测试：Disabled -> 主动使能
  */
 TEST_F(AutoAbsMoveOrchestratorTest, ShouldSendEnableWhenAxisIsDisabled)
 {
@@ -193,11 +193,11 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldNotMoveBeforeAxisBecomesIdle)
 // =====================================================================
 // 当轴进入 Idle 状态后，编排器过渡到 IssuingMove 阶段。
 // 关键约束：
-//   1. 首帧不发 Move —— 先切换阶段，下帧再发（两阶段分离设计）
+//   1. 首帧不发 Move ---- 先切换阶段，下帧再发（两阶段分离设计）
 //   2. 第二帧发起 MoveAbsolute 指令
 //   3. 幂等性：Move 指令最多只发一次
-//   4. 拒绝处理：Move 被领域层拒绝时 → 掉电 + Error
-//   5. Move 发出后 → 过渡到 WaitingMotionStart
+//   4. 拒绝处理：Move 被领域层拒绝时 -> 掉电 + Error
+//   5. Move 发出后 -> 过渡到 WaitingMotionStart
 // =====================================================================
 
 /**
@@ -251,13 +251,13 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldOnlyTransitionToIssuingMoveWhenAxisBec
  *   - 目标位置为 1.0
  *   - 指令发送到正确的目标轴
  *
- * 这是正常流程中的关键一跳：Idle → Move 指令发出
+ * 这是正常流程中的关键一跳：Idle -> Move 指令发出
  */
 TEST_F(AutoAbsMoveOrchestratorTest, ShouldSendMoveOnlyOnNextTickAfterEnteringIssuingMove)
 {
     orchestrator->startAbs(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → 发 Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> 发 Move
 
     ASSERT_TRUE(driver.has<MoveCommand>());
     auto cmd = driver.lastForAxis<MoveCommand>(targetId);
@@ -277,8 +277,8 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldSendMoveOnlyOnNextTickAfterEnteringIss
 TEST_F(AutoAbsMoveOrchestratorTest, ShouldSendMoveOnlyOnce)
 {
     orchestrator->startAbs(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
     orchestrator->tick(); // 再 tick（不应产生第二条 Move）
     orchestrator->tick(); // 再 tick（不应产生第二条 Move）
 
@@ -304,8 +304,8 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldDisableAndEnterErrorWhenMoveRejected)
 {
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 100.0, .negLimitValue = -100.0});
     orchestrator->startAbs(targetId, 9999.0); // 必然越界
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move 被拒绝
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move 被拒绝
 
     ASSERT_TRUE(driver.has<EnableCommand>());
     auto cmd = driver.lastForAxis<EnableCommand>(targetId);
@@ -320,13 +320,13 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldDisableAndEnterErrorWhenMoveRejected)
  * 验证：currentStep() == WaitingMotionStart
  *
  * 这是正常流程的正向验证：证明编排器按预期完成了
- * IssuingMove → WaitingMotionStart 的状态过渡
+ * IssuingMove -> WaitingMotionStart 的状态过渡
  */
 TEST_F(AutoAbsMoveOrchestratorTest, ShouldEnterWaitingMotionStartAfterMoveSuccess)
 {
     orchestrator->startAbs(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     EXPECT_EQ(orchestrator->currentStep(), AutoAbsMoveOrchestrator::Step::WaitingMotionStart);
 }
@@ -343,7 +343,7 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldEnterWaitingMotionStartAfterMoveSucces
 // 关键约束：
 //   - 运动观测具有"锁存"（latch）行为：一旦观测到运动，即使后续
 //     位置回退也保持在 WaitingMotionFinish
-//   - 如果在 WaitingMotionStart 期间轴进入 Error 状态 → 全局拦截
+//   - 如果在 WaitingMotionStart 期间轴进入 Error 状态 -> 全局拦截
 // =====================================================================
 
 /**
@@ -359,8 +359,8 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldEnterWaitingMotionStartAfterMoveSucces
 TEST_F(AutoAbsMoveOrchestratorTest, ShouldDetectMotionByPositionDeltaEvenWithoutMovingState)
 {
     orchestrator->startAbs(targetId, 0.5);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
     EXPECT_EQ(orchestrator->currentStep(), AutoAbsMoveOrchestrator::Step::WaitingMotionStart);
 
     // 模拟：直接跳到新位置（没有 Moving）
@@ -381,8 +381,8 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldDetectMotionByPositionDeltaEvenWithout
 TEST_F(AutoAbsMoveOrchestratorTest, ShouldEnterWaitingMotionFinishWhenAxisStartsMoving)
 {
     orchestrator->startAbs(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     axis().applyFeedback({.state = AxisState::MovingAbsolute, .absPos = 0.1, .relPos = 0.1, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->tick();
@@ -402,8 +402,8 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldEnterWaitingMotionFinishWhenAxisStarts
 TEST_F(AutoAbsMoveOrchestratorTest, ShouldStayIfNoMotionObserved)
 {
     orchestrator->startAbs(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
     orchestrator->tick(); // 没有发生任何位移
 
     EXPECT_EQ(orchestrator->currentStep(), AutoAbsMoveOrchestrator::Step::WaitingMotionStart);
@@ -422,8 +422,8 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldStayIfNoMotionObserved)
 TEST_F(AutoAbsMoveOrchestratorTest, ShouldEnterErrorWhenAxisReportsError)
 {
     orchestrator->startAbs(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     axis().applyFeedback({.state = AxisState::Error, .absPos = 0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->tick();
@@ -446,8 +446,8 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldEnterErrorWhenAxisReportsError)
 TEST_F(AutoAbsMoveOrchestratorTest, ShouldLatchMotionObserved)
 {
     orchestrator->startAbs(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     // 第一次：发生位移（观测到运动）
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 0.2, .relPos = 0.2, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
@@ -467,8 +467,8 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldLatchMotionObserved)
 // 完成判定三角验证：
 //   1. 轴状态停用（isMoveCompleted() 返回 true）
 //   2. 当前位置 ≈ 目标位置（物理级最终验证）
-// 满足以上两个条件 → Done + 掉电（发送 EnableCommand(false)）
-// 如果物理位置与目标偏差过大 → Error（可能被外力打断）
+// 满足以上两个条件 -> Done + 掉电（发送 EnableCommand(false)）
+// 如果物理位置与目标偏差过大 -> Error（可能被外力打断）
 //
 // 安全机制：
 //   - 防假完成：如果从未观测到运动（m_motionObserved == false），
@@ -481,8 +481,8 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldLatchMotionObserved)
  *
  * 场景：
  *   1. 起始位置 0.0，目标位置 1.0
- *   2. 轴 moving → 位置 0.5
- *   3. 轴 idle → 位置 1.0（完成）
+ *   2. 轴 moving -> 位置 0.5
+ *   3. 轴 idle -> 位置 1.0（完成）
  * 验证：
  *   - 发出 EnableCommand(false) 掉电
  *   - 阶段进入 Done
@@ -494,12 +494,12 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldLatchMotionObserved)
 TEST_F(AutoAbsMoveOrchestratorTest, ShouldDisableWhenMotionFinished)
 {
     orchestrator->startAbs(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     // 模拟进入 WaitingMotionFinish（位置变化）
     axis().applyFeedback({.state = AxisState::MovingAbsolute, .absPos = 0.5, .relPos = 0.5, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
-    orchestrator->tick(); // → WaitingMotionFinish
+    orchestrator->tick(); // -> WaitingMotionFinish
 
     // 完成条件全部满足（Idle + 位置到达目标）
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 1.0, .relPos = 1.0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
@@ -515,7 +515,7 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldDisableWhenMotionFinished)
  * @test 运动未到位时不应完成
  *
  * 场景：位置已变化但未到达目标
- *   起点 0.0 → 已运动到 0.8（目标为 1.0），轴停用
+ *   起点 0.0 -> 已运动到 0.8（目标为 1.0），轴停用
  * 验证：阶段不进入 Done
  *
  * 验证了编排器在"轴已停但位置未到位"场景下的耐心等待行为。
@@ -524,11 +524,11 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldDisableWhenMotionFinished)
 TEST_F(AutoAbsMoveOrchestratorTest, ShouldNotCompleteIfNotInPosition)
 {
     orchestrator->startAbs(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     axis().applyFeedback({.state = AxisState::MovingAbsolute, .absPos = 0.5, .relPos = 0.5, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
-    orchestrator->tick(); // → WaitingMotionFinish
+    orchestrator->tick(); // -> WaitingMotionFinish
 
     // 回到 Idle，但位置不对
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 0.8, .relPos = 0.8, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
@@ -538,7 +538,7 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldNotCompleteIfNotInPosition)
 }
 
 /**
- * @test Idle + 未到位 → 必须保持 WaitingMotionFinish（强语义）
+ * @test Idle + 未到位 -> 必须保持 WaitingMotionFinish（强语义）
  *
  * 场景：轴Idle但位置偏离目标（如 0.3 ≠ 1.0）
  * 验证：不应该完成，应继续等待
@@ -550,11 +550,11 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldNotCompleteIfNotInPosition)
 TEST_F(AutoAbsMoveOrchestratorTest, ShouldNotCompleteIfNotInPosition2)
 {
     orchestrator->startAbs(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     axis().applyFeedback({.state = AxisState::MovingAbsolute, .absPos = 0.5, .relPos = 0.5, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
-    orchestrator->tick(); // → WaitingMotionFinish
+    orchestrator->tick(); // -> WaitingMotionFinish
 
     // Idle 但未到位
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 0.3, .relPos = 0.3, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
@@ -584,8 +584,8 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldNotCompleteIfNotInPosition2)
 TEST_F(AutoAbsMoveOrchestratorTest, ShouldNotCompleteIfMotionNeverObserved)
 {
     orchestrator->startAbs(targetId, 1.0);
-    orchestrator->tick(); // → IssuingMove
-    orchestrator->tick(); // → Move
+    orchestrator->tick(); // -> IssuingMove
+    orchestrator->tick(); // -> Move
 
     // 未经过 WaitingMotionStart 的运动观测，直接跳位置
     axis().applyFeedback({.state = AxisState::Idle, .absPos = 1.0, .relPos = 1.0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
@@ -599,7 +599,7 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldNotCompleteIfMotionNeverObserved)
 // =====================================================================
 
 /**
- * @test 分组不存在 → 立即 Error + GroupNotFound
+ * @test 分组不存在 -> 立即 Error + GroupNotFound
  *
  * 业务规则：
  *   编排器绑定的是 SystemManager + groupName。如果分组在运行时被删除
@@ -632,7 +632,7 @@ TEST_F(AutoAbsMoveOrchestratorTest, ShouldRemainInErrorAfterMultipleTicks)
 {
     axis().applyFeedback({.state = AxisState::Error, .absPos = 0, .relPos = 0, .relZeroAbsPos = 0, .posLimit = false, .negLimit = false, .posLimitValue = 1000, .negLimitValue = -1000});
     orchestrator->startAbs(targetId, 1.0);
-    orchestrator->tick(); // → Error
+    orchestrator->tick(); // -> Error
     orchestrator->tick(); // 再次 tick
     orchestrator->tick(); // 再次 tick
 
