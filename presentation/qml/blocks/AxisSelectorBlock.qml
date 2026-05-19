@@ -7,7 +7,11 @@ Rectangle {
     
     // === 核心接口 ===
     property string currentAxisName: "Y" // 默认选中 Y 轴
+    property var emergencyViewModel: null
     signal axisChanged(string axisName)  // 切换轴时发出的信号
+
+    // 急停锁定状态
+    readonly property bool locked: emergencyViewModel && emergencyViewModel.isSystemLocked
 
     color: "transparent"
     border.color: Theme.borderMain
@@ -38,6 +42,8 @@ Rectangle {
                 name: "Y 轴 (水平)"
                 isActive: root.currentAxisName === "Y"
                 statusText: isActive ? "控制中" : "待机"
+                enabled: !root.locked
+                opacity: enabled ? 1.0 : 0.4
                 onClicked: {
                     root.currentAxisName = "Y"
                     root.axisChanged("Y")
@@ -49,6 +55,8 @@ Rectangle {
                 name: "Z 轴 (垂直)"
                 isActive: root.currentAxisName === "Z"
                 statusText: isActive ? "控制中" : "待机"
+                enabled: !root.locked
+                opacity: enabled ? 1.0 : 0.4
                 onClicked: {
                     root.currentAxisName = "Z"
                     root.axisChanged("Z")
@@ -60,6 +68,8 @@ Rectangle {
                 name: "R 轴 (旋转)"
                 isActive: root.currentAxisName === "R"
                 statusText: isActive ? "控制中" : "待机"
+                enabled: !root.locked
+                opacity: enabled ? 1.0 : 0.4
                 onClicked: {
                     root.currentAxisName = "R"
                     root.axisChanged("R")
@@ -72,6 +82,8 @@ Rectangle {
                 isActive: root.currentAxisName === "X"
                 statusText: isActive ? "控制中" : "待机"
                 isDual: true
+                enabled: !root.locked
+                opacity: enabled ? 1.0 : 0.4
                 onClicked: {
                     root.currentAxisName = "X"
                     root.axisChanged("X")
@@ -85,6 +97,8 @@ Rectangle {
                 name: "X1 轴 (物理)"
                 isActive: root.currentAxisName === "X1"
                 statusText: isActive ? "控制中" : "待机"
+                enabled: !root.locked
+                opacity: enabled ? 1.0 : 0.4
                 onClicked: {
                     root.currentAxisName = "X1"
                     root.axisChanged("X1")
@@ -96,6 +110,8 @@ Rectangle {
                 name: "X2 轴 (物理)"
                 isActive: root.currentAxisName === "X2"
                 statusText: isActive ? "控制中" : "待机"
+                enabled: !root.locked
+                opacity: enabled ? 1.0 : 0.4
                 onClicked: {
                     root.currentAxisName = "X2"
                     root.axisChanged("X2")

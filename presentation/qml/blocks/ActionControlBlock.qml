@@ -35,19 +35,18 @@ Rectangle {
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 20 * Theme.scale
+        spacing: 6 * Theme.scale
 
         // ==========================================
         // 0. 紧急急停状态横幅（危险状态时显示）
         // ==========================================
         Rectangle {
             Layout.fillWidth: true
-            height: emergencyViewModel && emergencyViewModel.safetyStateText !== "" ? 44 * Theme.scale : 0
+            height: emergencyViewModel && emergencyViewModel.safetyStateText !== "" ? 36 * Theme.scale : 0
             visible: emergencyViewModel && emergencyViewModel.safetyStateText !== ""
-            color: "#D32F2F"  // 工业红色
+            color: "#D32F2F"
             radius: 4 * Theme.scale
 
-            // 闪烁动画 -- 仅在 EmergencyStopped 时闪烁
             Rectangle {
                 anchors.fill: parent
                 color: "#D32F2F"
@@ -65,18 +64,18 @@ Rectangle {
                 anchors.centerIn: parent
                 text: emergencyViewModel ? emergencyViewModel.safetyStateText : ""
                 color: "#FFFFFF"
-                font.pixelSize: Theme.fontNormal
+                font.pixelSize: Theme.fontSmall
                 font.bold: true
                 font.family: "Monospace"
             }
         }
 
         // ==========================================
-        // 1. 顶部：模式切换器 (Mode Switcher)
+        // 1. 顶部：模式切换器
         // ==========================================
         Rectangle {
             Layout.fillWidth: true
-            height: 40 * Theme.scale
+            height: 34 * Theme.scale
             radius: 8 * Theme.scale
             color: Theme.bgDark
             border.color: Theme.borderMain
@@ -87,7 +86,6 @@ Rectangle {
                 anchors.fill: parent
                 spacing: 0
 
-                // 点动模式 Tab
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -95,10 +93,10 @@ Rectangle {
                     radius: 8 * Theme.scale
                     Text {
                         anchors.centerIn: parent
-                        text: "点动 (JOG)"
+                        text: "点动"
                         color: root.currentMode === 0 ? Theme.textMain : Theme.textDim
                         font.bold: root.currentMode === 0
-                        font.pixelSize: Theme.fontNormal
+                        font.pixelSize: Theme.fontSmall
                     }
                     MouseArea {
                         anchors.fill: parent
@@ -107,7 +105,6 @@ Rectangle {
                     }
                 }
 
-                // 定位模式 Tab
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -115,10 +112,10 @@ Rectangle {
                     radius: 8 * Theme.scale
                     Text {
                         anchors.centerIn: parent
-                        text: "定位 (POS)"
+                        text: "定位"
                         color: root.currentMode === 1 ? Theme.textMain : Theme.textDim
                         font.bold: root.currentMode === 1
-                        font.pixelSize: Theme.fontNormal
+                        font.pixelSize: Theme.fontSmall
                     }
                     MouseArea {
                         anchors.fill: parent
@@ -140,23 +137,24 @@ Rectangle {
             // --- A. 点动控制面板 ---
             ColumnLayout {
                 anchors.fill: parent
-                spacing: 20 * Theme.scale
+                spacing: 8 * Theme.scale
                 visible: root.currentMode === 0
 
-                Item { Layout.fillHeight: true } // 顶部弹簧
-                
+                // 顶部留空
+                Item { Layout.preferredHeight: 4 * Theme.scale }
+
                 // 点动速度设定
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
-                    spacing: 10 * Theme.scale
-                    
-                    Text { 
+                    spacing: 8 * Theme.scale
+
+                    Text {
                         text: "点动速度: " + (viewModel ? viewModel.jogVelocity.toFixed(1) : "0.0") + " mm/s"
                         color: Theme.textMain
                         font.pixelSize: Theme.fontNormal
                         font.family: "Monospace"
                     }
-                    
+
                     IndustrialButton {
                         text: "⚙️"
                         buttonSize: 30 * Theme.scale
@@ -167,45 +165,56 @@ Rectangle {
                     }
                 }
 
+                // 上半弹簧
+                Item { Layout.fillHeight: true }
+
+                // JOG+ 按钮
                 IndustrialButton {
                     text: "JOG +"
+                    isCircle: false
+                    buttonSize: 170 * Theme.scale
                     Layout.alignment: Qt.AlignHCenter
                     enabled: root.jogEnabled
                     onPressed: if(viewModel && root.jogEnabled) viewModel.jogPositivePressed()
                     onReleased: if(viewModel && root.jogEnabled) viewModel.jogPositiveReleased()
                 }
 
+                // JOG- 按钮
                 IndustrialButton {
                     text: "JOG -"
+                    isCircle: false
+                    buttonSize: 170 * Theme.scale
                     Layout.alignment: Qt.AlignHCenter
                     enabled: root.jogEnabled
                     onPressed: if(viewModel && root.jogEnabled) viewModel.jogNegativePressed()
                     onReleased: if(viewModel && root.jogEnabled) viewModel.jogNegativeReleased()
                 }
 
-                Item { Layout.fillHeight: true } // 底部弹簧
+                // 下半弹簧
+                Item { Layout.fillHeight: true }
             }
 
             // --- B. 定位控制面板 ---
             ColumnLayout {
                 anchors.fill: parent
-                spacing: 20 * Theme.scale
+                spacing: 8 * Theme.scale
                 visible: root.currentMode === 1
 
-                Item { Layout.fillHeight: true }
-                
+                // 顶部留空
+                Item { Layout.preferredHeight: 4 * Theme.scale }
+
                 // 定位速度设定
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
-                    spacing: 10 * Theme.scale
-                    
-                    Text { 
+                    spacing: 8 * Theme.scale
+
+                    Text {
                         text: "定位速度: " + (viewModel ? viewModel.moveVelocity.toFixed(1) : "0.0") + " mm/s"
                         color: Theme.textMain
                         font.pixelSize: Theme.fontNormal
                         font.family: "Monospace"
                     }
-                    
+
                     IndustrialButton {
                         text: "⚙️"
                         buttonSize: 30 * Theme.scale
@@ -216,55 +225,55 @@ Rectangle {
                     }
                 }
 
-                // 绝对/相对 单选区
+                // 绝对/相对 单选（紧凑，紧贴速度行）
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
-                    spacing: 8 * Theme.scale 
+                    spacing: 4 * Theme.scale
 
                     RadioButton {
-                        text: "绝对 (Abs)"
+                        text: "绝对"
                         checked: root.isAbsolute
                         enabled: root.isReadyForPos
-                        opacity: enabled ? 1.0 : 0.5 
+                        opacity: enabled ? 1.0 : 0.5
                         onClicked: root.isAbsolute = true
                         contentItem: Text {
                             text: parent.text
                             color: Theme.textMain
-                            font.pixelSize: Theme.fontNormal
-                            leftPadding: parent.indicator.width + parent.spacing
+                            font.pixelSize: Theme.fontSmall
+                            leftPadding: parent.indicator.width + 2
                         }
                     }
-                    
+
                     RadioButton {
-                        text: "相对 (Rel)"
+                        text: "相对"
                         checked: !root.isAbsolute
                         enabled: root.isReadyForPos
-                        opacity: enabled ? 1.0 : 0.5 
+                        opacity: enabled ? 1.0 : 0.5
                         onClicked: root.isAbsolute = false
                         contentItem: Text {
                             text: parent.text
                             color: Theme.textMain
-                            font.pixelSize: Theme.fontNormal
-                            leftPadding: parent.indicator.width + parent.spacing
+                            font.pixelSize: Theme.fontSmall
+                            leftPadding: parent.indicator.width + 2
                         }
                     }
                 }
 
-                // 目标值输入框
+                // 上半弹簧
+                Item { Layout.fillHeight: true }
+
+                // 目标值输入
                 TextField {
                     id: targetInput
                     Layout.alignment: Qt.AlignHCenter
                     Layout.preferredWidth: 140 * Theme.scale
                     text: "100.0"
-                    
                     enabled: root.isReadyForPos
-                    opacity: enabled ? 1.0 : 0.5 
-                    
+                    opacity: enabled ? 1.0 : 0.5
                     font.pixelSize: Theme.fontLarge
                     font.family: "Monospace"
                     color: Theme.textMain
                     horizontalAlignment: TextInput.AlignHCenter
-                    
                     background: Rectangle {
                         color: Theme.bgDark
                         border.color: targetInput.activeFocus ? Theme.colorMoving : Theme.borderMain
@@ -274,15 +283,13 @@ Rectangle {
                     validator: DoubleValidator { bottom: -9999.9; top: 9999.9; decimals: 2 }
                 }
 
-                // 执行按钮 (GO)
+                // 执行按钮
                 IndustrialButton {
                     text: root.isReadyForPos ? "执行 GO" : "运行中..."
                     isCircle: false
                     buttonSize: 140 * Theme.scale
-                    
                     enabled: root.isReadyForPos
-                    baseColor: root.isReadyForPos ? Theme.colorIdle : Theme.colorDisabled 
-                    
+                    baseColor: root.isReadyForPos ? Theme.colorIdle : Theme.colorDisabled
                     Layout.alignment: Qt.AlignHCenter
                     onClicked: {
                         if (!root.isReadyForPos) return
@@ -291,29 +298,24 @@ Rectangle {
                             if (root.isAbsolute) {
                                 viewModel.moveAbsolute(target)
                             } else {
-                                viewModel.moveRelative(target) 
+                                viewModel.moveRelative(target)
                             }
                         }
                     }
                 }
 
-                Item { Layout.fillHeight: true } // 底部弹簧
+                // 下半弹簧
+                Item { Layout.fillHeight: true }
             }
-        } // 结束 Item (中间控制面板)
+        }
 
         // ==========================================
-        // 3. 底部：紧急急停按钮 (EMERGENCY STOP)
-        //
-        // 工业软件设计原则：
-        //   ✅ 红底白字、圆角少、面积大
-        //   ✅ "状态感" 比 "漂亮" 更重要
-        //   ✅ 急停后整个控制面板进入危险状态
-        //   ✅ 运动按钮全部灰掉
+        // 3. 底部：紧急急停按钮
         // ==========================================
         IndustrialButton {
             id: emergencyStopButton
             isCircle: false
-            buttonSize: 140 * Theme.scale
+            buttonSize: 150 * Theme.scale
             Layout.alignment: Qt.AlignHCenter
 
             // ── 文字由急停状态决定 ──

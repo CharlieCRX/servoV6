@@ -56,33 +56,6 @@ Window {
         anchors.margins: dynamicMargin
         spacing: dynamicSpacing / 2
 
-        // ===== 0. 顶部分组选择栏 =====
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: 10 * Theme.scale
-
-            Text {
-                text: "分组:"
-                color: Theme.textDim
-                font.pixelSize: Theme.fontNormal
-            }
-
-            ComboBox {
-                id: groupSelector
-                model: ["Machine_A", "Machine_B"]
-                currentIndex: 0
-                onCurrentTextChanged: {
-                    currentGroup = currentText;
-                    // 切换分组时，默认选择该组的第一个轴
-                    if (currentGroup === "Machine_A") {
-                        currentAxis = "Y";
-                    } else {
-                        currentAxis = "X1";
-                    }
-                }
-            }
-        }
-
         // ===== 三栏 RowLayout =====
         RowLayout {
             Layout.fillWidth: true
@@ -93,17 +66,23 @@ Window {
             AxisSelectorBlock {
                 Layout.preferredWidth: isMobile ? 180 * Theme.scale : 260 * Theme.scale
                 Layout.fillHeight: true
+                emergencyViewModel: currentEmergencyViewModel
                 onAxisChanged: (axisName) => {
                     currentAxis = axisName;
                     console.log("切换到组:", currentGroup, ", 轴:", axisName);
                 }
             }
 
-            // 2. 中央遥测看板
+            // 2. 中央遥测看板（内置分组选择）
             TelemetryBlock {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 viewModel: currentViewModel
+                emergencyViewModel: currentEmergencyViewModel
+                groupName: currentGroup
+                onGroupChanged: (newGroup) => {
+                    currentGroup = newGroup;
+                }
             }
 
             // 3. 右侧多功能控制面板

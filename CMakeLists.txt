@@ -14,14 +14,18 @@ find_package(Qt6 REQUIRED COMPONENTS Qml Quick QuickControls2)
 # ==========================================
 qt_standard_project_setup()
 qt_policy(SET QTP0004 OLD)
-enable_testing()
+if(NOT ANDROID)
+
+    enable_testing()
+    add_subdirectory(external/googletest)
+    add_subdirectory(tests)
+
+endif()
 
 # 子模块
-add_subdirectory(external/googletest)
 add_subdirectory(domain)
 add_subdirectory(application)
 add_subdirectory(presentation)
-add_subdirectory(tests)
 
 
 # ==========================================
