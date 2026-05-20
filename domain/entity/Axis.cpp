@@ -1,5 +1,6 @@
 #include "Axis.h"
 #include "infrastructure/logger/Logger.h"
+#include "infrastructure/logger/TraceScope.h"
 #include "infrastructure/utils/CommandFormatter.h"
 #include <cmath>
 #include <limits>
@@ -16,8 +17,17 @@ AxisState Axis::state() const
     return m_state;
 }
 
+void Axis::setIdentity(AxisId id, const std::string& groupName)
+{
+    m_id = id;
+    m_group = groupName;
+}
+
 void Axis::applyFeedback(const AxisFeedback &feedback)
 {
+    // 为日志系统创建 TraceScope，输出时自动携带 [group][axis] 上下文
+    TraceScope scope(m_group, axisIdToString(m_id), "");
+
     // --- 基线 TRACE（节流: 每50次tick输出1条）---
     LOG_TRACE_EVERY_N(50, LogLayer::DOM, "Axis",
         "applyFeedback: state=" + std::string(axisStateName(feedback.state))

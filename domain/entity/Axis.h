@@ -1,7 +1,10 @@
 #ifndef AXIS_H
 #define AXIS_H
 #pragma once
+#include "AxisId.h"
 #include <variant>
+#include <string>
+
 enum class Direction {
     Forward,
     Backward
@@ -125,6 +128,9 @@ public:
 
     AxisState state() const;
 
+    /// @brief 注册 Axis 的身份信息（axisId + 所属分组），用于日志输出
+    void setIdentity(AxisId id, const std::string& groupName);
+
     void applyFeedback(const AxisFeedback& feedback);
 
     bool enable(bool active);
@@ -193,6 +199,10 @@ private:
     // 速度
     double m_jog_velocity = 0.0;
     double m_move_velocity = 0.0;
+
+    /// @brief 轴身份信息（用于日志系统 TraceScope 上下文）
+    AxisId m_id = AxisId::Y;
+    std::string m_group;
 
     static constexpr double POSITION_EPSILON = 0.01;
     RejectionReason m_last_rejection = RejectionReason::None;

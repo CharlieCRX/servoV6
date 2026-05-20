@@ -92,17 +92,31 @@ int main(int argc, char *argv[])
     ctxA->setDriver(&driverA);
     ctxB->setDriver(&driverB);
 
+    constexpr std::array<AxisId, 6> ALL_AXES = {
+        AxisId::X, AxisId::X1, AxisId::X2, AxisId::Y, AxisId::Z, AxisId::R
+    };
+
     // ============================
-    // 3. 初始化物理世界默认状态
+    // 3. 为所有 Axis 实体注册身份（groupName + axisId），用于日志系统 TraceScope 上下文
+    //    必须在首次 pollFeedback 之前执行，确保 applyFeedback 日志能携带正确的轴名和分组
+    //    使用 setAxisIdentity() 绕过龙门语义拦截（龙门轴在初始 NotSynchronized 状态下
+    //    tryReadAxis 会拒绝访问，导致 X/X1/X2 永远无法注册身份）
+    // ============================
+    for (auto id : ALL_AXES) {
+        ctxA->setAxisIdentity(id, "Machine_A");
+    }
+    for (auto id : ALL_AXES) {
+        ctxB->setAxisIdentity(id, "Machine_B");
+    }
+
+    // ============================
+    // 4. 初始化物理世界默认状态
     // ============================
     // --- Group A (Machine_A): 6 轴初始状态 ---
     constexpr double DEFAULT_JOG_VEL  = 20.0;
     constexpr double DEFAULT_MOVE_VEL = 50.0;
     constexpr double DEFAULT_LIMIT_POS = 1000.0;
     constexpr double DEFAULT_LIMIT_NEG = -1000.0;
-    constexpr std::array<AxisId, 6> ALL_AXES = {
-        AxisId::X, AxisId::X1, AxisId::X2, AxisId::Y, AxisId::Z, AxisId::R
-    };
     for (auto id : ALL_AXES) {
         plcA.forceState(id, AxisState::Disabled);
         plcA.setSimulatedJogVelocity(id, DEFAULT_JOG_VEL);

@@ -184,12 +184,15 @@ bool GantryViewModel::verifyPassword(const QString& password) const {
 // ========== 逐帧驱动 ==========
 
 void GantryViewModel::tick() {
+    // 为整帧所有操作创建 TraceScope，自动携带 [group][Gantry] 上下文
+    TraceScope scope(m_groupName, "Gantry", generateTraceId());
+
     advanceOrchestrator();
     refreshGantryState();
     refreshOrchestratorState();
 
     LOG_TRACE_EVERY_N(100, LogLayer::UI, "GantryVM",
-        m_groupName + " tick: enabled=" + std::to_string(m_cachedEnabled)
+        "tick: enabled=" + std::to_string(m_cachedEnabled)
         + " coupled=" + std::to_string(m_cachedCoupled)
         + " sync=" + std::to_string(m_cachedSynchronized)
         + " orchBusy=" + std::to_string(m_cachedOrchestratorBusy));
@@ -335,11 +338,8 @@ QString GantryViewModel::stepToText(int step) {
     }
 }
 
-/// @brief 生成 TraceScope 的唯一 traceId（基于纳秒时间戳 + 原子计数器）
+/// @brief 生成 TraceScope 的唯一 traceId（基于原子递增计数器）
 std::string GantryViewModel::generateTraceId() {
     static std::atomic<uint64_t> counter{0};
-    auto now = std::chrono::steady_clock::now();
-    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-        now.time_since_epoch()).count();
-    return "Gantry_" + std::to_string(ns) + "_" + std::to_string(++counter);
+    return "G_" + std::to_string(++counter);
 }

@@ -94,6 +94,22 @@ public:
     void setDriver(ISystemDriver* driver) { m_driver = driver; }
     ISystemDriver* driver() { return m_driver; }
 
+    /**
+     * @brief 直接为指定轴设置身份信息（绕过龙门语义拦截，仅用于日志系统初始化）
+     * @param id 目标轴ID
+     * @param groupName 所属分组名称（如 "Machine_A"）
+     *
+     * 注意：此方法不经过 tryGetAxisInternal 的龙门语义拦截，
+     *       仅用于在系统初始化时为 Axis 实体注入身份信息。
+     *       控制操作仍必须通过 tryGetAxis/tryReadAxis。
+     */
+    void setAxisIdentity(AxisId id, const std::string& groupName) {
+        auto it = m_axes.find(id);
+        if (it != m_axes.end()) {
+            it->second->setIdentity(id, groupName);
+        }
+    }
+
 private:
     /**
      * @brief 内部共用方法：龙门同步 + 龙门语义 + 容器查找
