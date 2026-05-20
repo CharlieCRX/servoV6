@@ -165,6 +165,9 @@ public:
                 break;
             }
             // 其他状态（Unknown/Moving...）：保持等待
+            LOG_DEBUG(LogLayer::APP, "JogOrch",
+                      "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -- waiting, axis state="
+                          + std::string(axisStateName(axis->state())));
             break;
 
         // ============================================================
@@ -218,6 +221,10 @@ public:
                           "[" + m_groupName + "][" + axisName(m_targetId) + "] "
                           "Axis unexpectedly Idle during Jog -- forcing stop sequence");
                 m_step = Step::IssuingStop;
+            } else {
+                LOG_DEBUG(LogLayer::APP, "JogOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] Jogging -- axis state="
+                              + std::string(axisStateName(axis->state())));
             }
             break;
 
@@ -257,6 +264,10 @@ public:
                 LOG_DEBUG(LogLayer::APP, "JogOrch",
                           "[" + m_groupName + "][" + axisName(m_targetId) + "] WaitingForIdle -> EnsuringDisabled");
                 m_step = Step::EnsuringDisabled;
+            } else {
+                LOG_DEBUG(LogLayer::APP, "JogOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] WaitingForIdle -- waiting, axis state="
+                              + std::string(axisStateName(axis->state())));
             }
             break;
 
@@ -280,6 +291,10 @@ public:
                 LOG_SUMMARY(LogLayer::APP, "JogOrch",
                             "[" + m_groupName + "][" + axisName(m_targetId) + "] Jog -> SUCCESS (Safely Stopped)");
                 m_step = Step::Done;
+            } else {
+                LOG_DEBUG(LogLayer::APP, "JogOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringDisabled -- waiting, axis state="
+                              + std::string(axisStateName(axis->state())));
             }
             break;
 
