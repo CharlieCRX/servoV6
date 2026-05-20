@@ -128,6 +128,8 @@ public:
 
         case Step::EnsuringEnabled:
             if (axis->state() == AxisState::Disabled) {
+                LOG_DEBUG(LogLayer::APP, "AbsOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -- sending Enable command");
                 auto err = EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, true);
                 if (!std::holds_alternative<std::monostate>(err)) {
                     m_step = Step::Error;
@@ -155,6 +157,9 @@ public:
             if (m_moveIssued) break;  // 幂等保护
 
             {
+                LOG_DEBUG(LogLayer::APP, "AbsOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] IssuingMove -- sending MoveAbsolute command target="
+                              + std::to_string(m_target));
                 auto err = MoveAbsoluteUseCase{}.execute(m_manager, m_groupName, m_targetId, m_target);
                 if (!std::holds_alternative<std::monostate>(err)) {
                     LOG_ERROR(LogLayer::APP, "AbsOrch",
@@ -203,6 +208,8 @@ public:
                 double currentPos = axis->currentAbsolutePosition();
                 if (std::abs(currentPos - m_target) < m_epsilon) {
                     // 物理到位 -> Done
+                    LOG_DEBUG(LogLayer::APP, "AbsOrch",
+                              "[" + m_groupName + "][" + axisName(m_targetId) + "] WaitingMotionFinish -- target reached, sending Disable command");
                     EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, false);
                     LOG_SUMMARY(LogLayer::APP, "AbsOrch",
                                 "[" + m_groupName + "][" + axisName(m_targetId) + "] MoveAbsolute("
@@ -210,6 +217,8 @@ public:
                     m_step = Step::Done;
                 } else {
                     // 物理没到位 -> Error
+                    LOG_DEBUG(LogLayer::APP, "AbsOrch",
+                              "[" + m_groupName + "][" + axisName(m_targetId) + "] WaitingMotionFinish -- target not reached, sending Disable command before abort");
                     EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, false);
                     m_lastError = RejectionReason::InvalidState;
                     LOG_SUMMARY(LogLayer::APP, "AbsOrch",
