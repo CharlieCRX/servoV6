@@ -145,6 +145,8 @@ public:
 
         case Step::EnsuringEnabled:
             if (axis->state() == AxisState::Disabled) {
+                LOG_DEBUG(LogLayer::APP, "JogOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -- sending Enable command");
                 // EnableUseCase 内部已做分组路由 + 领域幂等检查
                 auto err = EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, true);
                 if (!std::holds_alternative<std::monostate>(err)) {
@@ -171,6 +173,9 @@ public:
 
         case Step::IssuingJog:
             if (m_jogIssued) break;  // 幂等保护
+
+            LOG_DEBUG(LogLayer::APP, "JogOrch",
+                      "[" + m_groupName + "][" + axisName(m_targetId) + "] IssuingJog -- sending Jog command " + dirName(m_dir));
 
             // 调用领域层语义检查
             if (!axis->jog(m_dir)) {
@@ -222,6 +227,8 @@ public:
 
         case Step::IssuingStop:
             if (!m_stopIssued) {
+                LOG_DEBUG(LogLayer::APP, "JogOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] IssuingStop -- sending Stop command");
                 if (axis->stopJog(m_dir)) {
                     if (axis->hasPendingCommand()) {
                         if (auto* drv = group->driver()) {
@@ -259,6 +266,8 @@ public:
 
         case Step::EnsuringDisabled:
             if (!m_disableIssued) {
+                LOG_DEBUG(LogLayer::APP, "JogOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringDisabled -- sending Disable command");
                 auto err = EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, false);
                 if (!std::holds_alternative<std::monostate>(err)) {
                     m_step = Step::Error;

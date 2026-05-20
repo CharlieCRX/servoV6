@@ -25,6 +25,20 @@ enum class AxisState {
     Error           // 对应 6: 报警
 };
 
+/// @brief 将 AxisState 枚举值转换为可读英文名称（用于日志输出）
+inline const char* axisStateName(AxisState s) {
+    switch (s) {
+        case AxisState::Unknown:        return "Unknown(0)";
+        case AxisState::Disabled:       return "Disabled(1)";
+        case AxisState::Idle:           return "Idle(2)";
+        case AxisState::Jogging:        return "Jogging(3)";
+        case AxisState::MovingAbsolute: return "MovingAbsolute(4)";
+        case AxisState::MovingRelative: return "MovingRelative(5)";
+        case AxisState::Error:          return "Error(6)";
+    }
+    return "?(?)";
+}
+
 enum class RejectionReason {
     None,               // 无拒绝（成功）
     InvalidState,       // 轴状态非法
