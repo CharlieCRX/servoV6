@@ -4,11 +4,17 @@ add_library(application
     axis/MoveAbsoluteUseCase.h
     axis/MoveRelativeUseCase.h
     axis/StopAxisUseCase.h
-    axis/AxisRepository.h
 
     policy/JogOrchestrator.h
     policy/AutoAbsMoveOrchestrator.h
     policy/AutoRelMoveOrchestrator.h
+    policy/GantryOrchestrator.h
+
+    safety/EmergencyStopUseCase.h
+    safety/ReleaseEmergencyStopUseCase.h
+
+    SystemManager.h
+    UsecaseError.h
 )
 
 target_include_directories(application

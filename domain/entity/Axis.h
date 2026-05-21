@@ -1,7 +1,10 @@
 #ifndef AXIS_H
 #define AXIS_H
 #pragma once
+#include "AxisId.h"
 #include <variant>
+#include <string>
+
 enum class Direction {
     Forward,
     Backward
@@ -25,6 +28,20 @@ enum class AxisState {
     Error           // 对应 6: 报警
 };
 
+/// @brief 将 AxisState 枚举值转换为可读英文名称（用于日志输出）
+inline const char* axisStateName(AxisState s) {
+    switch (s) {
+        case AxisState::Unknown:        return "Unknown(0)";
+        case AxisState::Disabled:       return "Disabled(1)";
+        case AxisState::Idle:           return "Idle(2)";
+        case AxisState::Jogging:        return "Jogging(3)";
+        case AxisState::MovingAbsolute: return "MovingAbsolute(4)";
+        case AxisState::MovingRelative: return "MovingRelative(5)";
+        case AxisState::Error:          return "Error(6)";
+    }
+    return "?(?)";
+}
+
 enum class RejectionReason {
     None,               // 无拒绝（成功）
     InvalidState,       // 轴状态非法
@@ -38,7 +55,9 @@ enum class RejectionReason {
     AtPositiveLimit,          // 当前已处于正向限位点（禁正向点动/定位）
     AtNegativeLimit,          // 当前已处于负向限位点（禁负向点动/定位）
 
-    InvalidArgument
+    UnknownError,
+
+    InvalidArgument,
 };
 
 
@@ -109,6 +128,9 @@ public:
 
     AxisState state() const;
 
+    /// @brief 注册 Axis 的身份信息（axisId + 所属分组），用于日志输出
+    void setIdentity(AxisId id, const std::string& groupName);
+
     void applyFeedback(const AxisFeedback& feedback);
 
     bool enable(bool active);
@@ -177,6 +199,10 @@ private:
     // 速度
     double m_jog_velocity = 0.0;
     double m_move_velocity = 0.0;
+
+    /// @brief 轴身份信息（用于日志系统 TraceScope 上下文）
+    AxisId m_id = AxisId::Y;
+    std::string m_group;
 
     static constexpr double POSITION_EPSILON = 0.01;
     RejectionReason m_last_rejection = RejectionReason::None;

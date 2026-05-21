@@ -1,440 +1,342 @@
+// tests/domain/test_system_context.cpp
 #include <gtest/gtest.h>
 #include "entity/SystemContext.h"
-#include "infrastructure/FakePLC.h"
-#include "infrastructure/FakeAxisDriver.h"
-#include "infrastructure/logger/Logger.h"
+#include "safety/EmergencyStopController.h"
 
-// ============================================================================
-// SystemContext（分组容器）单元测试
-// 
-// 测试覆盖范围：
-// 1. 轴注册与访问
-// 2. 多分组独立隔离（平行宇宙）
-// 3. 龙门全局状态隔离
-// 4. 多组独立运动互不干扰
-// 5. Driver 绑定
-// ============================================================================
-
-// ---------------------------------------------------------------------------
-// 第 1 组：轴注册与访问
-// ---------------------------------------------------------------------------
-
-TEST(SystemContextTest, ShouldRegisterAndAccessAllStandardAxes) {
-    SystemContext ctx;
-
-    // 注册所有标准轴
-    ctx.registerAxis(AxisId::Y);
-    ctx.registerAxis(AxisId::Z);
-    ctx.registerAxis(AxisId::R);
-    ctx.registerAxis(AxisId::X);
-    ctx.registerAxis(AxisId::X1);
-    ctx.registerAxis(AxisId::X2);
-
-    // 验证：所有轴均可正常访问
-    EXPECT_NO_THROW(ctx.getAxis(AxisId::Y));
-    EXPECT_NO_THROW(ctx.getAxis(AxisId::Z));
-    EXPECT_NO_THROW(ctx.getAxis(AxisId::R));
-    EXPECT_NO_THROW(ctx.getAxis(AxisId::X));
-    EXPECT_NO_THROW(ctx.getAxis(AxisId::X1));
-    EXPECT_NO_THROW(ctx.getAxis(AxisId::X2));
-
-    // 验证：每个轴都是独立实例（地址不同）
-    EXPECT_NE(&ctx.getAxis(AxisId::Y), &ctx.getAxis(AxisId::Z));
-    EXPECT_NE(&ctx.getAxis(AxisId::X1), &ctx.getAxis(AxisId::X2));
-}
-
-TEST(SystemContextTest, RegisterAllStandardAxesShouldRegisterAllSix) {
-    SystemContext ctx;
-
-    ctx.registerAllStandardAxes();
-
-    // 验证全部 6 个轴都可访问
-    EXPECT_NO_THROW(ctx.getAxis(AxisId::Y));
-    EXPECT_NO_THROW(ctx.getAxis(AxisId::Z));
-    EXPECT_NO_THROW(ctx.getAxis(AxisId::R));
-    EXPECT_NO_THROW(ctx.getAxis(AxisId::X));
-    EXPECT_NO_THROW(ctx.getAxis(AxisId::X1));
-    EXPECT_NO_THROW(ctx.getAxis(AxisId::X2));
-}
-
-TEST(SystemContextTest, ShouldRejectUnregisteredAxis) {
-    SystemContext ctx;
-
-    // 只注册 Y 轴
-    ctx.registerAxis(AxisId::Y);
-
-    // 访问未注册的轴应抛出异常
-    EXPECT_THROW(ctx.getAxis(AxisId::Z), std::out_of_range);
-    EXPECT_THROW(ctx.getAxis(AxisId::X1), std::out_of_range);
-}
-
-// ---------------------------------------------------------------------------
-// 第 2 组：多分组独立隔离（平行宇宙）
-// ---------------------------------------------------------------------------
-
-TEST(SystemContextTest, TwoContextsShouldBeIndependent) {
-    SystemContext groupA;
-    SystemContext groupB;
-
-    // 各自注册不同轴
-    groupA.registerAxis(AxisId::Y);
-    groupA.registerAxis(AxisId::Z);
-
-    groupB.registerAxis(AxisId::Y);
-    groupB.registerAxis(AxisId::R);
-
-    // 验证：groupA 能访问自己注册的轴
-    EXPECT_NO_THROW(groupA.getAxis(AxisId::Y));
-    EXPECT_NO_THROW(groupA.getAxis(AxisId::Z));
-
-    // 验证：groupA 不能访问 groupB 独有的轴
-    EXPECT_THROW(groupA.getAxis(AxisId::R), std::out_of_range);
-
-    // 验证：groupB 能访问自己注册的轴
-    EXPECT_NO_THROW(groupB.getAxis(AxisId::Y));
-    EXPECT_NO_THROW(groupB.getAxis(AxisId::R));
-
-    // 验证：groupB 不能访问 groupA 独有的轴
-    EXPECT_THROW(groupB.getAxis(AxisId::Z), std::out_of_range);
-
-    // 验证：同名轴（如 Y）在不同分组中是不同实例
-    EXPECT_NE(&groupA.getAxis(AxisId::Y), &groupB.getAxis(AxisId::Y));
-}
-
-TEST(SystemContextTest, TwoContextsShouldHaveIndependentAxisState) {
-    SystemContext groupA;
-    SystemContext groupB;
-
-    // 注册并设置初始状态
-    groupA.registerAllStandardAxes();
-    groupB.registerAllStandardAxes();
-
-    // 给 groupA 的 Y 轴设置反馈
-    groupA.getAxis(AxisId::Y).applyFeedback({
-        .state = AxisState::Idle,
-        .absPos = 100.0,
-        .posLimitValue = 1000.0,
-        .negLimitValue = -1000.0
-    });
-
-    // 给 groupB 的 Y 轴设置不同的反馈
-    groupB.getAxis(AxisId::Y).applyFeedback({
-        .state = AxisState::Disabled,
-        .absPos = 200.0,
-        .posLimitValue = 500.0,
-        .negLimitValue = -500.0
-    });
-
-    // 验证：两个分组的同名轴状态完全独立
-    EXPECT_DOUBLE_EQ(groupA.getAxis(AxisId::Y).currentAbsolutePosition(), 100.0);
-    EXPECT_EQ(groupA.getAxis(AxisId::Y).state(), AxisState::Idle);
-
-    EXPECT_DOUBLE_EQ(groupB.getAxis(AxisId::Y).currentAbsolutePosition(), 200.0);
-    EXPECT_EQ(groupB.getAxis(AxisId::Y).state(), AxisState::Disabled);
-}
-
-// ---------------------------------------------------------------------------
-// 第 3 组：龙门全局状态隔离
-// ---------------------------------------------------------------------------
-
-TEST(SystemContextTest, GantryStateShouldDefaultToCoupled) {
-    SystemContext ctx;
-
-    // 默认应为联动模式
-    EXPECT_TRUE(ctx.isGantryCoupled());
-}
-
-TEST(SystemContextTest, ShouldToggleGantryCoupledState) {
-    SystemContext ctx;
-
-    // 切换到解耦模式
-    ctx.setGantryCoupled(false);
-    EXPECT_FALSE(ctx.isGantryCoupled());
-
-    // 切回联动模式
-    ctx.setGantryCoupled(true);
-    EXPECT_TRUE(ctx.isGantryCoupled());
-}
-
-TEST(SystemContextTest, GantryStateShouldBeIndependentBetweenContexts) {
-    SystemContext groupA;
-    SystemContext groupB;
-
-    // 初始状态：两个分组默认都是联动模式
-    EXPECT_TRUE(groupA.isGantryCoupled());
-    EXPECT_TRUE(groupB.isGantryCoupled());
-
-    // 将 groupA 切换为解耦模式
-    groupA.setGantryCoupled(false);
-
-    // 断言：groupA 已解耦
-    EXPECT_FALSE(groupA.isGantryCoupled());
-
-    // 断言：groupB 依然保持默认的联动模式（不受 groupA 影响）
-    EXPECT_TRUE(groupB.isGantryCoupled());
-
-    // 将 groupB 也切换为解耦
-    groupB.setGantryCoupled(false);
-    EXPECT_FALSE(groupB.isGantryCoupled());
-
-    // 验证切换的独立性
-    groupA.setGantryCoupled(true);
-    EXPECT_TRUE(groupA.isGantryCoupled());
-    EXPECT_FALSE(groupB.isGantryCoupled());
-}
-
-// ---------------------------------------------------------------------------
-// 第 4 组：Driver 绑定
-// ---------------------------------------------------------------------------
-
-TEST(SystemContextTest, ShouldSetAndGetDriver) {
-    SystemContext ctx;
-    FakePLC plc;
-    FakeAxisDriver driver(plc);
-
-    // 绑定 Driver
-    ctx.setDriver(&driver);
-
-    // 验证
-    EXPECT_EQ(ctx.driver(), &driver);
-
-    // 未绑定 Driver 时为 nullptr
-    SystemContext ctxWithoutDriver;
-    EXPECT_EQ(ctxWithoutDriver.driver(), nullptr);
-}
-
-// ---------------------------------------------------------------------------
-// 第 5 组：多分组独立运动互不干扰（集成级）
-// 
-// 核心验收标准（文档中的断言 3）：
-// 无论操作 groupA 的 X1 还是 Y，它们都能独立运动，且绝不影响 groupB。
-// ---------------------------------------------------------------------------
-
-class SystemContextIntegrationTest : public ::testing::Test {
+class SystemContextTest : public ::testing::Test {
 protected:
-    SystemContext groupA;
-    SystemContext groupB;
-    FakePLC plcA;
-    FakePLC plcB;
-    FakeAxisDriver driverA{plcA};
-    FakeAxisDriver driverB{plcB};
+    SystemContext context;
+    Axis* outAxis = nullptr;
+    ContextRejection reason = ContextRejection::None;
 
     void SetUp() override {
-        // 初始化：两个分组各自注册全部轴
-        groupA.registerAllStandardAxes();
-        groupB.registerAllStandardAxes();
-
-        // 各自绑定独立的 PLC
-        groupA.setDriver(&driverA);
-        groupB.setDriver(&driverB);
-
-        // 设置合理的限位范围
-        for (auto id : {AxisId::Y, AxisId::Z, AxisId::R, AxisId::X, AxisId::X1, AxisId::X2}) {
-            plcA.setLimits(id, 1000.0, -1000.0);
-            plcB.setLimits(id, 1000.0, -1000.0);
-        }
-    }
-
-    // 辅助：将 PLC A 的反馈同步回 groupA 的 Axis
-    void syncA(AxisId id) {
-        groupA.getAxis(id).applyFeedback(plcA.getFeedback(id));
-    }
-
-    // 辅助：将 PLC B 的反馈同步回 groupB 的 Axis
-    void syncB(AxisId id) {
-        groupB.getAxis(id).applyFeedback(plcB.getFeedback(id));
-    }
-
-    // 辅助：统一步进 A 分组的物理引擎
-    void tickA(int ms = 10) {
-        plcA.tick(ms);
-        for (auto id : {AxisId::Y, AxisId::Z, AxisId::R, AxisId::X, AxisId::X1, AxisId::X2}) {
-            syncA(id);
-        }
-    }
-
-    // 辅助：统一步进 B 分组的物理引擎
-    void tickB(int ms = 10) {
-        plcB.tick(ms);
-        for (auto id : {AxisId::Y, AxisId::Z, AxisId::R, AxisId::X, AxisId::X1, AxisId::X2}) {
-            syncB(id);
-        }
+        // 安全域首次同步：注入 PLC 反馈"设备急停中 = false"
+        // 完成 NotSynchronized -> Running，使所有现有测试不受安全域干扰
+        context.emergencyStopController().applyFeedback(false);
+        // 此时 isSystemLocked() == false，tryGetAxis() 的 Layer 0 拦截不生效
     }
 };
 
-TEST_F(SystemContextIntegrationTest, ShouldMoveGroupAIndependentlyFromGroupB) {
-    // 阶段 1：初始状态确认
-    plcA.forceState(AxisId::Y, AxisState::Disabled);
-    plcB.forceState(AxisId::Y, AxisState::Disabled);
-    plcA.forceState(AxisId::X1, AxisState::Disabled);
-    plcB.forceState(AxisId::X1, AxisState::Disabled);
+// ============================================================
+// 安全急停 -- 拦截优先级 Layer 0 测试
+// ============================================================
 
-    syncA(AxisId::Y);
-    syncB(AxisId::Y);
-    syncA(AxisId::X1);
-    syncB(AxisId::X1);
-
-    EXPECT_EQ(groupA.getAxis(AxisId::Y).state(), AxisState::Disabled);
-    EXPECT_EQ(groupB.getAxis(AxisId::Y).state(), AxisState::Disabled);
-
-    // 阶段 2：启动 groupA 的 Y 轴
-    auto& axisA_Y = groupA.getAxis(AxisId::Y);
-    axisA_Y.enable(true);
-    driverA.send(AxisId::Y, axisA_Y.getPendingCommand());
-
-    // 等待使能完成
-    int maxTicks = 500;
-    while (maxTicks-- > 0) {
-        tickA(10);
-        if (groupA.getAxis(AxisId::Y).state() == AxisState::Idle) break;
-    }
-    ASSERT_EQ(groupA.getAxis(AxisId::Y).state(), AxisState::Idle);
-
-    // 阶段 3：groupA 的 Y 轴发起运动
-    plcA.setSimulatedMoveVelocity(AxisId::Y, 50.0);
-    plcA.forceState(AxisId::Y, AxisState::Idle);
-    syncA(AxisId::Y);
-
-    double targetPos = 80.0;
-    axisA_Y.moveAbsolute(targetPos);
-    driverA.send(AxisId::Y, axisA_Y.getPendingCommand());
-
-    // 等待 groupA 的 Y 轴运动到目标
-    maxTicks = 500;
-    while (maxTicks-- > 0) {
-        tickA(10);
-        if (!groupA.getAxis(AxisId::Y).hasPendingCommand()) break;
-    }
-
-    // 验证：groupA 的 Y 轴到达目标
-    EXPECT_NEAR(groupA.getAxis(AxisId::Y).currentAbsolutePosition(), targetPos, 0.01);
-
-    // 验证：groupB 的 Y 轴完全没有动
-    EXPECT_DOUBLE_EQ(groupB.getAxis(AxisId::Y).currentAbsolutePosition(), 0.0);
-    EXPECT_EQ(groupB.getAxis(AxisId::Y).state(), AxisState::Disabled);
-
-    // 验证：groupA 的 X1 轴完全没有动
-    EXPECT_DOUBLE_EQ(groupA.getAxis(AxisId::X1).currentAbsolutePosition(), 0.0);
-
-    // 验证：groupB 的 X1 轴完全没有动
-    EXPECT_DOUBLE_EQ(groupB.getAxis(AxisId::X1).currentAbsolutePosition(), 0.0);
+// 默认 SetUp 后，安全域状态为 Running，访问不受影响
+TEST_F(SystemContextTest, Safety_SystemNotLockedByDefault_AfterSync) {
+    EXPECT_FALSE(context.emergencyStopController().isSystemLocked());
+    EXPECT_EQ(context.emergencyStopController().state(), SafetyState::Running);
 }
 
-TEST_F(SystemContextIntegrationTest, ShouldMoveX1InGroupAWithoutAffectingGroupB) {
-    // 阶段 1：初始化两组的所有轴
-    plcA.forceState(AxisId::X1, AxisState::Disabled);
-    plcB.forceState(AxisId::X1, AxisState::Disabled);
-    plcB.forceState(AxisId::Y, AxisState::Disabled);
-    plcA.setSimulatedMoveVelocity(AxisId::X1, 30.0);
-    syncA(AxisId::X1);
-    syncB(AxisId::X1);
-    syncB(AxisId::Y);
+// 急停中：所有轴（包括非龙门轴 Y/Z/R）都拒绝访问
+TEST_F(SystemContextTest, Safety_EmergencyStopped_RejectsAllAxes) {
+    // Step 1: 模拟 PLC 反馈急停激活
+    context.emergencyStopController().applyFeedback(true);
+    ASSERT_TRUE(context.emergencyStopController().isSystemLocked());
 
-    auto& axisA_X1 = groupA.getAxis(AxisId::X1);
-    axisA_X1.enable(true);
-    driverA.send(AxisId::X1, axisA_X1.getPendingCommand());
+    // Y 轴（非龙门轴）被拒绝
+    EXPECT_FALSE(context.tryGetAxis(AxisId::Y, outAxis, reason));
+    EXPECT_EQ(reason, ContextRejection::SystemSafetyLocked);
+    EXPECT_EQ(outAxis, nullptr);
 
-    // 等待使能完成
-    int maxTicks = 500;
-    while (maxTicks-- > 0) {
-        tickA(10);
-        if (groupA.getAxis(AxisId::X1).state() == AxisState::Idle) break;
-    }
-    ASSERT_EQ(groupA.getAxis(AxisId::X1).state(), AxisState::Idle);
+    // Z 轴（非龙门轴）被拒绝
+    EXPECT_FALSE(context.tryGetAxis(AxisId::Z, outAxis, reason));
+    EXPECT_EQ(reason, ContextRejection::SystemSafetyLocked);
 
-    // 阶段 2：groupA 的 X1 轴发起运动
-    plcA.forceState(AxisId::X1, AxisState::Idle);
-    syncA(AxisId::X1);
+    // R 轴（非龙门轴）被拒绝
+    EXPECT_FALSE(context.tryGetAxis(AxisId::R, outAxis, reason));
+    EXPECT_EQ(reason, ContextRejection::SystemSafetyLocked);
 
-    double targetPos = 60.0;
-    axisA_X1.moveAbsolute(targetPos);
-    driverA.send(AxisId::X1, axisA_X1.getPendingCommand());
+    // X 轴（龙门逻辑轴）被拒绝 -- Layer 0 先于龙门检查
+    EXPECT_FALSE(context.tryGetAxis(AxisId::X, outAxis, reason));
+    EXPECT_EQ(reason, ContextRejection::SystemSafetyLocked);
 
-    // 等待运动完成
-    maxTicks = 500;
-    while (maxTicks-- > 0) {
-        tickA(10);
-        if (!groupA.getAxis(AxisId::X1).hasPendingCommand()) break;
-    }
+    // X1 轴（龙门物理轴）被拒绝 -- Layer 0 先于龙门检查
+    EXPECT_FALSE(context.tryGetAxis(AxisId::X1, outAxis, reason));
+    EXPECT_EQ(reason, ContextRejection::SystemSafetyLocked);
 
-    // 验证：groupA 的 X1 轴到达目标
-    EXPECT_NEAR(groupA.getAxis(AxisId::X1).currentAbsolutePosition(), targetPos, 0.01);
-
-    // 验证：groupB 的 X1 轴完全没有动
-    EXPECT_DOUBLE_EQ(groupB.getAxis(AxisId::X1).currentAbsolutePosition(), 0.0);
-    EXPECT_EQ(groupB.getAxis(AxisId::X1).state(), AxisState::Disabled);
-
-    // 验证：groupA 的 Y 轴完全没有动
-    EXPECT_DOUBLE_EQ(groupA.getAxis(AxisId::Y).currentAbsolutePosition(), 0.0);
-
-    // 验证：groupB 的 Y 轴完全没有动
-    EXPECT_DOUBLE_EQ(groupB.getAxis(AxisId::Y).currentAbsolutePosition(), 0.0);
+    // X2 轴（龙门物理轴）被拒绝 -- Layer 0 先于龙门检查
+    EXPECT_FALSE(context.tryGetAxis(AxisId::X2, outAxis, reason));
+    EXPECT_EQ(reason, ContextRejection::SystemSafetyLocked);
 }
 
-TEST_F(SystemContextIntegrationTest, BothGroupsShouldMoveSimultaneouslyWithoutInterference) {
-    // 本测试模拟双组并行运动，验证隔离性
+// 急停解除中（过渡态）：所有轴也拒绝访问
+TEST_F(SystemContextTest, Safety_ReleasingEmergencyStop_RejectsAllAxes) {
+    // Step 1: 先进入 EmergencyStopped
+    context.emergencyStopController().applyFeedback(true);
+    ASSERT_TRUE(context.emergencyStopController().isEmergencyStopped());
 
-    // 阶段 1：初始化两组各一个轴
-    plcA.forceState(AxisId::Y, AxisState::Disabled);
-    plcA.setSimulatedMoveVelocity(AxisId::Y, 40.0);
-    plcB.forceState(AxisId::Z, AxisState::Disabled);
-    plcB.setSimulatedMoveVelocity(AxisId::Z, 40.0);
-    syncA(AxisId::Y);
-    syncB(AxisId::Z);
+    // Step 2: 请求解除 -> 进入 ReleasingEmergencyStop
+    auto result = context.emergencyStopController().requestReleaseEmergencyStop();
+    ASSERT_EQ(result, SafetyRejection::None);
+    ASSERT_EQ(context.emergencyStopController().state(), SafetyState::ReleasingEmergencyStop);
+    ASSERT_TRUE(context.emergencyStopController().isSystemLocked());
 
-    // 使能 groupA Y 轴
-    auto& axisA_Y = groupA.getAxis(AxisId::Y);
-    axisA_Y.enable(true);
-    driverA.send(AxisId::Y, axisA_Y.getPendingCommand());
+    // 过渡态也拒绝所有轴访问
+    EXPECT_FALSE(context.tryGetAxis(AxisId::Y, outAxis, reason));
+    EXPECT_EQ(reason, ContextRejection::SystemSafetyLocked);
+}
 
-    // 使能 groupB Z 轴
-    auto& axisB_Z = groupB.getAxis(AxisId::Z);
-    axisB_Z.enable(true);
-    driverB.send(AxisId::Z, axisB_Z.getPendingCommand());
+// 急停解除后（PLC 反馈 false），访问恢复
+TEST_F(SystemContextTest, Safety_AfterRelease_AccessRestored) {
+    // Step 1: 急停激活
+    context.emergencyStopController().applyFeedback(true);
+    ASSERT_FALSE(context.tryGetAxis(AxisId::Y, outAxis, reason));
 
-    // 等待两组使能完成
-    int maxTicks = 500;
-    while (maxTicks-- > 0) {
-        tickA(10);
-        tickB(10);
-        if (groupA.getAxis(AxisId::Y).state() == AxisState::Idle &&
-            groupB.getAxis(AxisId::Z).state() == AxisState::Idle) break;
+    // Step 2: 请求解除
+    context.emergencyStopController().requestReleaseEmergencyStop();
+    // Step 3: PLC 反馈解除
+    context.emergencyStopController().applyFeedback(false);
+
+    // 现在应该恢复 Running，访问正常
+    ASSERT_EQ(context.emergencyStopController().state(), SafetyState::Running);
+    ASSERT_FALSE(context.emergencyStopController().isSystemLocked());
+
+    EXPECT_TRUE(context.tryGetAxis(AxisId::Y, outAxis, reason));
+    EXPECT_EQ(reason, ContextRejection::None);
+}
+
+// Layer 0 安全拦截优先于龙门 NotSynchronized 拦截
+TEST_F(SystemContextTest, Safety_Layer0_BeforeGantryNotSynchronized) {
+    // 即使龙门状态未同步，安全域锁定后 Layer 0 率先拦截
+    // 默认 GantryCouplingController 处于 NotSynchronized（SetUp 未对其做同步）
+    // 但 SetUp 中已对安全域做了同步 -> Running
+
+    // 验证：安全域 Running + 龙门 NotSynchronized -> 返回 GantryNotSynchronized
+    {
+        EXPECT_FALSE(context.tryGetAxis(AxisId::X, outAxis, reason));
+        EXPECT_EQ(reason, ContextRejection::GantryNotSynchronized);
     }
 
-    // 阶段 2：两组同时发起运动
-    plcA.forceState(AxisId::Y, AxisState::Idle);
-    plcB.forceState(AxisId::Z, AxisState::Idle);
-    syncA(AxisId::Y);
-    syncB(AxisId::Z);
+    // 现在激活急停 -> Layer 0 优先拦截，不再返回 GantryNotSynchronized
+    context.emergencyStopController().applyFeedback(true);
+    {
+        EXPECT_FALSE(context.tryGetAxis(AxisId::X, outAxis, reason));
+        EXPECT_EQ(reason, ContextRejection::SystemSafetyLocked); // <-- Layer 0 优先
+    }
+}
 
-    // groupA: Y 轴目标 100.0
-    axisA_Y.moveAbsolute(100.0);
-    driverA.send(AxisId::Y, axisA_Y.getPendingCommand());
+// 即使安全域未同步，非龙门轴访问也被 Layer 0 拦截（不受 GantryNotSynchronized 影响）
+TEST_F(SystemContextTest, Safety_NotSynchronized_RejectsAllAxes)
+{
+    SystemContext context;
 
-    // groupB: Z 轴目标 150.0
-    axisB_Z.moveAbsolute(150.0);
-    driverB.send(AxisId::Z, axisB_Z.getPendingCommand());
+    Axis* outAxis = nullptr;
+    ContextRejection reason;
 
-    // 并行 tick，等待两组都完成
-    int ticks = 0;
-    const int MAX_TICKS = 1000;
-    while (ticks < MAX_TICKS) {
-        tickA(10);
-        tickB(10);
+    EXPECT_FALSE(
+        context.tryGetAxis(AxisId::Y, outAxis, reason));
 
-        bool aDone = !groupA.getAxis(AxisId::Y).hasPendingCommand();
-        bool bDone = !groupB.getAxis(AxisId::Z).hasPendingCommand();
-        if (aDone && bDone) break;
-        ticks++;
+    EXPECT_EQ(reason,
+              ContextRejection::SystemSafetyLocked);
+}
+
+// 即使龙门处于 Coupled 状态，安全域锁定后访问仍被 Layer 0 拦截
+TEST_F(SystemContextTest, SafetyOverridesCoupledAccess)
+{
+    context.gantryCouplingController()
+        .applyFeedback({ .isCoupled = true });
+
+    ASSERT_TRUE(
+        context.tryGetAxis(AxisId::X,
+                           outAxis,
+                           reason));
+
+    context.emergencyStopController().applyFeedback(true);
+
+    EXPECT_FALSE(context.tryGetAxis(AxisId::X,
+                           outAxis,
+                           reason));
+
+    EXPECT_EQ(reason,
+              ContextRejection::SystemSafetyLocked);
+}
+
+// ============================================================
+// GantryPowerController 集成测试
+// ============================================================
+
+// 构造后 gantryPowerController() 返回非空引用
+TEST_F(SystemContextTest, GantryMotor_ShouldReturnNonNullOnConstruction) {
+    GantryPowerController& motor = context.gantryPowerController();
+    EXPECT_NO_THROW(motor.status());
+}
+
+// gantryPowerController() 与 gantryCouplingController() 返回不同对象
+TEST_F(SystemContextTest, GantryMotor_ShouldBeDistinctFromGantry) {
+    void* gantryAddr = &context.gantryCouplingController();
+    void* motorAddr  = &context.gantryPowerController();
+    EXPECT_NE(gantryAddr, motorAddr);
+}
+
+// 默认构造后 GantryPowerController 处于 NotSynchronized
+TEST_F(SystemContextTest, GantryMotor_ShouldBeNotSynchronizedByDefault) {
+    GantryPowerController& motor = context.gantryPowerController();
+    EXPECT_TRUE(motor.isNotSynchronized());
+    EXPECT_FALSE(motor.isSynchronized());
+    EXPECT_FALSE(motor.isEnabled());
+}
+
+// gantryPowerController() 在任何龙门联动状态下均可访问（不经过 tryGetAxis 锁定逻辑）
+TEST_F(SystemContextTest, GantryMotor_AccessibleInAllCouplingStates) {
+    // NotSynchronized 态下可访问
+    {
+        GantryPowerController& motor = context.gantryPowerController();
+        EXPECT_TRUE(motor.isNotSynchronized());
     }
 
-    // 验证：两组均到达各自目标
-    EXPECT_NEAR(groupA.getAxis(AxisId::Y).currentAbsolutePosition(), 100.0, 0.01);
-    EXPECT_NEAR(groupB.getAxis(AxisId::Z).currentAbsolutePosition(), 150.0, 0.01);
+    // Decoupled 态下可访问
+    context.gantryPowerController().applyFeedback({ .isCoupled = false, .errorCode = 0 });
+    {
+        GantryPowerController& motor = context.gantryPowerController();
+        EXPECT_TRUE(motor.isSynchronized());
+    }
+}
 
-    // 验证：互不干扰 —— groupA 的 Z 轴未动
-    EXPECT_DOUBLE_EQ(groupA.getAxis(AxisId::Z).currentAbsolutePosition(), 0.0);
+// gantryPowerController 的同步状态独立于 GantryGroup（各自独立接收 applyFeedback）
+TEST_F(SystemContextTest, GantryMotor_SynchronizationIndependentOfGantry) {
+    // GantryGroup 未同步
+    EXPECT_TRUE(context.gantryCouplingController().isNotSynchronized());
 
-    // 验证：互不干扰 —— groupB 的 Y 轴未动
-    EXPECT_DOUBLE_EQ(groupB.getAxis(AxisId::Y).currentAbsolutePosition(), 0.0);
+    // 直接向 GantryPowerController 注入反馈 -> 独立同步
+    GantryPowerController& motor = context.gantryPowerController();
+    motor.applyFeedback({ .enable = true, .isCoupled = true, .errorCode = 0 });
+    EXPECT_TRUE(motor.isSynchronized());
+    EXPECT_TRUE(motor.isEnabled());
+
+    // GantryGroup 仍然未同步（未收到反馈）
+    EXPECT_TRUE(context.gantryCouplingController().isNotSynchronized());
+}
+
+// setDriver / driver 接口不变
+TEST_F(SystemContextTest, GantryMotor_DriverInjectionWorks) {
+    context.setDriver(nullptr);
+    EXPECT_EQ(context.driver(), nullptr);
+
+    ISystemDriver* fake = reinterpret_cast<ISystemDriver*>(0x1);
+    context.setDriver(fake);
+    EXPECT_EQ(context.driver(), fake);
+
+    context.setDriver(nullptr);
+}
+
+// ============================================================
+// 龙门 NotSynchronized 态：X / X1 / X2 全部拒绝
+// （安全域已同步 -> Running，龙门 NotSynchronized 拦截生效）
+// ============================================================
+
+TEST_F(SystemContextTest, TryGet_X_ShouldFail_WhenNotSynchronized) {
+    bool success = context.tryGetAxis(AxisId::X, outAxis, reason);
+    EXPECT_FALSE(success);
+    EXPECT_EQ(outAxis, nullptr);
+    EXPECT_EQ(reason, ContextRejection::GantryNotSynchronized);
+}
+
+TEST_F(SystemContextTest, TryGet_X1_ShouldFail_WhenNotSynchronized) {
+    bool success = context.tryGetAxis(AxisId::X1, outAxis, reason);
+    EXPECT_FALSE(success);
+    EXPECT_EQ(outAxis, nullptr);
+    EXPECT_EQ(reason, ContextRejection::GantryNotSynchronized);
+}
+
+TEST_F(SystemContextTest, TryGet_X2_ShouldFail_WhenNotSynchronized) {
+    bool success = context.tryGetAxis(AxisId::X2, outAxis, reason);
+    EXPECT_FALSE(success);
+    EXPECT_EQ(outAxis, nullptr);
+    EXPECT_EQ(reason, ContextRejection::GantryNotSynchronized);
+}
+
+// 非龙门轴 (Y/Z/R) 不受 NotSynchronized 影响，始终可访问
+TEST_F(SystemContextTest, TryGet_Y_ShouldSucceed_EvenWhenNotSynchronized) {
+    bool success = context.tryGetAxis(AxisId::Y, outAxis, reason);
+    EXPECT_TRUE(success);
+    EXPECT_NE(outAxis, nullptr);
+    EXPECT_EQ(reason, ContextRejection::None);
+}
+
+TEST_F(SystemContextTest, TryGet_Z_ShouldSucceed_EvenWhenNotSynchronized) {
+    bool success = context.tryGetAxis(AxisId::Z, outAxis, reason);
+    EXPECT_TRUE(success);
+    EXPECT_NE(outAxis, nullptr);
+    EXPECT_EQ(reason, ContextRejection::None);
+}
+
+TEST_F(SystemContextTest, TryGet_R_ShouldSucceed_EvenWhenNotSynchronized) {
+    bool success = context.tryGetAxis(AxisId::R, outAxis, reason);
+    EXPECT_TRUE(success);
+    EXPECT_NE(outAxis, nullptr);
+    EXPECT_EQ(reason, ContextRejection::None);
+}
+
+// ============================================================
+// 联动模式 (Coupled)：X 可访问，X1/X2 锁定
+// ============================================================
+
+TEST_F(SystemContextTest, TryGet_X_ShouldSucceed_InCoupledMode) {
+    context.gantryCouplingController().applyFeedback({ .isCoupled = true, .errorCode = 0 });
+    bool success = context.tryGetAxis(AxisId::X, outAxis, reason);
+    EXPECT_TRUE(success);
+    EXPECT_NE(outAxis, nullptr);
+    EXPECT_EQ(reason, ContextRejection::None);
+}
+
+TEST_F(SystemContextTest, TryGet_X1_ShouldFail_InCoupledMode) {
+    context.gantryCouplingController().applyFeedback({ .isCoupled = true, .errorCode = 0 });
+    bool success = context.tryGetAxis(AxisId::X1, outAxis, reason);
+    EXPECT_FALSE(success);
+    EXPECT_EQ(outAxis, nullptr);
+    EXPECT_EQ(reason, ContextRejection::PhysicalAxisLockedByGantry);
+}
+
+TEST_F(SystemContextTest, TryGet_X2_ShouldFail_InCoupledMode) {
+    context.gantryCouplingController().applyFeedback({ .isCoupled = true, .errorCode = 0 });
+    bool success = context.tryGetAxis(AxisId::X2, outAxis, reason);
+    EXPECT_FALSE(success);
+    EXPECT_EQ(outAxis, nullptr);
+    EXPECT_EQ(reason, ContextRejection::PhysicalAxisLockedByGantry);
+}
+
+// ============================================================
+// 解耦模式 (Decoupled)：X 锁定，X1/X2 可访问
+// ============================================================
+
+TEST_F(SystemContextTest, TryGet_X_ShouldFail_InDecoupledMode) {
+    context.gantryCouplingController().applyFeedback({ .isCoupled = false, .errorCode = 0 });
+    bool success = context.tryGetAxis(AxisId::X, outAxis, reason);
+    EXPECT_FALSE(success);
+    EXPECT_EQ(reason, ContextRejection::LogicalAxisUnavailableWhenDecoupled);
+}
+
+TEST_F(SystemContextTest, TryGet_X1_ShouldSucceed_InDecoupledMode) {
+    context.gantryCouplingController().applyFeedback({ .isCoupled = false, .errorCode = 0 });
+    bool success = context.tryGetAxis(AxisId::X1, outAxis, reason);
+    EXPECT_TRUE(success);
+    EXPECT_NE(outAxis, nullptr);
+    EXPECT_EQ(reason, ContextRejection::None);
+}
+
+TEST_F(SystemContextTest, TryGet_X2_ShouldSucceed_InDecoupledMode) {
+    context.gantryCouplingController().applyFeedback({ .isCoupled = false, .errorCode = 0 });
+    bool success = context.tryGetAxis(AxisId::X2, outAxis, reason);
+    EXPECT_TRUE(success);
+    EXPECT_NE(outAxis, nullptr);
+    EXPECT_EQ(reason, ContextRejection::None);
+}
+
+// ============================================================
+// emergencyStopController() 集成测试
+// ============================================================
+
+// 构造后 emergencyStopController() 返回非空引用（值语义，始终存在）
+TEST_F(SystemContextTest, Safety_EmergencyStopControllerAccessible) {
+    EmergencyStopController& esc = context.emergencyStopController();
+    EXPECT_NO_THROW(esc.state());
+}
+
+// SetUp 同步后，安全域处于 Running
+TEST_F(SystemContextTest, Safety_AfterSetUpSync_StateIsRunning) {
+    EXPECT_EQ(context.emergencyStopController().state(), SafetyState::Running);
+    EXPECT_FALSE(context.emergencyStopController().isSystemLocked());
+    EXPECT_FALSE(context.emergencyStopController().isEmergencyStopped());
+    EXPECT_FALSE(context.emergencyStopController().isNotSynchronized());
+    EXPECT_FALSE(context.emergencyStopController().isTransitioning());
 }

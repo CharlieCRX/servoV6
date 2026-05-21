@@ -3,6 +3,10 @@
 add_library(presentation
     viewmodel/AxisViewModelCore.cpp
     viewmodel/QtAxisViewModel.cpp
+    viewmodel/GantryViewModel.cpp
+    viewmodel/ErrorTranslator.cpp
+    viewmodel/ViewModelError.h
+    viewmodel/EmergencyStopViewModel.h
 )
 
 set_target_properties(presentation PROPERTIES AUTOMOC ON)

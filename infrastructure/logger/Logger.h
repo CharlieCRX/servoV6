@@ -12,11 +12,30 @@
 #include <thread>
 #include <condition_variable>
 #include <atomic>
+#include <vector>
+#include <cstdint>
 
 struct LoggerConfig {
     bool enableConsole = true;
     bool enableFile = false;
+    LogLevel minConsoleLevel = LogLevel::INFO;   // 控制台最低级别，默认屏蔽 TRACE/DEBUG 噪音
+    LogLevel minFileLevel    = LogLevel::TRACE;  // 文件最低级别，默认记录全部
     std::string logDirectory = "logs";
+};
+
+// ─── 日志条目：携带输出目标标记，解决 processQueue 无差别输出 bug ───
+struct LogEntry {
+    bool toConsole;
+    bool toFile;
+    std::string text;
+};
+
+// ─── 节流辅助：每 N 次调用输出 1 条 ───
+struct Throttle {
+    uint64_t counter = 0;
+    uint64_t interval;
+    explicit Throttle(uint64_t n) : interval(n) {}
+    bool should() { return ++counter % interval == 0; }
 };
 
 class Logger {
@@ -59,6 +78,11 @@ public:
     }
 
     static void log(LogLevel level, LogLayer layer, const std::string& module, const std::string& msg) {
+        // 级别过滤：控制台与文件各自独立
+        bool toConsole = m_config.enableConsole && (level >= m_config.minConsoleLevel);
+        bool toFile    = m_config.enableFile    && (level >= m_config.minFileLevel);
+        if (!toConsole && !toFile) return;
+
         auto now = std::chrono::system_clock::now();
         auto time = std::chrono::system_clock::to_time_t(now);
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
@@ -75,7 +99,7 @@ public:
 
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            m_queue.push(ss.str());
+            m_queue.push({toConsole, toFile, ss.str()});
         }
         m_cv.notify_one(); 
     }
@@ -86,14 +110,13 @@ private:
     
     inline static std::mutex m_mutex;
     inline static std::condition_variable m_cv;
-    inline static std::queue<std::string> m_queue;
+    inline static std::queue<LogEntry> m_queue;
     inline static std::thread m_worker;
     inline static std::atomic<bool> m_running{false};
 
-    // 🌟 核心升级：双缓冲批量处理循环
     static void processQueue() {
         while (true) {
-            std::queue<std::string> localQueue; // 本地缓冲队列
+            std::queue<LogEntry> localQueue;
             
             {
                 std::unique_lock<std::mutex> lock(m_mutex);
@@ -103,34 +126,26 @@ private:
                     break;
                 }
 
-                // 🌟 神之一手：瞬间把共享队列里的所有数据“转移”到本地队列
-                // std::queue::swap 是指针交换，耗时几乎为 0 (O(1)复杂度)
-                // 这样能立刻释放锁，主线程完全不需要等待！
                 m_queue.swap(localQueue);
-            } // <--- 锁在这里已经被释放了
+            }
 
-            // 🌟 批量处理开始（不持有任何锁）
             bool hasFile = m_config.enableFile && m_fileStream.is_open();
             
             while (!localQueue.empty()) {
-                const std::string& logLine = localQueue.front();
+                const LogEntry& entry = localQueue.front();
                 
-                if (m_config.enableConsole) {
-                    std::cout << logLine;
+                // 🔧 修复：按 toConsole / toFile 分别输出
+                if (entry.toConsole && m_config.enableConsole) {
+                    std::cout << entry.text;
                 }
-                if (hasFile) {
-                    m_fileStream << logLine;
+                if (entry.toFile && hasFile) {
+                    m_fileStream << entry.text;
                 }
                 localQueue.pop();
             }
 
-            // 🌟 核心修复：积攒了一批日志后，只执行一次 flush！
-            if (m_config.enableConsole) {
-                std::cout.flush(); // 强制终端流畅输出当前批次
-            }
-            if (hasFile) {
-                m_fileStream.flush(); // 强制写入磁盘
-            }
+            if (m_config.enableConsole) std::cout.flush();
+            if (hasFile) m_fileStream.flush();
         }
     }
 
@@ -156,19 +171,53 @@ private:
     }
 };
 
-// ... 宏定义保持不变 ...
-#define LOG_TRACE(layer, module, msg) Logger::log(LogLevel::TRACE, layer, module, msg)
-#define LOG_INFO(layer, module, msg)  Logger::log(LogLevel::INFO, layer, module, msg)
-#define LOG_DEBUG(layer, module, msg) Logger::log(LogLevel::DEBUG, layer, module, msg)
-#define LOG_WARN(layer, module, msg)  Logger::log(LogLevel::WARN, layer, module, msg)
-#define LOG_ERROR(layer, module, msg) Logger::log(LogLevel::ERROR, layer, module, msg)
+// ─── 日志宏 ───
+#define LOG_TRACE(layer, module, msg)   Logger::log(LogLevel::TRACE, layer, module, msg)
+#define LOG_INFO(layer, module, msg)    Logger::log(LogLevel::INFO, layer, module, msg)
+#define LOG_DEBUG(layer, module, msg)   Logger::log(LogLevel::DEBUG, layer, module, msg)
+#define LOG_WARN(layer, module, msg)    Logger::log(LogLevel::WARN, layer, module, msg)
+#define LOG_ERROR(layer, module, msg)   Logger::log(LogLevel::ERROR, layer, module, msg)
 #define LOG_SUMMARY(layer, module, msg) Logger::log(LogLevel::SUMMARY, layer, module, msg)
 
+// 每 N 次调用输出 1 条（TRACE 级别）
 #define LOG_TRACE_EVERY_N(n, layer, module, msg) \
     do { \
-        static int _log_counter = 0; \
-        if (_log_counter++ % (n) == 0) { \
+        static Throttle _throttle(n); \
+        if (_throttle.should()) { \
             Logger::log(LogLevel::TRACE, layer, module, msg); \
         } \
     } while(0)
 
+// 每 N 次调用输出 1 条（WARN 级别，防止高频拒绝日志风暴）
+#define LOG_WARN_EVERY_N(n, layer, module, msg) \
+    do { \
+        static Throttle _throttle(n); \
+        if (_throttle.should()) { \
+            Logger::log(LogLevel::WARN, layer, module, msg); \
+        } \
+    } while(0)
+
+// ─── 时间节流辅助：每 intervalMs 毫秒最多输出 1 条 ───
+struct TimeThrottle {
+    std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+    uint64_t intervalMs;
+    explicit TimeThrottle(uint64_t ms) : intervalMs(ms) {}
+    bool should() {
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last).count();
+        if (static_cast<uint64_t>(elapsed) >= intervalMs) {
+            last = now;
+            return true;
+        }
+        return false;
+    }
+};
+
+// 每 intervalMs 毫秒最多输出 1 条（WARN 级别，完全消除高频调用日志风暴）
+#define LOG_WARN_EVERY_MS(ms, layer, module, msg) \
+    do { \
+        static TimeThrottle _timeThrottle(ms); \
+        if (_timeThrottle.should()) { \
+            Logger::log(LogLevel::WARN, layer, module, msg); \
+        } \
+    } while(0)

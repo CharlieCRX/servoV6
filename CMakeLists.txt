@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(servoV6)
+include_directories(${CMAKE_SOURCE_DIR})
 
 set(CMAKE_CXX_STANDARD 20)
 
@@ -13,44 +14,53 @@ find_package(Qt6 REQUIRED COMPONENTS Qml Quick QuickControls2)
 # ==========================================
 qt_standard_project_setup()
 qt_policy(SET QTP0004 OLD)
-enable_testing()
+if(NOT ANDROID)
+
+    enable_testing()
+    add_subdirectory(external/googletest)
+    add_subdirectory(tests)
+
+endif()
 
 # 子模块
-add_subdirectory(external/googletest)
 add_subdirectory(domain)
 add_subdirectory(application)
-# add_subdirectory(presentation)
-add_subdirectory(tests)
+add_subdirectory(presentation)
 
 
-# UI（暂时保留）
-# qt_add_executable(appservoV6
-#     main.cpp
-# )
+# ==========================================
+# 3. 主可执行目标 + QML 模块
+# ==========================================
+qt_add_executable(appservoV6
+    main.cpp
+)
 
-# set_source_files_properties(presentation/qml/core/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_target_properties(appservoV6 PROPERTIES AUTOMOC ON)
 
-# qt_add_qml_module(appservoV6
-#     URI servoV6
-#     RESOURCE_PREFIX "/qt/qml"
-#     QML_FILES
-#         Main.qml
-#         presentation/qml/core/Theme.qml
-#         presentation/qml/components/IndustrialButton.qml
-#         presentation/qml/components/AxisItemDelegate.qml
-#         presentation/qml/components/VelocitySettingsPopup.qml
-#         presentation/qml/blocks/AxisSelectorBlock.qml
-#         presentation/qml/blocks/TelemetryBlock.qml
-#         presentation/qml/blocks/ActionControlBlock.qml
-#         presentation/qml/views/MainDashboard.qml
-# )
+set_source_files_properties(presentation/qml/core/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
-# target_link_libraries(appservoV6
-#     PRIVATE
-#         Qt6::Qml
-#         Qt6::Quick
-#         Qt6::QuickControls2
-#     PUBLIC
-#         domain
-#         presentation
-# )
+qt_add_qml_module(appservoV6
+    URI servoV6
+    RESOURCE_PREFIX "/qt/qml"
+    QML_FILES
+        Main.qml
+        presentation/qml/core/Theme.qml
+        presentation/qml/components/IndustrialButton.qml
+        presentation/qml/components/AxisItemDelegate.qml
+        presentation/qml/components/VelocitySettingsPopup.qml
+        presentation/qml/blocks/AxisSelectorBlock.qml
+        presentation/qml/blocks/TelemetryBlock.qml
+        presentation/qml/blocks/ActionControlBlock.qml
+        presentation/qml/blocks/ErrorPanelBlock.qml
+        presentation/qml/views/MainDashboard.qml
+)
+
+target_link_libraries(appservoV6
+    PRIVATE
+        Qt6::Qml
+        Qt6::Quick
+        Qt6::QuickControls2
+    PUBLIC
+        domain
+        presentation
+)

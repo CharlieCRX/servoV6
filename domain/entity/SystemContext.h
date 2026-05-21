@@ -1,116 +1,197 @@
+// domain/entity/SystemContext.h
 #pragma once
-
-#include "entity/AxisId.h"
+#include <memory>
 #include "entity/Axis.h"
+#include "entity/AxisId.h"
+#include "entity/ContextRejection.h"
+#include "gantry/GantryCouplingController.h"
+#include "gantry/GantryPowerController.h"
+#include "safety/EmergencyStopController.h"
+#include "infrastructure/ISystemDriver.h"
+#include "infrastructure/logger/Logger.h"
 #include <unordered_map>
-#include <stdexcept>
+#include <sstream>
 
-// 前向声明：IAxisDriver 是应用层抽象接口
-// SystemContext 只持有原始指针，不依赖具体实现
-class IAxisDriver;
-
-/**
- * SystemContext = Group 的运行载体
- * 
- * 职责：
- * - 持有该分组下所有 Axis 实例
- * - 持有该分组绑定的 Driver（PLC 连接），通过抽象接口 IAxisDriver
- * - 持有该分组的全局状态（如龙门联动/解耦模式）
- * 
- * 关键约束（来自架构文档）：
- * 1. Axis（轴）不感知分组概念 —— Axis 不知道自己属于哪个 Group
- * 2. 不同 SystemContext 之间绝对隔离（平行宇宙）
- * 3. 龙门状态属于 SystemContext 的全局状态，不属于任何单个 Axis
- * 4. Axis 在 AxisRepository 中平级注册，身份的互斥由编排层 Policy 负责
- * 
- * 当前阶段包含（骨架）：
- * ✔ 实体全量注册（Y/Z/R/X/X1/X2 平等注册）
- * ✔ 全局状态锚点（m_isGantryCoupled 联动/解耦标志）
- * 
- * 当前阶段屏蔽（下阶段 Step 2 & 3 实现）：
- * ❌ FakePLC 防撕裂运算（abs(X1-X2) 超差检查）
- * ❌ GantrySafetyPolicy 安全拦截策略
- */
 class SystemContext {
 public:
-    SystemContext() = default;
+    SystemContext() {
+        // 1. 初始化 6 个固定轴实体
+        m_axes[AxisId::X] = std::make_unique<Axis>();
+        m_axes[AxisId::X1] = std::make_unique<Axis>();
+        m_axes[AxisId::X2] = std::make_unique<Axis>();
+        m_axes[AxisId::Y] = std::make_unique<Axis>();
+        m_axes[AxisId::Z] = std::make_unique<Axis>();
+        m_axes[AxisId::R] = std::make_unique<Axis>();
 
-    // --- 轴注册（领域内自持 Axis 实例） ---
+        // 2. 初始化龙门联动控制器（不持有 Axis 引用，PLC 负责物理安全校验）
+        m_gantryCouplingController = std::make_unique<GantryCouplingController>();
 
-    /**
-     * @brief 注册一个轴到当前分组
-     * 在初始化时调用，注册所有轴实体（Y/Z/R/X/X1/X2）
-     */
-    void registerAxis(AxisId id) {
-        m_axes.emplace(id, Axis{});
+        // 3. 初始化龙门电机控制器（独立于联动状态，任何状态下均可访问）
+        m_gantryPowerController = std::make_unique<GantryPowerController>();
     }
 
     /**
-     * @brief 便捷方法：注册该分组下所有标准轴（Y/Z/R/X/X1/X2）
-     * 用于测试和快速初始化
+     * @brief Try-Get 模式获取轴对象（控制操作入口）
+     * @param id 目标轴ID
+     * @param outAxis [输出参数] 成功则指向轴对象，失败为 nullptr
+     * @param reason [输出参数] 失败时的具体拒绝原因
+     * @return true 允许访问；false 拒绝访问
+     *
+     * 拦截优先级（从高到低）：
+     *   Layer 0 -- 安全锁定：急停中 / 未同步 / 过渡中 -> SystemSafetyLocked
+     *   Layer 1 -- 龙门同步：NotSynchronized -> GantryNotSynchronized
+     *   Layer 2 -- 龙门语义：Coupled -> PhysicalAxisLockedByGantry / Decoupled -> LogicalAxisUnavailableWhenDecoupled
+     *   Layer 3 -- 容器查找：AxisNotRegistered
+     *   Layer 4 -- 通过：None
+     *
+     * 注意：此方法受 Layer 0 安全锁定拦截，用于控制操作（使能/运动）；
+     *       纯遥测读取请使用 tryReadAxis()，它绕过安全锁定仅保留龙门语义。
      */
-    void registerAllStandardAxes() {
-        registerAxis(AxisId::Y);
-        registerAxis(AxisId::Z);
-        registerAxis(AxisId::R);
-        registerAxis(AxisId::X);
-        registerAxis(AxisId::X1);
-        registerAxis(AxisId::X2);
-    }
-
-    // --- 轴访问 ---
-
-    /**
-     * @brief 获取已注册轴的引用
-     * @throw std::out_of_range 如果 AxisId 未注册
-     */
-    Axis& getAxis(AxisId id) {
-        auto it = m_axes.find(id);
-        if (it == m_axes.end()) {
-            throw std::out_of_range("SystemContext: Requested AxisId is not registered.");
+    bool tryGetAxis(AxisId id, Axis*& outAxis, ContextRejection& reason) {
+        // ==========================================
+        // Layer 0：安全域最高优先级拦截
+        // 急停中 / 未同步 / 过渡中 -> 所有轴访问全部拒绝
+        // ==========================================
+        if (m_emergencyStopController.isSystemLocked()) {
+            reason = ContextRejection::SystemSafetyLocked;
+            outAxis = nullptr;
+            // ★ 缺失项2：拒绝日志
+            logAxisRejection(id, reason);
+            return false;
         }
-        return it->second;
-    }
 
-    // --- 驱动绑定 ---
-
-    /**
-     * @brief 绑定该分组的 IAxisDriver 抽象
-     * 用于将 Axis 的命令意图发送到物理（或模拟）层
-     */
-    void setDriver(IAxisDriver* driver) {
-        m_driver = driver;
-    }
-
-    IAxisDriver* driver() const {
-        return m_driver;
-    }
-
-    // --- 龙门全局状态 ---
-
-    /**
-     * @brief 判断当前分组是否处于龙门联动模式
-     * true  = Coupled（联动）：使用逻辑轴 X
-     * false = Decoupled（解耦）：使用物理轴 X1/X2
-     */
-    bool isGantryCoupled() const {
-        return m_isGantryCoupled;
+        return tryGetAxisInternal(id, outAxis, reason);
     }
 
     /**
-     * @brief 设置龙门联动/解耦模式
-     * @param coupled true=联动, false=解耦
-     * 
-     * 业务约束（后续阶段强化）：
-     * - 模式切换仅在 Idle 状态下允许（当前阶段暂不强制检查）
-     * - 模式切换后，上层 Service 负责确保无运动指令积压
+     * @brief Try-Read 模式读取轴对象（遥测读取入口）
+     *
+     * 与 tryGetAxis() 的唯一区别：不经过 Layer 0 安全锁定拦截。
+     * 急停/同步期间，位置与状态遥测仍然可读，但控制操作被拒绝。
+     *
+     * 拦截优先级：
+     *   Layer 1 -- 龙门同步：NotSynchronized -> GantryNotSynchronized
+     *   Layer 2 -- 龙门语义：Coupled -> PhysicalAxisLockedByGantry / Decoupled -> LogicalAxisUnavailableWhenDecoupled
+     *   Layer 3 -- 容器查找：AxisNotRegistered
+     *   Layer 4 -- 通过：None
      */
-    void setGantryCoupled(bool coupled) {
-        m_isGantryCoupled = coupled;
+    bool tryReadAxis(AxisId id, Axis*& outAxis, ContextRejection& reason) {
+        return tryGetAxisInternal(id, outAxis, reason);
+    }
+
+    // --- 龙门控制的基础接口 ---
+    GantryCouplingController& gantryCouplingController() { return *m_gantryCouplingController; }
+    GantryPowerController& gantryPowerController() { return *m_gantryPowerController; }
+
+    // --- 安全急停接口 ---
+    /**
+     * @brief 急停控制器引用
+     *
+     * 暴露给外部用于：
+     *   1. 查询 isSystemLocked() -- 在 UseCase 中快速判断
+     *   2. 调用 requestEmergencyStop() / requestReleaseEmergencyStop() -- 产生急停/解除意图
+     *   3. 调用 applyFeedback(plcEmergencyStopped) -- 注入 PLC 反馈，驱动状态机
+     *   4. hasPendingCommand() / popPendingCommand() -- 从 SystemManager 消费命令
+     */
+    EmergencyStopController& emergencyStopController() { return m_emergencyStopController; }
+
+    void setDriver(ISystemDriver* driver) { m_driver = driver; }
+    ISystemDriver* driver() { return m_driver; }
+
+    /**
+     * @brief 直接为指定轴设置身份信息（绕过龙门语义拦截，仅用于日志系统初始化）
+     * @param id 目标轴ID
+     * @param groupName 所属分组名称（如 "Machine_A"）
+     *
+     * 注意：此方法不经过 tryGetAxisInternal 的龙门语义拦截，
+     *       仅用于在系统初始化时为 Axis 实体注入身份信息。
+     *       控制操作仍必须通过 tryGetAxis/tryReadAxis。
+     */
+    void setAxisIdentity(AxisId id, const std::string& groupName) {
+        auto it = m_axes.find(id);
+        if (it != m_axes.end()) {
+            it->second->setIdentity(id, groupName);
+        }
     }
 
 private:
-    std::unordered_map<AxisId, Axis> m_axes;
-    IAxisDriver* m_driver = nullptr;
-    bool m_isGantryCoupled = true;  // 默认处于联动模式
+    /**
+     * @brief 内部共用方法：龙门同步 + 龙门语义 + 容器查找
+     *
+     * 被 tryGetAxis() 和 tryReadAxis() 共用。
+     * 不包含 Layer 0 安全锁定拦截（由 tryGetAxis 单独处理）。
+     * 在被拒绝时输出详细日志（缺失项2）。
+     */
+    bool tryGetAxisInternal(AxisId id, Axis*& outAxis, ContextRejection& reason) {
+        // 仅龙门相关轴受联动状态约束，非龙门轴跳过
+        if (id == AxisId::X || id == AxisId::X1 || id == AxisId::X2) {
+            // A. 前置拦截：状态机尚未同步，物理真相未知 -> 拒绝一切龙门轴访问
+            if (m_gantryCouplingController->isNotSynchronized()) {
+                reason = ContextRejection::GantryNotSynchronized;
+                outAxis = nullptr;
+                // ★ 缺失项2：拒绝日志（含龙门同步状态详情）
+                logAxisRejection(id, reason, "couplingState=NotSynchronized");
+                return false;
+            }
+
+            // B. 龙门联动/解耦语义：由 GantryCouplingController 唯一真相源裁决
+            if (m_gantryCouplingController->isCoupled()) {
+                if (id == AxisId::X1 || id == AxisId::X2) {
+                    reason = ContextRejection::PhysicalAxisLockedByGantry;
+                    outAxis = nullptr;
+                    logAxisRejection(id, reason, "isCoupled=true");
+                    return false;
+                }
+            } else {
+                if (id == AxisId::X) {
+                    reason = ContextRejection::LogicalAxisUnavailableWhenDecoupled;
+                    outAxis = nullptr;
+                    logAxisRejection(id, reason,
+                        "couplingState="
+                        + std::string(gantryCouplingStatusToString(m_gantryCouplingController->isCouplingRequested()
+                            ? GantryCouplingState::Status::CouplingRequested
+                            : m_gantryCouplingController->isDecouplingRequested()
+                                ? GantryCouplingState::Status::DecouplingRequested
+                                : GantryCouplingState::Status::Decoupled)));
+                    return false;
+                }
+            }
+        }
+
+        // C. 容器查找
+        auto it = m_axes.find(id);
+        if (it == m_axes.end()) {
+            reason = ContextRejection::AxisNotRegistered;
+            outAxis = nullptr;
+            logAxisRejection(id, reason);
+            return false;
+        }
+
+        // D. 校验通过
+        outAxis = it->second.get();
+        reason = ContextRejection::None;
+        return true;
+    }
+
+    /**
+     * @brief 统一的轴访问拒绝日志（缺失项2）
+     * @param id 被拒绝访问的轴ID
+     * @param reason 拒绝原因
+     * @param extraDetail 可选额外详情（如龙门同步状态）
+     */
+    void logAxisRejection(AxisId id, ContextRejection reason, const std::string& extraDetail = "") {
+        std::ostringstream oss;
+        oss << "tryGetAxis(" << axisIdToString(id) << ") REJECTED: "
+            << contextRejectionToString(reason);
+        if (!extraDetail.empty()) {
+            oss << " (" << extraDetail << ")";
+        }
+        LOG_WARN_EVERY_MS(5000, LogLayer::DOM, "Context", oss.str());
+    }
+
+    std::unordered_map<AxisId, std::unique_ptr<Axis>> m_axes;
+    std::unique_ptr<GantryCouplingController> m_gantryCouplingController;
+    std::unique_ptr<GantryPowerController> m_gantryPowerController;
+    EmergencyStopController m_emergencyStopController;  // 值语义，SystemContext 组合持有
+    ISystemDriver* m_driver = nullptr;
 };

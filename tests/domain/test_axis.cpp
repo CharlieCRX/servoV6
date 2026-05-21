@@ -554,34 +554,98 @@ TEST(AxisTest, ShouldSyncRelativePositionAndZeroBaseFromFeedback)
 }
 
 // 第 2 组：相对原点指令的准入屏蔽
-TEST(AxisTest, ShouldRejectRelativeZeroCommandsWhenNotIdle)
+// 新策略：Idle 和 Disabled 均允许设置/清除相对零点，其他状态拒绝
+
+TEST(AxisTest, ShouldAcceptSetRelativeZeroWhenIdle)
 {
     Axis axis;
+    axis.applyFeedback({AxisState::Idle, 100.0, 100.0, 0.0});
 
-    // 场景 A：在 Disabled 状态下拒绝
-    axis.applyFeedback({AxisState::Disabled, 0.0, 0.0});
-    EXPECT_FALSE(axis.setRelativeZero());
-    EXPECT_FALSE(axis.clearRelativeZero());
-
-    // 场景 B：在 Error 故障态下拒绝 
-    axis.applyFeedback({AxisState::Error, 0.0, 0.0});
-    EXPECT_FALSE(axis.setRelativeZero());
-
-    // 场景 C：在运动中（Jogging）拒绝 
-    axis.applyFeedback({AxisState::Jogging, 0.0, 0.0});
-    EXPECT_FALSE(axis.clearRelativeZero());
-
-    // 场景 D：在 MovingAbsolute 态下拒绝 
-    axis.applyFeedback({AxisState::MovingAbsolute, 0.0, 0.0});
-    EXPECT_FALSE(axis.setRelativeZero());
-    
-    // 场景 E：在 MovingRelative 态下拒绝 
-    axis.applyFeedback({AxisState::MovingRelative, 0.0, 0.0});
-    EXPECT_FALSE(axis.clearRelativeZero());
-
-    // 场景 F：只有在 Idle 状态下才接受 
-    axis.applyFeedback({AxisState::Idle, 0.0, 0.0});
     EXPECT_TRUE(axis.setRelativeZero());
+    EXPECT_TRUE(axis.hasPendingCommand());
+    EXPECT_TRUE(std::holds_alternative<SetRelativeZeroCommand>(axis.getPendingCommand()));
+}
+
+TEST(AxisTest, ShouldAcceptSetRelativeZeroWhenDisabled)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Disabled, 100.0, 100.0, 0.0});
+
+    EXPECT_TRUE(axis.setRelativeZero());
+    EXPECT_TRUE(axis.hasPendingCommand());
+    EXPECT_TRUE(std::holds_alternative<SetRelativeZeroCommand>(axis.getPendingCommand()));
+}
+
+TEST(AxisTest, ShouldAcceptClearRelativeZeroWhenIdle)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Idle, 100.0, 100.0, 0.0});
+
+    EXPECT_TRUE(axis.clearRelativeZero());
+    EXPECT_TRUE(axis.hasPendingCommand());
+    EXPECT_TRUE(std::holds_alternative<ClearRelativeZeroCommand>(axis.getPendingCommand()));
+}
+
+TEST(AxisTest, ShouldAcceptClearRelativeZeroWhenDisabled)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Disabled, 100.0, 100.0, 0.0});
+
+    EXPECT_TRUE(axis.clearRelativeZero());
+    EXPECT_TRUE(axis.hasPendingCommand());
+    EXPECT_TRUE(std::holds_alternative<ClearRelativeZeroCommand>(axis.getPendingCommand()));
+}
+
+TEST(AxisTest, ShouldRejectRelativeZeroCommandsWhenUnknown)
+{
+    Axis axis;
+    // 默认初始状态为 Unknown
+
+    EXPECT_FALSE(axis.setRelativeZero());
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidState);
+    EXPECT_FALSE(axis.hasPendingCommand());
+
+    EXPECT_FALSE(axis.clearRelativeZero());
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidState);
+}
+
+TEST(AxisTest, ShouldRejectRelativeZeroCommandsWhenError)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Error, 0.0, 0.0});
+
+    EXPECT_FALSE(axis.setRelativeZero());
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidState);
+
+    EXPECT_FALSE(axis.clearRelativeZero());
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidState);
+}
+
+TEST(AxisTest, ShouldRejectRelativeZeroCommandsWhenJogging)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::Jogging, 0.0, 0.0});
+
+    EXPECT_FALSE(axis.setRelativeZero());
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidState);
+}
+
+TEST(AxisTest, ShouldRejectRelativeZeroCommandsWhenMovingAbsolute)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::MovingAbsolute, 0.0, 0.0});
+
+    EXPECT_FALSE(axis.setRelativeZero());
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidState);
+}
+
+TEST(AxisTest, ShouldRejectRelativeZeroCommandsWhenMovingRelative)
+{
+    Axis axis;
+    axis.applyFeedback({AxisState::MovingRelative, 0.0, 0.0});
+
+    EXPECT_FALSE(axis.clearRelativeZero());
+    EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidState);
 }
 
 
@@ -890,7 +954,7 @@ TEST(AxisTest, SetJogVelocityShouldEmitCommandWhenAxisIsIdle)
 }
 
 
-// 2. Disabled → 也允许
+// 2. Disabled -> 也允许
 TEST(AxisTest, SetJogVelocityShouldWorkEvenWhenAxisIsDisabled)
 {
     Axis axis;
@@ -904,7 +968,7 @@ TEST(AxisTest, SetJogVelocityShouldWorkEvenWhenAxisIsDisabled)
     EXPECT_TRUE(ok);
 }
 
-// 3. Moving → 必须拒绝
+// 3. Moving -> 必须拒绝
 TEST(AxisTest, SetJogVelocityShouldBeRejectedWhenAxisIsMoving)
 {
     Axis axis;
@@ -919,7 +983,7 @@ TEST(AxisTest, SetJogVelocityShouldBeRejectedWhenAxisIsMoving)
     EXPECT_EQ(axis.lastRejection(), RejectionReason::InvalidState);
 }
 
-// 5. Error → 必须拒绝
+// 5. Error -> 必须拒绝
 TEST(AxisTest, SetJogVelocityShouldWorkEvenInErrorState)
 {
     Axis axis;

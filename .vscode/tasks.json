@@ -1,0 +1,98 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "cmake-configure",
+            "type": "shell",
+            "command": "${config:servo.cmakePath}",
+            "args": [
+                "-S",
+                "${workspaceFolder}",
+                "-B",
+                "${workspaceFolder}/build",
+                "-G",
+                "MinGW Makefiles",
+                "-DCMAKE_BUILD_TYPE=Debug",
+                "-DCMAKE_CXX_STANDARD=20",
+                "-DCMAKE_AUTOMOC=OFF",
+                "-DCMAKE_AUTORCC=OFF",
+                "-DCMAKE_AUTOUIC=OFF",
+                "-DCMAKE_MAKE_PROGRAM=${config:servo.mingwBinDir}/mingw32-make.exe",
+                "-DCMAKE_C_COMPILER=${config:servo.mingwBinDir}/gcc.exe",
+                "-DCMAKE_CXX_COMPILER=${config:servo.mingwBinDir}/g++.exe",
+                "-DCMAKE_PREFIX_PATH=${config:servo.qtPrefixPath}"
+            ],
+            "options": {
+                "env": {
+                    "PATH": "${config:servo.mingwBinDir};${config:servo.qtBinDir};${env:PATH}"
+                }
+            },
+            "group": {
+                "kind": "build"
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "detail": "CMake 配置（MinGW + Debug 模式）"
+        },
+        {
+            "label": "cmake-build",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                "\"${workspaceFolder}/.vscode/cmake-build-timing.ps1\"",
+                "-CmakePath",
+                "\"${config:servo.cmakePath}\"",
+                "-BuildDir",
+                "\"${workspaceFolder}/build\"",
+                "-Parallel",
+                "${config:servo.cmakeBuildParallel}"
+            ],
+            "options": {
+                "env": {
+                    "PATH": "${config:servo.mingwBinDir};${config:servo.qtBinDir};${env:PATH}"
+                }
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "dependsOn": [
+                "cmake-configure"
+            ],
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "detail": "多线程编译 unit_tests（含耗时统计）"
+        },
+        {
+            "label": "cmake-clean",
+            "type": "shell",
+            "command": "cmd",
+            "args": [
+                "/c",
+                "if exist \"${workspaceFolder}\\build\" rmdir /s /q \"${workspaceFolder}\\build\""
+            ],
+            "group": "build",
+            "problemMatcher": [],
+            "detail": "完全删除 build 目录"
+        },
+        {
+            "label": "cmake-clean-rebuild",
+            "type": "shell",
+            "command": "cmd",
+            "args": [
+                "/c",
+                "if exist \"${workspaceFolder}\\build\" rmdir /s /q \"${workspaceFolder}\\build\""
+            ],
+            "group": "build",
+            "dependsOn": [],
+            "problemMatcher": [],
+            "detail": "删除 build -> 再运行 cmake-build 重新配置并编译"
+        }
+    ]
+}

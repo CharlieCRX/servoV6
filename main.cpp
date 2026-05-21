@@ -5,119 +5,283 @@
 #include <QUrl>
 #include <QQuickStyle>
 #include <QStandardPaths>
+#include <vector>
 
-// 引入你所有的架构头文件
-#include "domain/entity/Axis.h"
+#include "application/SystemManager.h"
+#include "domain/entity/AxisId.h"
+#include "domain/entity/ContextRejection.h"
 #include "infrastructure/FakePLC.h"
 #include "infrastructure/FakeAxisDriver.h"
-#include "application/axis/AxisSyncService.h"
-#include "application/axis/EnableUseCase.h"
-#include "application/axis/JogAxisUseCase.h"
-#include "application/axis/MoveAbsoluteUseCase.h"
-#include "application/axis/StopAxisUseCase.h"
-#include "application/policy/JogOrchestrator.h"
-#include "application/policy/AutoAbsMoveOrchestrator.h"
 #include "presentation/viewmodel/AxisViewModelCore.h"
 #include "presentation/viewmodel/QtAxisViewModel.h"
+#include "presentation/viewmodel/EmergencyStopViewModel.h"
+#include "presentation/viewmodel/GantryViewModel.h"
 #include "infrastructure/logger/Logger.h"
+#include <sstream>
+#include <iomanip>
+
+// 辅助：将单个轴的摘要格式化为紧凑字符串
+// 输出如 "Y: pos=+0041.4 Standstill"
+static std::string formatAxisSummary(QtAxisViewModel& vm)
+{
+    std::string full = vm.fullName().toStdString();
+    // 从 "Machine_A/Y" 提取轴短名 "Y"
+    auto slash = full.rfind('/');
+    std::string shortName = (slash != std::string::npos) ? full.substr(slash + 1) : full;
+
+    std::ostringstream oss;
+    oss << shortName << ": pos=" << std::fixed << std::setprecision(1) << std::showpos
+        << vm.position() << std::noshowpos
+        << " " << vm.stateText().toStdString();
+    if (vm.errorCount() > 0)
+        oss << " errs=" << vm.errorCount();
+    return oss.str();
+}
 
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
-    // ==========================================
+
+    // ============================
     // 0. 初始化全局可观测性基础设施 (Logger)
-    // ==========================================
+    // ============================
     LoggerConfig logCfg;
-    logCfg.enableConsole = true; 
-    logCfg.enableFile = true;    
+    logCfg.enableConsole = true;
+    logCfg.enableFile = true;
+    logCfg.minConsoleLevel = LogLevel::DEBUG;   // 调试模式：显示 DEBUG 及以上（生产可改回 INFO）
 
     QString logBasePath;
-    // 🌟 跨平台目录路由策略：只负责确定基础路径
 #ifdef Q_OS_ANDROID
     logBasePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     if (logBasePath.isEmpty()) {
         logBasePath = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
     }
 #else
-    // PC 端直接获取 exe 目录
     logBasePath = QCoreApplication::applicationDirPath();
 #endif
 
-    // 🌟 统一拼接并赋值，确保全平台逻辑一致
-    // 这样 PC 端会得到 "F:/.../build/logs"，Android 会得到 "/data/user/0/.../logs"
     logCfg.logDirectory = QString("%1/logs").arg(logBasePath).toStdString();
-    
-    // 初始化日志系统
     Logger::init(logCfg);
 
     LOG_INFO(LogLayer::APP, "System", "========================================");
     LOG_INFO(LogLayer::APP, "System", "servoV6 Application Starting...");
-    LOG_INFO(LogLayer::APP, "System", "Log Directory: " + logCfg.logDirectory); // 把路径打印出来，方便调试找文件
+    LOG_INFO(LogLayer::APP, "System", "Log Directory: " + logCfg.logDirectory);
     LOG_INFO(LogLayer::APP, "System", "========================================");
 
     QQuickStyle::setStyle("Basic");
 
+    // ============================
+    // 1. 硬件仿真层（每个分组独立的 FakePLC + FakeAxisDriver）
+    // ============================
+    FakePLC plcA, plcB;
+    FakeAxisDriver driverA(plcA), driverB(plcB);
 
-    // ==========================================
-    // 1. 实例化底层物理与业务逻辑 (Composition Root)
-    // ==========================================
-    FakePLC plc;
-    FakeAxisDriver driver(plc);
-    AxisSyncService syncService;
+    // ============================
+    // 2. 系统分组管理
+    // ============================
+    SystemManager manager;
+    ContextRejection reason;
 
-    Axis axis;
-    EnableUseCase enableUc(driver);
-    JogAxisUseCase jogUc(driver);
-    MoveAbsoluteUseCase moveAbsUc(driver);
-    MoveRelativeUseCase moveRelUc(driver);
-    StopAxisUseCase stopUc(driver);
+    manager.createGroup("Machine_A", reason);   // Y, Z, R 轴
+    manager.createGroup("Machine_B", reason);   // X1, X2 轴（龙门）
 
-    JogOrchestrator jogOrch(enableUc, jogUc);
-    AutoAbsMoveOrchestrator absOrch(enableUc, moveAbsUc);
-    AutoRelMoveOrchestrator relOrch{enableUc, moveRelUc};
+    SystemContext* ctxA = nullptr;
+    SystemContext* ctxB = nullptr;
+    manager.tryGetGroup("Machine_A", ctxA, reason);
+    manager.tryGetGroup("Machine_B", ctxB, reason);
+    ctxA->setDriver(&driverA);
+    ctxB->setDriver(&driverB);
 
-    // 实例化 Core ViewModel
-    AxisViewModelCore vmCore(axis, jogOrch, absOrch, relOrch, stopUc);
-    
-    // 实例化 Qt Wrapper ViewModel
-    QtAxisViewModel qtVM(&vmCore);
+    constexpr std::array<AxisId, 6> ALL_AXES = {
+        AxisId::X, AxisId::X1, AxisId::X2, AxisId::Y, AxisId::Z, AxisId::R
+    };
 
-    // 初始化物理世界状态
-    plc.forceState(AxisState::Disabled);
-    plc.setSimulatedJogVelocity(20.0);
-    plc.setSimulatedMoveVelocity(50.0);
-    plc.setLimits(1000.0, -1000.0);
-    syncService.sync(axis, plc.getFeedback());
+    // ============================
+    // 3. 为所有 Axis 实体注册身份（groupName + axisId），用于日志系统 TraceScope 上下文
+    //    必须在首次 pollFeedback 之前执行，确保 applyFeedback 日志能携带正确的轴名和分组
+    //    使用 setAxisIdentity() 绕过龙门语义拦截（龙门轴在初始 NotSynchronized 状态下
+    //    tryReadAxis 会拒绝访问，导致 X/X1/X2 永远无法注册身份）
+    // ============================
+    for (auto id : ALL_AXES) {
+        ctxA->setAxisIdentity(id, "Machine_A");
+    }
+    for (auto id : ALL_AXES) {
+        ctxB->setAxisIdentity(id, "Machine_B");
+    }
 
-    // ==========================================
-    // 2. QML 引擎初始化与依赖注入
-    // ==========================================
+    // ============================
+    // 4. 初始化物理世界默认状态
+    // ============================
+    // --- Group A (Machine_A): 6 轴初始状态 ---
+    constexpr double DEFAULT_JOG_VEL  = 20.0;
+    constexpr double DEFAULT_MOVE_VEL = 50.0;
+    constexpr double DEFAULT_LIMIT_POS = 1000.0;
+    constexpr double DEFAULT_LIMIT_NEG = -1000.0;
+    for (auto id : ALL_AXES) {
+        plcA.forceState(id, AxisState::Disabled);
+        plcA.setSimulatedJogVelocity(id, DEFAULT_JOG_VEL);
+        plcA.setSimulatedMoveVelocity(id, DEFAULT_MOVE_VEL);
+        plcA.setLimits(id, DEFAULT_LIMIT_POS, DEFAULT_LIMIT_NEG);
+    }
+    for (auto id : ALL_AXES) {
+        plcB.forceState(id, AxisState::Disabled);
+        plcB.setSimulatedJogVelocity(id, DEFAULT_JOG_VEL);
+        plcB.setSimulatedMoveVelocity(id, DEFAULT_MOVE_VEL);
+        plcB.setLimits(id, DEFAULT_LIMIT_POS, DEFAULT_LIMIT_NEG);
+    }
+
+    // 首次同步（将 plc 默认状态注入 SystemContext）
+    driverA.pollFeedback(*ctxA);
+    driverB.pollFeedback(*ctxB);
+
+    // ============================
+    // 4. ViewModels（按 分组+轴 维度，两组各含6轴）
+    // ============================
+    // Machine_A 的全部轴
+    auto vmCore_A_Y  = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::Y);
+    auto vmCore_A_Z  = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::Z);
+    auto vmCore_A_R  = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::R);
+    auto vmCore_A_X  = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::X);
+    auto vmCore_A_X1 = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::X1);
+    auto vmCore_A_X2 = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::X2);
+
+    // Machine_B 的全部轴
+    auto vmCore_B_Y  = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::Y);
+    auto vmCore_B_Z  = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::Z);
+    auto vmCore_B_R  = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::R);
+    auto vmCore_B_X  = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::X);
+    auto vmCore_B_X1 = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::X1);
+    auto vmCore_B_X2 = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::X2);
+
+    // Qt 包装
+    QtAxisViewModel qtVM_A_Y(vmCore_A_Y.get());
+    QtAxisViewModel qtVM_A_Z(vmCore_A_Z.get());
+    QtAxisViewModel qtVM_A_R(vmCore_A_R.get());
+    QtAxisViewModel qtVM_A_X(vmCore_A_X.get());
+    QtAxisViewModel qtVM_A_X1(vmCore_A_X1.get());
+    QtAxisViewModel qtVM_A_X2(vmCore_A_X2.get());
+
+    QtAxisViewModel qtVM_B_Y(vmCore_B_Y.get());
+    QtAxisViewModel qtVM_B_Z(vmCore_B_Z.get());
+    QtAxisViewModel qtVM_B_R(vmCore_B_R.get());
+    QtAxisViewModel qtVM_B_X(vmCore_B_X.get());
+    QtAxisViewModel qtVM_B_X1(vmCore_B_X1.get());
+    QtAxisViewModel qtVM_B_X2(vmCore_B_X2.get());
+
+    // ─────────────── 4b. 急停安全 ViewModel ───────────────
+    // 每个分组一个 EmergencyStopViewModel，在 tick loop 中读取紧急急停状态
+    EmergencyStopViewModel emergencyVM_A(manager, "Machine_A");
+    EmergencyStopViewModel emergencyVM_B(manager, "Machine_B");
+
+    // ─────────────── 4c. 龙门 ViewModel ───────────────
+    // 每个分组一个 GantryViewModel，桥接 Domain 龙门控制器状态到 QML
+    GantryViewModel gantryVM_A(manager, "Machine_A");
+    GantryViewModel gantryVM_B(manager, "Machine_B");
+
+    // ============================
+    // 5. QML 引擎初始化与依赖注入
+    // ============================
     QQmlApplicationEngine engine;
-    
-    // ⭐ 核心依赖注入：将 C++ 的 qtVM 注入到 QML 上下文中，命名为 "axisX1VM"
-    // Phase 7 多轴时，你可以在这里再注入一个 axisX2VM
-    engine.rootContext()->setContextProperty("axisX1VM", &qtVM);
+
+    engine.rootContext()->setContextProperty("group_A_Y",  &qtVM_A_Y);
+    engine.rootContext()->setContextProperty("group_A_Z",  &qtVM_A_Z);
+    engine.rootContext()->setContextProperty("group_A_R",  &qtVM_A_R);
+    engine.rootContext()->setContextProperty("group_A_X",  &qtVM_A_X);
+    engine.rootContext()->setContextProperty("group_A_X1", &qtVM_A_X1);
+    engine.rootContext()->setContextProperty("group_A_X2", &qtVM_A_X2);
+
+    engine.rootContext()->setContextProperty("group_B_Y",  &qtVM_B_Y);
+    engine.rootContext()->setContextProperty("group_B_Z",  &qtVM_B_Z);
+    engine.rootContext()->setContextProperty("group_B_R",  &qtVM_B_R);
+    engine.rootContext()->setContextProperty("group_B_X",  &qtVM_B_X);
+    engine.rootContext()->setContextProperty("group_B_X1", &qtVM_B_X1);
+    engine.rootContext()->setContextProperty("group_B_X2", &qtVM_B_X2);
+
+    // 急停安全 ViewModel
+    engine.rootContext()->setContextProperty("emergencyVM_A", &emergencyVM_A);
+    engine.rootContext()->setContextProperty("emergencyVM_B", &emergencyVM_B);
+
+    // 龙门 ViewModel
+    engine.rootContext()->setContextProperty("gantryVM_A", &gantryVM_A);
+    engine.rootContext()->setContextProperty("gantryVM_B", &gantryVM_B);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
         &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
-    
-    // 加载移动到新目录的 Main.qml
+
     engine.loadFromModule("servoV6", "Main");
 
-    // ==========================================
-    // 3. 启动系统物理时钟 (Tick Loop)
-    // ==========================================
+    // ============================
+    // 6. 全局 Tick Loop（统一 pollFeedback）
+    // ============================
+    std::vector<QtAxisViewModel*> allViewModels = {
+        &qtVM_A_Y, &qtVM_A_Z, &qtVM_A_R, &qtVM_A_X, &qtVM_A_X1, &qtVM_A_X2,
+        &qtVM_B_Y, &qtVM_B_Z, &qtVM_B_R, &qtVM_B_X, &qtVM_B_X1, &qtVM_B_X2
+    };
+
     QTimer systemClock;
     QObject::connect(&systemClock, &QTimer::timeout, [&]() {
-        qtVM.tick();                               // 1. 驱动 UI 与状态机
-        plc.tick(10);                              // 2. 推进物理世界 10ms
-        syncService.sync(axis, plc.getFeedback()); // 3. 传感器回流
+        // 6a. 所有分组推进物理引擎 + 反馈注入
+        for (const auto& groupName : manager.groupNames()) {
+            SystemContext* ctx = nullptr;
+            ContextRejection r;
+            if (manager.tryGetGroup(groupName, ctx, r) && ctx) {
+                auto* drv = ctx->driver();
+                if (!drv) continue;
+
+                // 6a-1. 反馈注入（轴 + 龙门 + 急停）
+                drv->pollFeedback(*ctx);
+
+                // 6a-2. 消费 EmergencyStopController 产生的 pending command
+                auto& estopCtrl = ctx->emergencyStopController();
+                if (estopCtrl.hasPendingCommand()) {
+                    auto commResult = drv->send(estopCtrl.popPendingCommand());
+                    if (!commResult.ok()) {
+                        LOG_WARN(LogLayer::APP, "System",
+                            "[" + groupName + "] EmergencyStop command delivery failed: " + commResult.diagnostic);
+                    }
+                }
+            }
+        }
+
+        // 6b. 所有 ViewModel 推进状态机
+        for (auto* vm : allViewModels) {
+            vm->tick();
+        }
+
+        // 6c. 急停安全 ViewModel 推进（每帧同步急停控制器状态）
+        emergencyVM_A.tick();
+        emergencyVM_B.tick();
+
+        // 6d. 龙门 ViewModel 推进（每帧推进 Orchestrator + 刷新状态投影）
+        gantryVM_A.tick();
+        gantryVM_B.tick();
     });
-    systemClock.start(10); // 10ms 物理心跳
+    systemClock.start(10);  // 10ms 物理心跳
 
-    int result = app.exec();  
+    // 7. 周期性状态摘要（每秒输出一次，按分组分行）
+    QTimer summaryClock;
+    QObject::connect(&summaryClock, &QTimer::timeout, [&]() {
+        LOG_SUMMARY(LogLayer::UI, "Telemetry",
+            "=== Machine_A === "
+            + formatAxisSummary(qtVM_A_Y) + "  "
+            + formatAxisSummary(qtVM_A_Z) + "  "
+            + formatAxisSummary(qtVM_A_R) + "  "
+            + formatAxisSummary(qtVM_A_X) + "  "
+            + formatAxisSummary(qtVM_A_X1) + "  "
+            + formatAxisSummary(qtVM_A_X2));
+        LOG_SUMMARY(LogLayer::UI, "Telemetry",
+            "=== Machine_B === "
+            + formatAxisSummary(qtVM_B_Y) + "  "
+            + formatAxisSummary(qtVM_B_Z) + "  "
+            + formatAxisSummary(qtVM_B_R) + "  "
+            + formatAxisSummary(qtVM_B_X) + "  "
+            + formatAxisSummary(qtVM_B_X1) + "  "
+            + formatAxisSummary(qtVM_B_X2));
+    });
+    summaryClock.start(1000);  // 1s 周期
 
-    Logger::shutdown(); // 确保日志系统安全关闭，写完最后的日志
+    int result = app.exec();
 
+    Logger::shutdown();
     return result;
 }

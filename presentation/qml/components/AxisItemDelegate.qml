@@ -7,8 +7,10 @@ Rectangle {
     
     property string name: ""
     property string statusText: ""
+    property string subLabel: ""
     property bool isActive: false
     property bool isDual: false
+    property string indicatorColor: ""  // 空字符串时使用默认逻辑
     
     signal clicked()
 
@@ -26,12 +28,15 @@ Rectangle {
         anchors.margins: 12 * Theme.scale
         spacing: 12 * Theme.scale
 
-        // 状态指示灯
+        // 状态指示灯（支持外部覆盖颜色，如龙门耦合状态色）
         Rectangle {
             width: 10 * Theme.scale
             height: 10 * Theme.scale
             radius: 5
-            color: isActive ? Theme.colorIdle : Theme.colorDisabled
+            color: {
+                if (delegateRoot.indicatorColor !== "") return delegateRoot.indicatorColor
+                return isActive ? Theme.colorIdle : Theme.colorDisabled
+            }
         }
 
         Column {
@@ -47,13 +52,14 @@ Rectangle {
                 color: delegateRoot.isActive ? Theme.colorMoving : "#556677"
                 font.pixelSize: Theme.fontSmall
             }
-        }
-
-        // 图标占位 (单轴显示 1，双轴显示 2)
-        Text {
-            text: isDual ? "⛓" : "📍"
-            font.pixelSize: 20
-            opacity: 0.5
+            // 副标签（如"↳ 龙门"）
+            Text {
+                text: delegateRoot.subLabel
+                visible: delegateRoot.subLabel !== ""
+                color: Theme.textDim
+                font.pixelSize: Theme.fontSmall * 0.85
+                font.italic: true
+            }
         }
     }
 

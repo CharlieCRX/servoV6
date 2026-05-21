@@ -1,475 +1,519 @@
 #include <gtest/gtest.h>
-#include "entity/Axis.h"
+#include <variant>
+#include "domain/entity/Axis.h"
+#include "domain/entity/SystemContext.h"
 #include "infrastructure/FakePLC.h"
 #include "infrastructure/FakeAxisDriver.h"
-#include "application/axis/AxisRepository.h"
+#include "application/SystemManager.h"
 #include "application/axis/EnableUseCase.h"
 #include "application/axis/MoveAbsoluteUseCase.h"
 #include "application/axis/MoveRelativeUseCase.h"
 #include "application/axis/JogAxisUseCase.h"
 #include "application/axis/StopAxisUseCase.h"
-#include "application/policy/AutoAbsMoveOrchestrator.h"
-#include "application/policy/AutoRelMoveOrchestrator.h"
-#include "application/policy/JogOrchestrator.h"
 #include <cmath>
 
 // ============================================================================
-// 端到端系统集成测试（AxisId 多轴版本）
-// 核心变化：所有 UseCase 接受 AxisRepository + IAxisDriver，execute() 接受 AxisId
-// 所有 Orchestrator::start() 第一个参数为 AxisId
-// 同步反馈：repo.getAxis(id).applyFeedback(plc.getFeedback(id))
+// 端到端系统集成测试（分组感知版本 v3 -- 适配 pollFeedback 统一反馈）
+//
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  架构变更：使用 ISystemDriver::pollFeedback() 替代手动      ║
+// ║  tickA/tickB/syncA/syncB 泵送                              ║
+// ║                                                              ║
+// ║  SystemManager                                               ║
+// ║  ├── "Machine_A" -> SystemContext_A (driver -> plcA)          ║
+// ║  │   └── 使用 Y, Z, R 轴                                    ║
+// ║  └── "Machine_B" -> SystemContext_B (driver -> plcB)          ║
+// ║      └── 使用 X1, X2 轴                                     ║
+// ╚══════════════════════════════════════════════════════════════╝
 // ============================================================================
 
 class SystemIntegrationTest : public ::testing::Test {
 protected:
-    AxisRepository repo;
-    FakePLC plc;
-    FakeAxisDriver driver{plc};
+    // ---- Machine_A 的硬件虚拟化 ----
+    FakePLC plcA;
+    FakeAxisDriver driverA{plcA};
+
+    // ---- Machine_B 的硬件虚拟化 ----
+    FakePLC plcB;
+    FakeAxisDriver driverB{plcB};
+
+    // ---- 全局 SystemManager（内部持有 SystemContext） ----
+    SystemManager manager;
+
+    // ---- 从 manager 获取到的分组指针 ----
+    SystemContext* ctxA = nullptr;
+    SystemContext* ctxB = nullptr;
+
+    // ---- 无状态 UseCases ----
+    EnableUseCase enableUc;
+    MoveAbsoluteUseCase moveAbsUc;
+    MoveRelativeUseCase moveRelUc;
+    JogAxisUseCase jogUc;
+    StopAxisUseCase stopUc;
+
+    static constexpr const char* GROUP_A = "Machine_A";
+    static constexpr const char* GROUP_B = "Machine_B";
 
     void SetUp() override {
-        repo.registerAxis(AxisId::Y);
-        repo.registerAxis(AxisId::Z);
-        repo.registerAxis(AxisId::R);
+        // 创建两个独立分组
+        ContextRejection reason;
+        ASSERT_TRUE(manager.createGroup(GROUP_A, reason));
+        ASSERT_TRUE(manager.createGroup(GROUP_B, reason));
+
+        ASSERT_TRUE(manager.tryGetGroup(GROUP_A, ctxA, reason));
+        ASSERT_TRUE(manager.tryGetGroup(GROUP_B, ctxB, reason));
+
+        // 绑定驱动（模拟硬件抽象层）
+        ctxA->setDriver(&driverA);
+        ctxB->setDriver(&driverB);
+
+        // 默认限位配置
+        plcA.setLimits(AxisId::Y, 1000.0, -1000.0);
+        plcA.setLimits(AxisId::Z, 1000.0, -1000.0);
+        plcA.setLimits(AxisId::R, 1000.0, -1000.0);
+        plcB.setLimits(AxisId::X1, 1000.0, -1000.0);
+        plcB.setLimits(AxisId::X2, 1000.0, -1000.0);
     }
 
-    // 辅助：将 PLC 反馈同步回 Axis 实例
-    void sync(AxisId id) {
-        repo.getAxis(id).applyFeedback(plc.getFeedback(id));
-    }
-
-    // 辅助：等待若干个 tick，每 tick 后执行 update 和 sync
-    void runTicks(AxisId id, int tickCount, int tickMs = 10) {
+    // 辅助：推进 A 组物理引擎并同步（替换原 tickA 手动泵送）
+    void tickA(int tickCount) {
         for (int i = 0; i < tickCount; ++i) {
-            plc.tick(tickMs);
-            sync(id);
+            driverA.pollFeedback(*ctxA);
         }
+    }
+
+    // 辅助：推进 B 组物理引擎并同步（替换原 tickB 手动泵送）
+    void tickB(int tickCount) {
+        for (int i = 0; i < tickCount; ++i) {
+            driverB.pollFeedback(*ctxB);
+        }
+    }
+
+    // 辅助：根据 id 输出轴指针（tryGetAxis 包装）
+    Axis* getAxisA(AxisId id) {
+        Axis* a = nullptr;
+        ContextRejection r;
+        ctxA->tryGetAxis(id, a, r);
+        return a;
+    }
+
+    Axis* getAxisB(AxisId id) {
+        Axis* a = nullptr;
+        ContextRejection r;
+        ctxB->tryGetAxis(id, a, r);
+        return a;
     }
 };
 
 // ============================================================================
-// 案例 1：端到端绝对定位（通过 Orchestrator）
+// 案例 1：端到端绝对定位（Enable -> MoveAbs -> WaitDone）
 // ============================================================================
 TEST_F(SystemIntegrationTest, ShouldCompleteAbsoluteMoveEndToEnd) {
-    EnableUseCase enableUc(repo, driver);
-    MoveAbsoluteUseCase moveUc(repo, driver);
-    AutoAbsMoveOrchestrator orchestrator(enableUc, moveUc);
-
-    plc.forceState(AxisId::Y, AxisState::Disabled);
-    plc.setSimulatedMoveVelocity(AxisId::Y, 50.0);
-    sync(AxisId::Y);
+    plcA.forceState(AxisId::Y, AxisState::Disabled);
+    plcA.setSimulatedMoveVelocity(AxisId::Y, 50.0);
+    driverA.pollFeedback(*ctxA);
 
     double targetPos = 100.0;
-    orchestrator.start(AxisId::Y, targetPos);
 
-    const int TICK_MS = 10;
-    const int MAX_TICKS = 500;
+    // Enable -> Idle
+    auto enableResult = enableUc.execute(manager, GROUP_A, AxisId::Y, true);
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(enableResult));
+    tickA(20); // 200ms > 150ms enable delay
+
+    // MoveAbsolute -> MovingAbsolute
+    auto moveResult = moveAbsUc.execute(manager, GROUP_A, AxisId::Y, targetPos);
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(moveResult));
+
+    // 等待运动完成
     int ticks = 0;
-    bool motionObserved = false;
-    double lastPos = repo.getAxis(AxisId::Y).currentAbsolutePosition();
+    const int MAX_TICKS = 500;
+    Axis* axis = getAxisA(AxisId::Y);
+    ASSERT_NE(axis, nullptr);
 
-    while (orchestrator.currentStep() != AutoAbsMoveOrchestrator::Step::Done &&
-           orchestrator.currentStep() != AutoAbsMoveOrchestrator::Step::Error &&
-           ticks < MAX_TICKS) {
-        Axis& axis = repo.getAxis(AxisId::Y);
-        orchestrator.update(axis);
-        plc.tick(TICK_MS);
-        sync(AxisId::Y);
-
-        if (axis.state() == AxisState::MovingAbsolute) {
-            if (std::abs(axis.currentAbsolutePosition() - lastPos) > 0.0001) {
-                motionObserved = true;
-            }
-            lastPos = axis.currentAbsolutePosition();
-        }
+    while (ticks < MAX_TICKS) {
+        driverA.pollFeedback(*ctxA);
+        if (axis->state() == AxisState::Idle) break;
         ticks++;
     }
 
-    Axis& axis = repo.getAxis(AxisId::Y);
     EXPECT_LT(ticks, MAX_TICKS);
-    EXPECT_EQ(orchestrator.currentStep(), AutoAbsMoveOrchestrator::Step::Done);
-    EXPECT_TRUE(motionObserved);
-    EXPECT_NEAR(axis.currentAbsolutePosition(), targetPos, 0.01);
-    EXPECT_EQ(axis.state(), AxisState::Disabled);
-    EXPECT_FALSE(axis.hasPendingCommand());
+    EXPECT_EQ(axis->state(), AxisState::Idle);
+    EXPECT_NEAR(axis->currentAbsolutePosition(), targetPos, 0.01);
+    EXPECT_FALSE(axis->hasPendingCommand());
 }
 
 // ============================================================================
-// 案例 2：Jog 持续型行为与中断
-// ============================================================================
-TEST_F(SystemIntegrationTest, ShouldJogStartAndStopCorrectly) {
-    EnableUseCase enableUc(repo, driver);
-    JogAxisUseCase jogUc(repo, driver);
-    JogOrchestrator orchestrator(enableUc, jogUc);
-
-    plc.forceState(AxisId::Y, AxisState::Disabled);
-    plc.setSimulatedJogVelocity(AxisId::Y, 10.0);
-    sync(AxisId::Y);
-
-    const int TICK_MS = 10;
-    const int MAX_TICKS = 500;
-
-    // 阶段 A：正向点动
-    orchestrator.startJog(AxisId::Y, Direction::Forward);
-
-    int ticks = 0;
-    bool startedJogging = false;
-    double posBeforeJog = repo.getAxis(AxisId::Y).currentAbsolutePosition();
-
-    while (ticks < MAX_TICKS) {
-        Axis& axis = repo.getAxis(AxisId::Y);
-        orchestrator.update(axis);
-        plc.tick(TICK_MS);
-        sync(AxisId::Y);
-
-        if (axis.state() == AxisState::Jogging) {
-            startedJogging = true;
-            for (int i = 0; i < 50; ++i) {
-                orchestrator.update(axis);
-                plc.tick(TICK_MS);
-                sync(AxisId::Y);
-            }
-            break;
-        }
-        ticks++;
-    }
-
-    EXPECT_TRUE(startedJogging);
-    double posDuringJog = repo.getAxis(AxisId::Y).currentAbsolutePosition();
-    EXPECT_GT(posDuringJog, posBeforeJog);
-
-    // 阶段 B：停止点动
-    orchestrator.stopJog(AxisId::Y, Direction::Forward);
-
-    ticks = 0;
-    bool fullyStopped = false;
-
-    while (ticks < MAX_TICKS) {
-        Axis& axis = repo.getAxis(AxisId::Y);
-        orchestrator.update(axis);
-        plc.tick(TICK_MS);
-        sync(AxisId::Y);
-
-        if (orchestrator.currentStep() == JogOrchestrator::Step::Done) {
-            fullyStopped = true;
-            break;
-        }
-        ticks++;
-    }
-
-    Axis& axis = repo.getAxis(AxisId::Y);
-    EXPECT_TRUE(fullyStopped);
-    EXPECT_EQ(axis.state(), AxisState::Disabled);
-    EXPECT_FALSE(axis.hasPendingCommand());
-
-    double posAfterStop = axis.currentAbsolutePosition();
-    runTicks(AxisId::Y, 20, TICK_MS);
-    EXPECT_DOUBLE_EQ(axis.currentAbsolutePosition(), posAfterStop);
-}
-
-// ============================================================================
-// 案例 3：事前拦截（超限拒绝）
-// ============================================================================
-TEST_F(SystemIntegrationTest, ShouldFailToStartWhenTargetExceedsLimit) {
-    EnableUseCase enableUc(repo, driver);
-    MoveAbsoluteUseCase moveUc(repo, driver);
-    AutoAbsMoveOrchestrator orchestrator(enableUc, moveUc);
-
-    plc.forceState(AxisId::Y, AxisState::Disabled);
-    plc.setLimits(AxisId::Y, 80.0, -80.0);
-    sync(AxisId::Y);
-
-    orchestrator.start(AxisId::Y, 150.0);
-
-    const int TICK_MS = 10;
-    int ticks = 0;
-    while (orchestrator.currentStep() != AutoAbsMoveOrchestrator::Step::Done &&
-           orchestrator.currentStep() != AutoAbsMoveOrchestrator::Step::Error &&
-           ticks < 100) {
-        Axis& axis = repo.getAxis(AxisId::Y);
-        orchestrator.update(axis);
-        plc.tick(TICK_MS);
-        sync(AxisId::Y);
-        ticks++;
-    }
-
-    Axis& axis = repo.getAxis(AxisId::Y);
-    EXPECT_EQ(orchestrator.currentStep(), AutoAbsMoveOrchestrator::Step::Error);
-    EXPECT_NE(axis.state(), AxisState::MovingAbsolute);
-    EXPECT_EQ(axis.state(), AxisState::Disabled);
-}
-
-// ============================================================================
-// 案例 4：半路夭折（运行中硬错误注入）
-// ============================================================================
-TEST_F(SystemIntegrationTest, ShouldFailWhenMoveInterruptedMidway) {
-    EnableUseCase enableUc(repo, driver);
-    MoveAbsoluteUseCase moveUc(repo, driver);
-    AutoAbsMoveOrchestrator orchestrator(enableUc, moveUc);
-
-    plc.forceState(AxisId::Y, AxisState::Disabled);
-    plc.setLimits(AxisId::Y, 200.0, -200.0);
-    plc.setSimulatedMoveVelocity(AxisId::Y, 50.0);
-    sync(AxisId::Y);
-
-    orchestrator.start(AxisId::Y, 150.0);
-
-    const int TICK_MS = 10;
-    int ticks = 0;
-    bool startedMoving = false;
-    bool errorHandled = false;
-
-    while (ticks < 500) {
-        Axis& axis = repo.getAxis(AxisId::Y);
-        orchestrator.update(axis);
-        plc.tick(TICK_MS);
-        sync(AxisId::Y);
-
-        if (axis.state() == AxisState::MovingAbsolute && !startedMoving) {
-            startedMoving = true;
-            plc.forceState(AxisId::Y, AxisState::Error);
-        }
-
-        if (orchestrator.currentStep() == AutoAbsMoveOrchestrator::Step::Error) {
-            errorHandled = true;
-            break;
-        }
-        ticks++;
-    }
-
-    EXPECT_TRUE(startedMoving);
-    EXPECT_TRUE(errorHandled);
-    EXPECT_NE(orchestrator.currentStep(), AutoAbsMoveOrchestrator::Step::Done);
-}
-
-// ============================================================================
-// 案例 5：连续相对定位
+// 案例 2：端到端相对定位（两次连续）
 // ============================================================================
 TEST_F(SystemIntegrationTest, ShouldCompleteRelativeMoveEndToEnd) {
-    EnableUseCase enableUc(repo, driver);
-    MoveRelativeUseCase moveRelUc(repo, driver);
-    AutoRelMoveOrchestrator orchestrator(enableUc, moveRelUc);
+    plcA.forceState(AxisId::Y, AxisState::Disabled);
+    plcA.setSimulatedMoveVelocity(AxisId::Y, 50.0);
+    driverA.pollFeedback(*ctxA);
 
-    plc.forceState(AxisId::Y, AxisState::Disabled);
-    plc.setSimulatedMoveVelocity(AxisId::Y, 50.0);
-    sync(AxisId::Y);
+    // Enable
+    auto enableResult = enableUc.execute(manager, GROUP_A, AxisId::Y, true);
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(enableResult));
+    tickA(20);
 
-    const int TICK_MS = 10;
-    const int MAX_TICKS = 500;
+    Axis* axis = getAxisA(AxisId::Y);
+    ASSERT_NE(axis, nullptr);
 
-    // 阶段 A：第一次相对定位 (+50.0)
-    orchestrator.start(AxisId::Y, 50.0);
-
-    int ticks = 0;
-    while (orchestrator.currentStep() != AutoRelMoveOrchestrator::Step::Done &&
-           orchestrator.currentStep() != AutoRelMoveOrchestrator::Step::Error &&
-           ticks < MAX_TICKS) {
-        Axis& axis = repo.getAxis(AxisId::Y);
-        orchestrator.update(axis);
-        plc.tick(TICK_MS);
-        sync(AxisId::Y);
-        ticks++;
-    }
-
-    Axis& axis = repo.getAxis(AxisId::Y);
-    EXPECT_EQ(orchestrator.currentStep(), AutoRelMoveOrchestrator::Step::Done);
-    EXPECT_NEAR(axis.currentAbsolutePosition(), 50.0, 0.01);
-    EXPECT_EQ(axis.state(), AxisState::Disabled);
-
-    // 阶段 B：第二次相对定位 (-20.0)
-    orchestrator.start(AxisId::Y, -20.0);
-
-    ticks = 0;
-    while (orchestrator.currentStep() != AutoRelMoveOrchestrator::Step::Done &&
-           orchestrator.currentStep() != AutoRelMoveOrchestrator::Step::Error &&
-           ticks < MAX_TICKS) {
-        Axis& axisY = repo.getAxis(AxisId::Y);
-        orchestrator.update(axisY);
-        plc.tick(TICK_MS);
-        sync(AxisId::Y);
-        ticks++;
-    }
-
-    EXPECT_EQ(orchestrator.currentStep(), AutoRelMoveOrchestrator::Step::Done);
-    EXPECT_NEAR(repo.getAxis(AxisId::Y).currentAbsolutePosition(), 30.0, 0.01);
-    EXPECT_EQ(repo.getAxis(AxisId::Y).state(), AxisState::Disabled);
-}
-
-// ============================================================================
-// 案例 6：限位处中断 + 反向逃逸 + 操作死锁
-// ============================================================================
-TEST_F(SystemIntegrationTest, ShouldInterruptJogAtLimitAndRestrictFurtherMoves) {
-    EnableUseCase enableUc(repo, driver);
-    JogAxisUseCase jogUc(repo, driver);
-    MoveAbsoluteUseCase moveUc(repo, driver);
-    JogOrchestrator jogOrch(enableUc, jogUc);
-    AutoAbsMoveOrchestrator moveOrch(enableUc, moveUc);
-
-    plc.forceState(AxisId::Y, AxisState::Disabled);
-    plc.setSimulatedJogVelocity(AxisId::Y, 20.0);
-    plc.setLimits(AxisId::Y, 50.0, -1000.0);
-    sync(AxisId::Y);
-
-    const int TICK_MS = 10;
-
-    // 阶段 1：作死正向点动，直到撞上 50 限位
-    jogOrch.startJog(AxisId::Y, Direction::Forward);
+    // 第一次相对定位 +50
+    auto move1Result = moveRelUc.execute(manager, GROUP_A, AxisId::Y, 50.0);
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(move1Result));
 
     int ticks = 0;
     while (ticks < 500) {
-        Axis& axis = repo.getAxis(AxisId::Y);
-        jogOrch.update(axis);
-        plc.tick(TICK_MS);
-        sync(AxisId::Y);
-
-        if (jogOrch.currentStep() == JogOrchestrator::Step::Done ||
-            jogOrch.currentStep() == JogOrchestrator::Step::Error) {
-            break;
-        }
+        driverA.pollFeedback(*ctxA);
+        if (axis->state() == AxisState::Idle) break;
         ticks++;
     }
 
-    Axis& axis = repo.getAxis(AxisId::Y);
-    EXPECT_TRUE(plc.getFeedback(AxisId::Y).posLimit);
-    EXPECT_NEAR(axis.currentAbsolutePosition(), 50.0, 0.01);
-    EXPECT_EQ(axis.state(), AxisState::Disabled);
+    EXPECT_NEAR(axis->currentAbsolutePosition(), 50.0, 0.01);
 
-    // 阶段 2：死锁 A — 企图继续正向点动
-    jogOrch.startJog(AxisId::Y, Direction::Forward);
+    // 第二次相对定位 -20 -> 预期 30
+    auto move2Result = moveRelUc.execute(manager, GROUP_A, AxisId::Y, -20.0);
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(move2Result));
+
     ticks = 0;
-    while (ticks < 100) {
-        Axis& axisY = repo.getAxis(AxisId::Y);
-        jogOrch.update(axisY);
-        plc.tick(TICK_MS);
-        sync(AxisId::Y);
-        if (jogOrch.currentStep() == JogOrchestrator::Step::Error) break;
+    while (ticks < 500) {
+        driverA.pollFeedback(*ctxA);
+        if (axis->state() == AxisState::Idle) break;
         ticks++;
     }
 
-    EXPECT_EQ(jogOrch.currentStep(), JogOrchestrator::Step::Error);
-    EXPECT_EQ(jogOrch.errorReason(), RejectionReason::AtPositiveLimit);
-
-    // 阶段 3：死锁 B — 企图使用 Move 指令
-    moveOrch.start(AxisId::Y, 0.0);
-    ticks = 0;
-    while (ticks < 100) {
-        Axis& axisY = repo.getAxis(AxisId::Y);
-        moveOrch.update(axisY);
-        plc.tick(TICK_MS);
-        sync(AxisId::Y);
-        if (moveOrch.currentStep() == AutoAbsMoveOrchestrator::Step::Error) break;
-        ticks++;
-    }
-
-    EXPECT_EQ(moveOrch.currentStep(), AutoAbsMoveOrchestrator::Step::Error);
-    EXPECT_EQ(moveOrch.errorReason(), RejectionReason::AtPositiveLimit);
-
-    // 阶段 4：唯一生路 — 反向逃逸
-    jogOrch.startJog(AxisId::Y, Direction::Backward);
-    ticks = 0;
-    bool escapedLimit = false;
-
-    while (ticks < 300) {
-        Axis& axisY = repo.getAxis(AxisId::Y);
-        jogOrch.update(axisY);
-        plc.tick(TICK_MS);
-        sync(AxisId::Y);
-
-        if (axisY.state() == AxisState::Jogging && !plc.getFeedback(AxisId::Y).posLimit) {
-            escapedLimit = true;
-            break;
-        }
-        ticks++;
-    }
-
-    Axis& axisY_final = repo.getAxis(AxisId::Y);
-    EXPECT_TRUE(escapedLimit);
-    EXPECT_LT(axisY_final.currentAbsolutePosition(), 49.9);
-    jogOrch.stopJog(AxisId::Y, Direction::Backward);
+    EXPECT_NEAR(axis->currentAbsolutePosition(), 30.0, 0.01);
 }
 
 // ============================================================================
-// 案例 7：急停 — 紧急停止注入
+// 案例 3：事前拦截 -- 目标超出软限位应被 MoveUseCase 拒绝
 // ============================================================================
-TEST_F(SystemIntegrationTest, ShouldHaltCompletelyAndReportErrorWhenEmergencyStopInvoked) {
-    EnableUseCase enableUc(repo, driver);
-    MoveAbsoluteUseCase moveUc(repo, driver);
-    StopAxisUseCase stopUc(repo, driver);
-    AutoAbsMoveOrchestrator orchestrator(enableUc, moveUc);
+TEST_F(SystemIntegrationTest, ShouldRejectMoveWhenTargetExceedsLimit) {
+    plcA.forceState(AxisId::Y, AxisState::Disabled);
+    plcA.setLimits(AxisId::Y, 80.0, -80.0);
+    driverA.pollFeedback(*ctxA);
 
-    plc.forceState(AxisId::Y, AxisState::Disabled);
-    plc.setSimulatedMoveVelocity(AxisId::Y, 20.0);
-    sync(AxisId::Y);
+    // Enable
+    auto enableResult = enableUc.execute(manager, GROUP_A, AxisId::Y, true);
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(enableResult));
+    tickA(20);
 
-    orchestrator.start(AxisId::Y, 200.0);
+    Axis* axis = getAxisA(AxisId::Y);
+    ASSERT_NE(axis, nullptr);
+    ASSERT_EQ(axis->state(), AxisState::Idle);
 
-    const int TICK_MS = 10;
+    // 试图运动到 150（超出正向限位 80）
+    auto moveResult = moveAbsUc.execute(manager, GROUP_A, AxisId::Y, 150.0);
+    EXPECT_FALSE(std::holds_alternative<std::monostate>(moveResult))
+        << "Move beyond positive limit should have been rejected!";
+
+    // 应返回 TargetOutOfPositiveLimit
+    if (std::holds_alternative<RejectionReason>(moveResult)) {
+        EXPECT_EQ(std::get<RejectionReason>(moveResult), RejectionReason::TargetOutOfPositiveLimit);
+    }
+
+    // 轴状态应保持 Idle（未进入运动）
+    EXPECT_EQ(axis->state(), AxisState::Idle);
+    EXPECT_FALSE(axis->hasPendingCommand());
+}
+
+// ============================================================================
+// 案例 4：半路夭折 -- 运行中硬错误注入
+// ============================================================================
+TEST_F(SystemIntegrationTest, ShouldDetectMidMoveError) {
+    plcA.forceState(AxisId::Y, AxisState::Disabled);
+    plcA.setSimulatedMoveVelocity(AxisId::Y, 20.0);
+    plcA.setLimits(AxisId::Y, 200.0, -200.0);
+    driverA.pollFeedback(*ctxA);
+
+    // Enable
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(
+        enableUc.execute(manager, GROUP_A, AxisId::Y, true)));
+    tickA(20);
+
+    Axis* axis = getAxisA(AxisId::Y);
+    ASSERT_NE(axis, nullptr);
+
+    // 开始运动
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(
+        moveAbsUc.execute(manager, GROUP_A, AxisId::Y, 150.0)));
+
+    // 推进一小段确认运动开始（200ms）
+    tickA(20);
+    ASSERT_EQ(axis->state(), AxisState::MovingAbsolute);
+
+    // 注入硬件错误
+    plcA.forceState(AxisId::Y, AxisState::Error);
+    driverA.pollFeedback(*ctxA);
+
+    EXPECT_EQ(axis->state(), AxisState::Error);
+}
+
+// ============================================================================
+// 案例 5：限位处 Jog 操作死锁 -- 到达正限位后禁止正向点动和定位
+// ============================================================================
+TEST_F(SystemIntegrationTest, ShouldRejectOperationsAtPositiveLimit) {
+    plcA.forceState(AxisId::Y, AxisState::Disabled);
+    plcA.setSimulatedMoveVelocity(AxisId::Y, 50.0);
+    plcA.setLimits(AxisId::Y, 50.0, -1000.0);
+    driverA.pollFeedback(*ctxA);
+
+    // Enable
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(
+        enableUc.execute(manager, GROUP_A, AxisId::Y, true)));
+    tickA(20);
+
+    Axis* axis = getAxisA(AxisId::Y);
+    ASSERT_NE(axis, nullptr);
+
+    // 运动到正限位 50
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(
+        moveAbsUc.execute(manager, GROUP_A, AxisId::Y, 50.0)));
+
     int ticks = 0;
-    bool startedMoving = false;
-
-    while (ticks < 200) {
-        Axis& axis = repo.getAxis(AxisId::Y);
-        orchestrator.update(axis);
-        plc.tick(TICK_MS);
-        sync(AxisId::Y);
-
-        if (axis.state() == AxisState::MovingAbsolute) {
-            startedMoving = true;
-        }
+    while (ticks < 500) {
+        driverA.pollFeedback(*ctxA);
+        if (axis->state() == AxisState::Idle) break;
         ticks++;
     }
 
-    EXPECT_TRUE(startedMoving);
+    ASSERT_NEAR(axis->currentAbsolutePosition(), 50.0, 0.01);
+    ASSERT_TRUE(plcA.getFeedback(AxisId::Y).posLimit);
 
-    // 急停注入
-    stopUc.execute(AxisId::Y);
+    // 死锁 A：正向点动被拒绝
+    auto jogFwdResult = jogUc.execute(manager, GROUP_A, AxisId::Y, Direction::Forward);
+    EXPECT_TRUE(std::holds_alternative<RejectionReason>(jogFwdResult));
+    EXPECT_EQ(std::get<RejectionReason>(jogFwdResult), RejectionReason::AtPositiveLimit);
 
-    int stopTicks = 0;
-    while (stopTicks < 500) {
-        Axis& axis = repo.getAxis(AxisId::Y);
-        orchestrator.update(axis);
-        plc.tick(TICK_MS);
-        sync(AxisId::Y);
+    // 死锁 B：正向定位被拒绝（目标 > 当前位置）
+    auto moveBeyondResult = moveAbsUc.execute(manager, GROUP_A, AxisId::Y, 100.0);
+    EXPECT_FALSE(std::holds_alternative<std::monostate>(moveBeyondResult));
 
-        if (orchestrator.currentStep() == AutoAbsMoveOrchestrator::Step::Error ||
-            orchestrator.currentStep() == AutoAbsMoveOrchestrator::Step::Done) {
-            break;
-        }
-        stopTicks++;
-    }
-
-    Axis& axis = repo.getAxis(AxisId::Y);
-    EXPECT_LT(axis.currentAbsolutePosition(), 150.0);
-    EXPECT_NE(orchestrator.currentStep(), AutoAbsMoveOrchestrator::Step::Done);
-    EXPECT_EQ(orchestrator.currentStep(), AutoAbsMoveOrchestrator::Step::Error);
+    // 生路：反向点动应允许
+    auto jogBwdResult = jogUc.execute(manager, GROUP_A, AxisId::Y, Direction::Backward);
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(jogBwdResult));
 }
 
 // ============================================================================
-// 案例 8：普通生命周期测试（简化版）
+// 案例 6：急停 -- StopUseCase 中断运动
 // ============================================================================
-TEST_F(SystemIntegrationTest, FullMoveAbsoluteLifeCycle) {
-    EnableUseCase enableUc(repo, driver);
-    MoveAbsoluteUseCase moveUc(repo, driver);
+TEST_F(SystemIntegrationTest, ShouldStopMidMove) {
+    plcA.forceState(AxisId::Y, AxisState::Disabled);
+    plcA.setSimulatedMoveVelocity(AxisId::Y, 20.0);
+    driverA.pollFeedback(*ctxA);
 
-    plc.forceState(AxisId::Y, AxisState::Idle);
-    plc.setSimulatedMoveVelocity(AxisId::Y, 50.0);
-    sync(AxisId::Y);
+    // Enable
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(
+        enableUc.execute(manager, GROUP_A, AxisId::Y, true)));
+    tickA(20);
 
-    Axis& axis = repo.getAxis(AxisId::Y);
-    EXPECT_EQ(axis.state(), AxisState::Idle);
+    // 开始运动（目标很远）
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(
+        moveAbsUc.execute(manager, GROUP_A, AxisId::Y, 500.0)));
 
-    RejectionReason reason = moveUc.execute(AxisId::Y, 100.0);
-    EXPECT_EQ(reason, RejectionReason::None);
+    // 推进一小段（500ms）
+    tickA(50);
 
-    runTicks(AxisId::Y, 100, 10); // 1000ms，走 50.0
+    Axis* axis = getAxisA(AxisId::Y);
+    ASSERT_NE(axis, nullptr);
+    ASSERT_EQ(axis->state(), AxisState::MovingAbsolute);
 
-    sync(AxisId::Y);
-    EXPECT_EQ(axis.state(), AxisState::MovingAbsolute);
-    EXPECT_NEAR(axis.currentAbsolutePosition(), 50.0, 0.001);
+    double posBeforeStop = axis->currentAbsolutePosition();
 
-    runTicks(AxisId::Y, 100, 10); // 再 1000ms，到 100.0
-    sync(AxisId::Y);
+    // 急停
+    auto stopResult = stopUc.execute(manager, GROUP_A, AxisId::Y);
+    EXPECT_TRUE(std::holds_alternative<std::monostate>(stopResult));
 
-    EXPECT_EQ(axis.state(), AxisState::Idle);
-    EXPECT_NEAR(axis.currentAbsolutePosition(), 100.0, 0.001);
-    EXPECT_FALSE(axis.hasPendingCommand());
+    // 等待停止生效（20ms）
+    tickA(2);
+
+    // 位置不应再变化（或已停止）
+    double posAfterStop = axis->currentAbsolutePosition();
+    tickA(10);
+
+    EXPECT_NEAR(axis->currentAbsolutePosition(), posAfterStop, 0.01)
+        << "Position should not change after stop!";
+}
+
+// ============================================================================
+// 案例 7：分组隔离 -- A 组运动不影响 B 组
+// ============================================================================
+TEST_F(SystemIntegrationTest, ShouldIsolateGroupAFromGroupB) {
+    // A 组 Y 轴使能
+    plcA.forceState(AxisId::Y, AxisState::Disabled);
+    plcA.setSimulatedMoveVelocity(AxisId::Y, 50.0);
+    driverA.pollFeedback(*ctxA);
+
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(
+        enableUc.execute(manager, GROUP_A, AxisId::Y, true)));
+    tickA(20);
+
+    // B 组先解耦龙门，使 X1 可独立操作
+    // 通过 GantryCouplingController 注入解耦反馈，使状态机从 NotSynchronized -> Decoupled
+    ctxB->gantryCouplingController().applyFeedback(GantryFeedback{false, false, 0});
+
+    // B 组 X1 轴使能（独立）
+    plcB.forceState(AxisId::X1, AxisState::Disabled);
+    plcB.setSimulatedMoveVelocity(AxisId::X1, 50.0);
+    driverB.pollFeedback(*ctxB);
+
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(
+        enableUc.execute(manager, GROUP_B, AxisId::X1, true)));
+    tickB(20);
+
+    // A 组 Y 轴运动到 100
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(
+        moveAbsUc.execute(manager, GROUP_A, AxisId::Y, 100.0)));
+
+    // 推进 A 组 1000ms
+    tickA(100);
+
+    Axis* axisA_Y = getAxisA(AxisId::Y);
+    Axis* axisB_X1 = getAxisB(AxisId::X1);
+
+    ASSERT_NE(axisA_Y, nullptr);
+    ASSERT_NE(axisB_X1, nullptr);
+
+    // A 组 Y 轴在运动
+    EXPECT_EQ(axisA_Y->state(), AxisState::MovingAbsolute);
+    EXPECT_NEAR(axisA_Y->currentAbsolutePosition(), 50.0, 0.01);
+
+    // B 组 X1 轴不受影响
+    EXPECT_EQ(axisB_X1->state(), AxisState::Idle);
+    EXPECT_NEAR(axisB_X1->currentAbsolutePosition(), 0.0, 0.001);
+
+    // A 组继续运动到完成
+    tickA(100);
+    driverA.pollFeedback(*ctxA);
+
+    EXPECT_EQ(axisA_Y->state(), AxisState::Idle);
+    EXPECT_NEAR(axisA_Y->currentAbsolutePosition(), 100.0, 0.01);
+
+    // B 组 X1 轴仍不受影响
+    EXPECT_EQ(axisB_X1->state(), AxisState::Idle);
+    EXPECT_NEAR(axisB_X1->currentAbsolutePosition(), 0.0, 0.001);
+}
+
+// ============================================================================
+// 案例 8：SystemManager 层错误 -- 查询不存在的分组
+// ============================================================================
+TEST_F(SystemIntegrationTest, ShouldRejectWhenGroupNotFound) {
+    auto result = enableUc.execute(manager, "NonExistentGroup", AxisId::Y, true);
+    EXPECT_TRUE(std::holds_alternative<ContextRejection>(result));
+    EXPECT_EQ(std::get<ContextRejection>(result), ContextRejection::GroupNotFound);
+}
+
+// ============================================================================
+// 案例 9：SystemContext 层错误 -- 查询未注册的轴
+//
+// 注：SystemContext 默认构造包含全部 6 个轴，因此不再存在"未注册轴"场景。
+// 改为测试龙门联动拦截：联动时 X1 被 tryGetAxis 拒绝。
+// ============================================================================
+TEST_F(SystemIntegrationTest, ShouldRejectPhysicalAxisWhenGantryCoupled) {
+    // 先同步龙门到 Coupled 状态（通过 PLC 反馈）
+    plcB.forceState(AxisId::X1, AxisState::Disabled);
+    plcB.forceState(AxisId::X2, AxisState::Disabled);
+    driverB.pollFeedback(*ctxB);  // ctxB 是 GROUP_B 的 context
+    // 同步 GantryCouplingController 到 Decoupled（绕过 NotSynchronized）
+    plcB.forceGantryFeedback(GantryFeedback{false, false, 0});
+    // 发起耦合请求（现在 Decoupled -> CouplingRequested）
+    ctxB->gantryCouplingController().requestCouple(true);
+    // 模拟 PLC 确认耦合成功
+    plcB.forceGantryFeedback(GantryFeedback{true, true, 0});
+    driverB.pollFeedback(*ctxB);
+
+    // X1 在 ctxB 的龙门联动下被拦截
+    auto result = enableUc.execute(manager, GROUP_B, AxisId::X1, true);
+    EXPECT_TRUE(std::holds_alternative<ContextRejection>(result));
+    EXPECT_EQ(std::get<ContextRejection>(result), ContextRejection::PhysicalAxisLockedByGantry);
+}
+
+// ============================================================================
+// 案例 10：Axis 领域层错误 -- 故障态使能应被拒绝
+// ============================================================================
+TEST_F(SystemIntegrationTest, ShouldRejectEnableWhenInErrorState) {
+    plcA.forceState(AxisId::Y, AxisState::Error);
+    driverA.pollFeedback(*ctxA);
+
+    // 故障状态下使能应被拒绝
+    auto r = enableUc.execute(manager, GROUP_A, AxisId::Y, true);
+    EXPECT_TRUE(std::holds_alternative<RejectionReason>(r));
+    EXPECT_EQ(std::get<RejectionReason>(r), RejectionReason::InvalidState);
+}
+
+// ============================================================================
+// 案例 11：Jog 点动完整流程
+// ============================================================================
+TEST_F(SystemIntegrationTest, ShouldJogContinuouslyAndStop) {
+    plcA.forceState(AxisId::Y, AxisState::Disabled);
+    plcA.setSimulatedJogVelocity(AxisId::Y, 10.0);
+    driverA.pollFeedback(*ctxA);
+
+    // Enable
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(
+        enableUc.execute(manager, GROUP_A, AxisId::Y, true)));
+    tickA(20);
+
+    Axis* axis = getAxisA(AxisId::Y);
+    ASSERT_NE(axis, nullptr);
+    ASSERT_EQ(axis->state(), AxisState::Idle);
+
+    double initialPos = axis->currentAbsolutePosition();
+
+    // 启动正向点动
+    auto jogResult = jogUc.execute(manager, GROUP_A, AxisId::Y, Direction::Forward);
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(jogResult));
+
+    // 推进 100ms（速度 10 -> 位移 1.0），注意 tickA(10) 内部已做 10 次 pollFeedback
+    tickA(10);
+
+    EXPECT_EQ(axis->state(), AxisState::Jogging);
+    EXPECT_NEAR(axis->currentAbsolutePosition(), initialPos + 1.0, 0.001);
+
+    // 停止点动
+    jogUc.stop(manager, GROUP_A, AxisId::Y, Direction::Forward);
+    tickA(10);
+
+    EXPECT_EQ(axis->state(), AxisState::Idle);
+}
+
+// ============================================================================
+// 案例 12：禁用状态下不可运动
+// ============================================================================
+TEST_F(SystemIntegrationTest, ShouldRejectMoveWhenDisabled) {
+    plcA.forceState(AxisId::Y, AxisState::Disabled);
+    driverA.pollFeedback(*ctxA);
+
+    auto moveResult = moveAbsUc.execute(manager, GROUP_A, AxisId::Y, 100.0);
+    EXPECT_TRUE(std::holds_alternative<RejectionReason>(moveResult));
+    EXPECT_EQ(std::get<RejectionReason>(moveResult), RejectionReason::InvalidState);
+}
+
+// ============================================================================
+// 案例 13：运动中掉电应被拒绝
+// ============================================================================
+TEST_F(SystemIntegrationTest, ShouldRejectDisableWhileMoving) {
+    plcA.forceState(AxisId::Y, AxisState::Disabled);
+    plcA.setSimulatedMoveVelocity(AxisId::Y, 20.0);
+    driverA.pollFeedback(*ctxA);
+
+    // Enable
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(
+        enableUc.execute(manager, GROUP_A, AxisId::Y, true)));
+    tickA(20);
+
+    // 开始慢速运动
+    ASSERT_TRUE(std::holds_alternative<std::monostate>(
+        moveAbsUc.execute(manager, GROUP_A, AxisId::Y, 500.0)));
+
+    tickA(10);
+
+    Axis* axis = getAxisA(AxisId::Y);
+    ASSERT_NE(axis, nullptr);
+    ASSERT_EQ(axis->state(), AxisState::MovingAbsolute);
+
+    // 运动中掉电应被拒绝
+    auto disableResult = enableUc.execute(manager, GROUP_A, AxisId::Y, false);
+    EXPECT_TRUE(std::holds_alternative<RejectionReason>(disableResult));
+    EXPECT_EQ(std::get<RejectionReason>(disableResult), RejectionReason::AlreadyMoving);
 }

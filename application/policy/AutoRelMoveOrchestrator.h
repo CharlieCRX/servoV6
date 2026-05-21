@@ -1,168 +1,288 @@
-#ifndef AUTO_REL_MOVE_ORCHESTRATOR_H
-#define AUTO_REL_MOVE_ORCHESTRATOR_H
+#pragma once
 
+#include "application/SystemManager.h"
 #include "application/axis/EnableUseCase.h"
 #include "application/axis/MoveRelativeUseCase.h"
-#include "domain/entity/AxisId.h"
+#include "domain/entity/SystemContext.h"
+#include "domain/entity/Axis.h"
+#include "application/UseCaseError.h"
 #include "infrastructure/logger/Logger.h"
 #include "infrastructure/logger/TraceScope.h"
+#include <variant>
+#include <string>
 #include <cmath>
 
+/**
+ * @brief 相对运动编排器
+ *
+ * 职责：编排"使能 -> 下发相对运动 -> 等待运动开始 -> 等待运动完成 -> 掉电"的完整流程。
+ *
+ * 分层职责：
+ *   - EnableUseCase / MoveRelativeUseCase 负责：分组路由 + 轴状态幂等检查 + 下发命令
+ *   - Axis 领域层负责：相对运动的语义校验 + 产生 MoveCommand
+ *   - AutoRelMoveOrchestrator 负责：流程编排 + 错误转发
+ *
+ * 使用示例：
+ *   AutoRelMoveOrchestrator orch(manager, "Machine_A");
+ *   orch.startRel(AxisId::Y, 50.0);
+ *   while (orch.currentStep() != Step::Done && orch.currentStep() != Step::Error) {
+ *       orch.tick();
+ *   }
+ */
 class AutoRelMoveOrchestrator {
 public:
     enum class Step {
         Initial,
-        EnsuringEnabled,
-        IssuingMove,
-        WaitingMotionStart,
-        WaitingMotionFinish,
+        EnsuringEnabled,   // 下发使能
+        IssuingMove,       // 下发相对运动指令
+        WaitingMotionStart,// 等待运动开始
+        WaitingMotionFinish,// 等待运动完成
         Done,
         Error
     };
 
-    AutoRelMoveOrchestrator(EnableUseCase& en, MoveRelativeUseCase& mv)
-        : enableUc(en), moveUc(mv) {}
-
-    // ⭐ 升级 1：接收目标轴标识 AxisId
-    void start(AxisId id, double distance) {
-        m_targetId = id;            // 记录目标轴
-        m_distance = distance;
-        m_step = Step::EnsuringEnabled;
-
-        m_moveIssued = false;       // 重置幂等标志
-        m_motionObserved = false;   // 重置运动观测
-        m_startPos = 0.0;           // 重置起点
-
-        m_traceId = TraceScope::current().traceId;
-        LOG_INFO(LogLayer::APP, "RelOrch", "START MoveRelative distance=" + std::to_string(distance));
+    /**
+     * @param manager   系统管理器（用于 EnableUseCase / MoveRelativeUseCase 的分组路由）
+     * @param groupName 目标分组名称
+     */
+    AutoRelMoveOrchestrator(SystemManager& manager, const std::string& groupName)
+        : m_manager(manager)
+        , m_groupName(groupName)
+        , m_step(Step::Initial)
+    {
     }
 
-    void update(Axis& axis)
-    {
-        TraceScope scope("G1", "Y", m_traceId);
-        // ⭐ 全局错误拦截（最高优先级）
-        if (axis.state() == AxisState::Error) {
-            LOG_ERROR(LogLayer::APP, "RelOrch", "Axis entered Error state globally!");
+    // ========== 入口 ==========
+
+    void startRel(AxisId id, double distance) {
+        m_targetId = id;
+        m_distance = distance;
+        m_step = Step::EnsuringEnabled;
+        m_lastError = std::monostate{};
+
+        m_moveIssued = false;
+        m_motionObserved = false;
+        m_startAbs = 0.0;
+
+        m_traceId = TraceScope::current().traceId;
+
+        LOG_INFO(LogLayer::APP, "RelOrch",
+                 "[" + m_groupName + "][" + axisName(m_targetId) + "] START MoveRelative distance="
+                     + std::to_string(distance));
+    }
+
+    // ========== 逐帧驱动 ==========
+
+    void tick() {
+        TraceScope scope(m_groupName, axisName(m_targetId), m_traceId);
+
+        // 第 0 层：分组解析（SystemManager）
+        SystemContext* group = nullptr;
+        ContextRejection mgrReason = ContextRejection::None;
+        if (!m_manager.tryGetGroup(m_groupName, group, mgrReason)) {
             m_step = Step::Error;
+            m_lastError = mgrReason;
             return;
         }
 
-        double pos = axis.currentAbsolutePosition();
-        
-        switch (m_step)
-        {
-        case Step::EnsuringEnabled:
+        // ★ Safety Lock Pre-check（Layer 0 前置于 tryGetAxis）
+        //     安全锁定时，无情中止当前编排流程，回到 Done，
+        //     避免进入 Error 状态导致急停解除后无法启动新运动。
+        if (group->emergencyStopController().isSystemLocked()) {
+            if (m_step != Step::Initial && m_step != Step::Done && m_step != Step::Error) {
+                LOG_INFO(LogLayer::APP, "RelOrch",
+                         "[" + m_groupName + "][" + axisName(m_targetId) + "] Safety locked -- aborting gracefully");
+                m_step = Step::Done;
+                m_lastError = std::monostate{};
+            }
+            return;
+        }
 
-            // 1. Disabled → 主动 Enable
-            if (axis.state() == AxisState::Disabled) {
-                enableUc.execute(m_targetId, true); // ⭐ 升级 2：按 ID 路由
+        // 第 1 层：轴获取与龙门校验（SystemContext）
+        Axis* axis = nullptr;
+        ContextRejection ctxReason = ContextRejection::None;
+        if (!group->tryGetAxis(m_targetId, axis, ctxReason)) {
+            m_step = Step::Error;
+            m_lastError = ctxReason;
+            return;
+        }
+
+        // 全局最高优先级：硬件/状态错误拦截
+        if (axis->state() == AxisState::Error) {
+            LOG_ERROR(LogLayer::APP, "RelOrch",
+                      "[" + m_groupName + "][" + axisName(m_targetId) + "] Axis Error state -- aborting");
+            m_step = Step::Error;
+            m_lastError = axis->lastRejection();
+            return;
+        }
+
+        double pos = axis->currentAbsolutePosition();
+
+        switch (m_step) {
+        case Step::Initial:
+            break;
+
+        // ============================================================
+        // EnsuringEnabled：使能 -> 等待 Idle
+        // ============================================================
+
+        case Step::EnsuringEnabled:
+            if (axis->state() == AxisState::Disabled) {
+                LOG_DEBUG(LogLayer::APP, "RelOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -- sending Enable command");
+                auto err = EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, true);
+                if (!std::holds_alternative<std::monostate>(err)) {
+                    m_step = Step::Error;
+                    m_lastError = err;
+                    return;
+                }
+                LOG_DEBUG(LogLayer::APP, "RelOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] Sent Enable");
                 break;
             }
-
-            // 2. Idle → 进入下一阶段（但不发 Move）
-            if (axis.state() == AxisState::Idle) {
-                LOG_DEBUG(LogLayer::APP, "RelOrch", "Step: EnsuringEnabled -> IssuingMove");
+            if (axis->state() == AxisState::Idle) {
+                LOG_DEBUG(LogLayer::APP, "RelOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -> IssuingMove");
                 m_step = Step::IssuingMove;
                 break;
             }
-
-            // 3. 其他状态：保持
+            // 其他状态：保持等待
             break;
+
+        // ============================================================
+        // IssuingMove：下发相对运动指令 -> WaitingMotionStart
+        // ============================================================
 
         case Step::IssuingMove:
+            if (m_moveIssued) break;  // 幂等保护
 
-            // ❗幂等：只允许发一次 Move
-            if (m_moveIssued) {
-                break;
-            }
+            {
+                LOG_DEBUG(LogLayer::APP, "RelOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] IssuingMove -- sending MoveRelative command distance="
+                              + std::to_string(m_distance));
+                auto err = MoveRelativeUseCase{}.execute(m_manager, m_groupName, m_targetId, m_distance);
+                if (!std::holds_alternative<std::monostate>(err)) {
+                    LOG_ERROR(LogLayer::APP, "RelOrch",
+                              "[" + m_groupName + "][" + axisName(m_targetId) + "] MoveRelative rejected");
+                    m_lastError = err;
+                    // 失败熔断 -> 掉电
+                    EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, false);
+                    m_step = Step::Error;
+                    break;
+                }
 
-            // ⭐ 发起相对运动 (按 ID 路由)
-            m_rejectionReason = moveUc.execute(m_targetId, m_distance);
-            if (m_rejectionReason == RejectionReason::None) {
-                // ⭐ 记录起点（用于后续阶段）
-                m_startPos = axis.currentAbsolutePosition();
-                LOG_DEBUG(LogLayer::APP, "RelOrch", "Step: IssuingMove -> WaitingMotionStart");
-
+                // ⭐ 记录起点（用于完成判定：终点 = startAbs + distance）
+                m_startAbs = pos;
                 m_moveIssued = true;
+                LOG_DEBUG(LogLayer::APP, "RelOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] IssuingMove -> WaitingMotionStart");
                 m_step = Step::WaitingMotionStart;
             }
-            else {
-                // ⭐ Move 被拒绝 → 立即掉电 + Error
-                LOG_ERROR(LogLayer::APP, "RelOrch", "Move command rejected by UseCase/Domain");
-                enableUc.execute(m_targetId, false); // ⭐ 升级 2：按 ID 路由
-                m_step = Step::Error;
-            }
-
             break;
-        
-        case Step::WaitingMotionStart:
-          // ⭐ 只在尚未观测到运动时检测
-          if (!m_motionObserved) {
-              // ⭐ 判定条件：MovingRelative 或 位置变化
-              if (axis.state() == AxisState::MovingRelative ||
-                  std::abs(pos - m_startPos) > m_epsilon ||
-                  axis.isMoveCompleted()) {
-                  m_motionObserved = true;
-                  LOG_DEBUG(LogLayer::APP, "RelOrch", "Step: WaitingMotionStart -> WaitingMotionFinish");
-                  m_step = Step::WaitingMotionFinish;
-              }
-          }
-          break;
-          
-        case Step::WaitingMotionFinish:
 
-          // ❗防假完成
-          if (!m_motionObserved) {
-              break;
-          }
-        
-          // ❗唯一完成判定
-          if (axis.isMoveCompleted()) {
-                // 物理级终极验证：意图虽然消失了，但我真的到了吗？
-                double currentPos = axis.currentAbsolutePosition();
-                if (std::abs(currentPos - (m_startPos + m_distance)) < m_epsilon) {
-                    // 只有物理到位，才是真正的 Done
-                    enableUc.execute(m_targetId, false); // ⭐ 升级 2：按 ID 路由
-                    LOG_SUMMARY(LogLayer::APP, "RelOrch", "MoveRelative(" + std::to_string(m_distance) + ") -> SUCCESS");
+        // ============================================================
+        // WaitingMotionStart：等待运动开始
+        // ============================================================
+
+        case Step::WaitingMotionStart:
+            if (!m_motionObserved) {
+                if (axis->state() == AxisState::MovingRelative ||
+                    std::abs(pos - m_startAbs) > m_epsilon ||
+                    axis->isMoveCompleted()) {
+                    m_motionObserved = true;
+                    LOG_DEBUG(LogLayer::APP, "RelOrch",
+                              "[" + m_groupName + "][" + axisName(m_targetId) + "] WaitingMotionStart -> WaitingMotionFinish");
+                    m_step = Step::WaitingMotionFinish;
+                }
+            }
+            break;
+
+        // ============================================================
+        // WaitingMotionFinish：等待运动完成
+        // ============================================================
+
+        case Step::WaitingMotionFinish:
+            if (!m_motionObserved) break;  // 防假完成
+
+            if (axis->isMoveCompleted()) {
+                double targetPos = m_startAbs + m_distance;
+                if (std::abs(pos - targetPos) < m_epsilon) {
+                    // 物理到位 -> Done
+                    LOG_DEBUG(LogLayer::APP, "RelOrch",
+                              "[" + m_groupName + "][" + axisName(m_targetId) + "] WaitingMotionFinish -- target reached, sending Disable command");
+                    EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, false);
+                    LOG_SUMMARY(LogLayer::APP, "RelOrch",
+                                "[" + m_groupName + "][" + axisName(m_targetId) + "] MoveRelative("
+                                    + std::to_string(m_distance) + ") -> SUCCESS");
                     m_step = Step::Done;
                 } else {
-                    // 物理没到位，说明可能被外力打断了，视为失败
-                    enableUc.execute(m_targetId, false); // ⭐ 升级 2：按 ID 路由
-                    m_rejectionReason = RejectionReason::InvalidState; 
-                    LOG_SUMMARY(LogLayer::APP, "RelOrch", "MoveRelative(" + std::to_string(m_distance) + ") -> ABORTED (Target not reached)");
+                    // 物理没到位 -> Error
+                    LOG_DEBUG(LogLayer::APP, "RelOrch",
+                              "[" + m_groupName + "][" + axisName(m_targetId) + "] WaitingMotionFinish -- target not reached, sending Disable command before abort");
+                    EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, false);
+                    m_lastError = RejectionReason::InvalidState;
+                    LOG_SUMMARY(LogLayer::APP, "RelOrch",
+                                "[" + m_groupName + "][" + axisName(m_targetId) + "] MoveRelative("
+                                    + std::to_string(m_distance) + ") -> ABORTED (Target not reached)");
                     m_step = Step::Error;
                 }
-          }
-        
-          break;
+            }
+            break;
 
+        case Step::Done:
+        case Step::Error:
         default:
             break;
         }
     }
 
+    // ========== 状态查询 ==========
+
     Step currentStep() const { return m_step; }
-    RejectionReason errorReason() const { return m_rejectionReason; }
+    bool isDone() const { return m_step == Step::Done; }
+    bool hasError() const { return m_step == Step::Error; }
+
+    /**
+     * @brief 获取最后一次错误
+     * @return UseCaseError variant，包含 ContextRejection / RejectionReason
+     */
+    UseCaseError lastError() const { return m_lastError; }
+
+    /// @brief 获取错误码（保持向后兼容的 RejectionReason 提取）
+    RejectionReason errorReason() const {
+        if (std::holds_alternative<RejectionReason>(m_lastError)) {
+            return std::get<RejectionReason>(m_lastError);
+        }
+        return RejectionReason::None;
+    }
 
 private:
-    EnableUseCase& enableUc;
-    MoveRelativeUseCase& moveUc;
+    static std::string axisName(AxisId id) {
+        switch (id) {
+            case AxisId::Y:  return "Y";
+            case AxisId::Z:  return "Z";
+            case AxisId::R:  return "R";
+            case AxisId::X:  return "X";
+            case AxisId::X1: return "X1";
+            case AxisId::X2: return "X2";
+        }
+        return "?";
+    }
 
-    Step m_step = Step::Initial;
-    AxisId m_targetId = AxisId::Y;   // ⭐ 记录目标轴
+    SystemManager& m_manager;
+    std::string m_groupName;
+    Step m_step;
+    AxisId m_targetId = AxisId::Y;
     double m_distance = 0.0;
+    UseCaseError m_lastError = std::monostate{};
 
     // IssuingMove
     bool m_moveIssued = false;
-    double m_startPos = 0.0;
+    double m_startAbs = 0.0;
 
     // WaitingMotionStart
     bool m_motionObserved = false;
     const double m_epsilon = 0.01;
 
-    RejectionReason m_rejectionReason = RejectionReason::None;
-
     std::string m_traceId = "N/A";
 };
-
-#endif // AUTO_REL_MOVE_ORCHESTRATOR_H

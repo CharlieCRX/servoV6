@@ -5,37 +5,130 @@ import servoV6
 Rectangle {
     id: root
     property var viewModel: null
+    property var emergencyViewModel: null  // 急停安全 ViewModel
+    property var gantryViewModel: null     // 龙门 ViewModel
+    property string currentAxis: ""        // 当前选中的轴名（用于龙门逻辑判断）
 
     // 内部状态：0 = 点动模式 (Jog), 1 = 定位模式 (Position)
     property int currentMode: 0 
     // 定位模式下的子状态：true = 绝对, false = 相对
     property bool isAbsolute: true 
 
-    // 🌟 核心防呆：动态判定当前是否允许下发定位指令 (1: Disabled, 2: Idle)
-    property bool isReadyForPos: viewModel ? (viewModel.state === 1 || viewModel.state === 2) : false
+    // ── 系统锁定 = 安全锁定 + 轴本身不可用 ──
+    // 安全锁定：NotSynchronized / EmergencyStopping / EmergencyStopped / ReleasingEmergencyStop
+    // 轴本身不可用：未绑定 viewModel
+    property bool systemLocked: {
+        if (emergencyViewModel && emergencyViewModel.isSystemLocked) return true
+        return false
+    }
 
-    color: "transparent"
+    // ── 龙门操作锁定 ──
+    // 规则1：选中 X（逻辑龙门轴）但龙门未耦合 → 禁止操作（需先耦合）
+    // 规则2：选中 X1/X2（物理轴）但龙门已耦合 → 禁止操作（物理轴受龙门控制）
+    readonly property bool gantryOperationLocked: {
+        if (!gantryViewModel) return false
+        if (currentAxis === "X" && !gantryViewModel.isCoupled) return true   // 逻辑轴未耦合
+        if ((currentAxis === "X1" || currentAxis === "X2") && gantryViewModel.isCoupled) return true  // 物理轴受龙门控制
+        return false
+    }
+
+    // ── 龙门锁定提示文本 ──
+    readonly property string gantryLockReason: {
+        if (!gantryOperationLocked) return ""
+        if (currentAxis === "X" && gantryViewModel && !gantryViewModel.isCoupled)
+            return "龙门未耦合"
+        if ((currentAxis === "X1" || currentAxis === "X2") && gantryViewModel && gantryViewModel.isCoupled)
+            return "受龙门控制"
+        return ""
+    }
+
+    // 点动模式可用条件：非系统锁定 + viewModel 绑定 + 非龙门锁定
+    property bool jogEnabled: !systemLocked && viewModel !== null && !gantryOperationLocked
+
+    // 定位模式就绪条件：
+    //   - 系统未锁定
+    //   - 无故障（避免在有未确认错误时下发新指令）
+    //   - 非运动中（state ≤ Idle，即 Disabled 或 Standstill）
+    //   - 非龙门操作锁定
+    //   单轴使用 policy 自动管理使能，不需要强制 isEnabled
+    property bool isReadyForPos: !systemLocked && !gantryOperationLocked && viewModel ? 
+        (!viewModel.hasError && viewModel.state <= 2) : false
+
+        color: "transparent"
 
     ColumnLayout {
         anchors.fill: parent
-        spacing: 20 * Theme.scale
+        spacing: 6 * Theme.scale
 
         // ==========================================
-        // 1. 顶部：模式切换器 (Mode Switcher)
+        // 0. 紧急急停状态横幅（危险状态时显示）
         // ==========================================
         Rectangle {
             Layout.fillWidth: true
-            height: 40 * Theme.scale
+            height: emergencyViewModel && emergencyViewModel.safetyStateText !== "" ? 36 * Theme.scale : 0
+            visible: emergencyViewModel && emergencyViewModel.safetyStateText !== ""
+            color: "#D32F2F"
+            radius: 4 * Theme.scale
+
+            Rectangle {
+                anchors.fill: parent
+                color: "#D32F2F"
+                radius: 4 * Theme.scale
+                visible: emergencyViewModel && emergencyViewModel.isEmergencyStopped
+                SequentialAnimation on opacity {
+                    running: emergencyViewModel && emergencyViewModel.isEmergencyStopped
+                    loops: Animation.Infinite
+                    NumberAnimation { from: 1.0; to: 0.4; duration: 600 }
+                    NumberAnimation { from: 0.4; to: 1.0; duration: 600 }
+                }
+            }
+
+            Text {
+                anchors.centerIn: parent
+                text: emergencyViewModel ? emergencyViewModel.safetyStateText : ""
+                color: "#FFFFFF"
+                font.pixelSize: Theme.fontSmall
+                font.bold: true
+                font.family: "Monospace"
+            }
+        }
+
+        // ==========================================
+        // 0.5 龙门操作锁定横幅（非急停但龙门锁定操作时显示）
+        // ==========================================
+        Rectangle {
+            Layout.fillWidth: true
+            height: root.gantryOperationLocked && !root.systemLocked ? 30 * Theme.scale : 0
+            visible: root.gantryOperationLocked && !root.systemLocked
+            color: "#5D4037"
+            radius: 4 * Theme.scale
+
+            Text {
+                anchors.centerIn: parent
+                text: "🔒 " + root.gantryLockReason
+                color: "#FFCC80"
+                font.pixelSize: Theme.fontSmall
+                font.bold: true
+                font.family: "Monospace"
+            }
+        }
+
+        // ==========================================
+        // 1. 顶部：模式切换器
+        // ==========================================
+        Rectangle {
+            Layout.fillWidth: true
+            height: 34 * Theme.scale
             radius: 8 * Theme.scale
             color: Theme.bgDark
             border.color: Theme.borderMain
             border.width: 1
+            opacity: systemLocked ? 0.4 : 1.0
 
             RowLayout {
                 anchors.fill: parent
                 spacing: 0
 
-                // 点动模式 Tab
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -43,18 +136,18 @@ Rectangle {
                     radius: 8 * Theme.scale
                     Text {
                         anchors.centerIn: parent
-                        text: "点动 (JOG)"
+                        text: "点动"
                         color: root.currentMode === 0 ? Theme.textMain : Theme.textDim
                         font.bold: root.currentMode === 0
-                        font.pixelSize: Theme.fontNormal
+                        font.pixelSize: Theme.fontSmall
                     }
                     MouseArea {
                         anchors.fill: parent
+                        enabled: !systemLocked
                         onClicked: root.currentMode = 0
                     }
                 }
 
-                // 定位模式 Tab
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
@@ -62,13 +155,14 @@ Rectangle {
                     radius: 8 * Theme.scale
                     Text {
                         anchors.centerIn: parent
-                        text: "定位 (POS)"
+                        text: "定位"
                         color: root.currentMode === 1 ? Theme.textMain : Theme.textDim
                         font.bold: root.currentMode === 1
-                        font.pixelSize: Theme.fontNormal
+                        font.pixelSize: Theme.fontSmall
                     }
                     MouseArea {
                         anchors.fill: parent
+                        enabled: !systemLocked
                         onClicked: root.currentMode = 1
                     }
                 }
@@ -81,133 +175,151 @@ Rectangle {
         Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            opacity: systemLocked ? 0.4 : 1.0
 
             // --- A. 点动控制面板 ---
             ColumnLayout {
                 anchors.fill: parent
-                spacing: 20 * Theme.scale
+                spacing: 8 * Theme.scale
                 visible: root.currentMode === 0
 
-                Item { Layout.fillHeight: true } // 顶部弹簧
-                
-                // 🌟 新增：点动速度设定
-                // 🌟 只读展示 + 设置按钮
+                // 顶部留空
+                Item { Layout.preferredHeight: 4 * Theme.scale }
+
+                // 点动速度设定
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
-                    spacing: 10 * Theme.scale
-                    
-                    Text { 
+                    spacing: 8 * Theme.scale
+
+                    Text {
                         text: "点动速度: " + (viewModel ? viewModel.jogVelocity.toFixed(1) : "0.0") + " mm/s"
                         color: Theme.textMain
                         font.pixelSize: Theme.fontNormal
                         font.family: "Monospace"
                     }
-                    
-                    IndustrialButton {
-                        text: "⚙️" // 设置图标
-                        buttonSize: 30 * Theme.scale
-                        isCircle: true
-                        baseColor: Theme.panelBg
-                        onClicked: velocityPopup.open() // 👈 点击呼出全局弹窗
-                    }
-                }
 
-                IndustrialButton {
-                    text: "JOG +"
-                    Layout.alignment: Qt.AlignHCenter
-                    onPressed: if(viewModel) viewModel.jogPositivePressed()
-                    onReleased: if(viewModel) viewModel.jogPositiveReleased()
-                }
-
-                IndustrialButton {
-                    text: "JOG -"
-                    Layout.alignment: Qt.AlignHCenter
-                    onPressed: if(viewModel) viewModel.jogNegativePressed()
-                    onReleased: if(viewModel) viewModel.jogNegativeReleased()
-                }
-
-                Item { Layout.fillHeight: true } // 底部弹簧
-            }
-
-            // --- B. 定位控制面板 ---
-            ColumnLayout {
-                anchors.fill: parent
-                spacing: 20 * Theme.scale
-                visible: root.currentMode === 1
-
-                Item { Layout.fillHeight: true }
-                
-                // 🌟 新增：定位速度设定
-                // 🌟 只读展示 + 设置按钮
-                RowLayout {
-                    Layout.alignment: Qt.AlignHCenter
-                    spacing: 10 * Theme.scale
-                    
-                    Text { 
-                        text: "定位速度: " + (viewModel ? viewModel.moveVelocity.toFixed(1) : "0.0") + " mm/s"
-                        color: Theme.textMain
-                        font.pixelSize: Theme.fontNormal
-                        font.family: "Monospace"
-                    }
-                    
                     IndustrialButton {
                         text: "⚙️"
                         buttonSize: 30 * Theme.scale
                         isCircle: true
                         baseColor: Theme.panelBg
-                        onClicked: velocityPopup.open() // 👈 点击呼出同一个弹窗
+                        enabled: root.jogEnabled
+                        onClicked: jogVelocityPopup.open()
                     }
                 }
 
-                // 绝对/相对 单选区
+                // 上半弹簧
+                Item { Layout.fillHeight: true }
+
+                // JOG+ 按钮
+                IndustrialButton {
+                    text: "JOG +"
+                    isCircle: false
+                    buttonSize: 170 * Theme.scale
+                    Layout.alignment: Qt.AlignHCenter
+                    enabled: root.jogEnabled
+                    onPressed: if(viewModel && root.jogEnabled) viewModel.jogPositivePressed()
+                    onReleased: if(viewModel && root.jogEnabled) viewModel.jogPositiveReleased()
+                }
+
+                // JOG+ / JOG- 间隙
+                Item { Layout.preferredHeight: 8 * Theme.scale }
+
+                // JOG- 按钮
+                IndustrialButton {
+                    text: "JOG -"
+                    isCircle: false
+                    buttonSize: 170 * Theme.scale
+                    Layout.alignment: Qt.AlignHCenter
+                    enabled: root.jogEnabled
+                    onPressed: if(viewModel && root.jogEnabled) viewModel.jogNegativePressed()
+                    onReleased: if(viewModel && root.jogEnabled) viewModel.jogNegativeReleased()
+                }
+
+                // 下半弹簧
+                Item { Layout.fillHeight: true }
+            }
+
+            // --- B. 定位控制面板 ---
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: 8 * Theme.scale
+                visible: root.currentMode === 1
+
+                // 顶部留空
+                Item { Layout.preferredHeight: 4 * Theme.scale }
+
+                // 定位速度设定
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
-                    spacing: 8 * Theme.scale 
+                    spacing: 8 * Theme.scale
+
+                    Text {
+                        text: "定位速度: " + (viewModel ? viewModel.moveVelocity.toFixed(1) : "0.0") + " mm/s"
+                        color: Theme.textMain
+                        font.pixelSize: Theme.fontNormal
+                        font.family: "Monospace"
+                    }
+
+                    IndustrialButton {
+                        text: "⚙️"
+                        buttonSize: 30 * Theme.scale
+                        isCircle: true
+                        baseColor: Theme.panelBg
+                        enabled: root.isReadyForPos
+                        onClicked: moveVelocityPopup.open()
+                    }
+                }
+
+                // 绝对/相对 单选（紧凑，紧贴速度行）
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    spacing: 4 * Theme.scale
 
                     RadioButton {
-                        text: "绝对 (Abs)"
+                        text: "绝对"
                         checked: root.isAbsolute
-                        enabled: root.isReadyForPos  // ✅ 只有 1 个 enabled 属性
-                        opacity: enabled ? 1.0 : 0.5 
+                        enabled: root.isReadyForPos
+                        opacity: enabled ? 1.0 : 0.5
                         onClicked: root.isAbsolute = true
                         contentItem: Text {
                             text: parent.text
                             color: Theme.textMain
-                            font.pixelSize: Theme.fontNormal
-                            leftPadding: parent.indicator.width + parent.spacing
+                            font.pixelSize: Theme.fontSmall
+                            leftPadding: parent.indicator.width + 2
                         }
                     }
-                    
+
                     RadioButton {
-                        text: "相对 (Rel)"
+                        text: "相对"
                         checked: !root.isAbsolute
-                        enabled: root.isReadyForPos  // ✅ 只有 1 个 enabled 属性
-                        opacity: enabled ? 1.0 : 0.5 
+                        enabled: root.isReadyForPos
+                        opacity: enabled ? 1.0 : 0.5
                         onClicked: root.isAbsolute = false
                         contentItem: Text {
                             text: parent.text
                             color: Theme.textMain
-                            font.pixelSize: Theme.fontNormal
-                            leftPadding: parent.indicator.width + parent.spacing
+                            font.pixelSize: Theme.fontSmall
+                            leftPadding: parent.indicator.width + 2
                         }
                     }
                 }
 
-                // 目标值输入框
+                // 上半弹簧
+                Item { Layout.fillHeight: true }
+
+                // 目标值输入
                 TextField {
                     id: targetInput
                     Layout.alignment: Qt.AlignHCenter
                     Layout.preferredWidth: 140 * Theme.scale
                     text: "100.0"
-                    
-                    enabled: root.isReadyForPos  // ✅ 只有 1 个 enabled 属性
-                    opacity: enabled ? 1.0 : 0.5 
-                    
+                    enabled: root.isReadyForPos
+                    opacity: enabled ? 1.0 : 0.5
                     font.pixelSize: Theme.fontLarge
                     font.family: "Monospace"
                     color: Theme.textMain
                     horizontalAlignment: TextInput.AlignHCenter
-                    
                     background: Rectangle {
                         color: Theme.bgDark
                         border.color: targetInput.activeFocus ? Theme.colorMoving : Theme.borderMain
@@ -217,48 +329,104 @@ Rectangle {
                     validator: DoubleValidator { bottom: -9999.9; top: 9999.9; decimals: 2 }
                 }
 
-                // 执行按钮 (GO)
+                // 执行按钮
                 IndustrialButton {
                     text: root.isReadyForPos ? "执行 GO" : "运行中..."
                     isCircle: false
                     buttonSize: 140 * Theme.scale
-                    
-                    enabled: root.isReadyForPos  // ✅ 只有 1 个 enabled 属性
-                    baseColor: root.isReadyForPos ? Theme.colorIdle : Theme.colorDisabled 
-                    
+                    enabled: root.isReadyForPos
+                    baseColor: root.isReadyForPos ? Theme.colorIdle : Theme.colorDisabled
                     Layout.alignment: Qt.AlignHCenter
                     onClicked: {
+                        if (!root.isReadyForPos) return
                         let target = parseFloat(targetInput.text)
                         if (!isNaN(target) && viewModel) {
                             if (root.isAbsolute) {
                                 viewModel.moveAbsolute(target)
                             } else {
-                                viewModel.moveRelative(target) 
+                                viewModel.moveRelative(target)
                             }
                         }
                     }
                 }
 
-                Item { Layout.fillHeight: true } // 底部弹簧
+                // 下半弹簧
+                Item { Layout.fillHeight: true }
             }
-        } // 结束 Item (中间控制面板)
+        }
 
         // ==========================================
-        // 3. 底部：全局急停 (STOP)
+        // 3. 底部：紧急急停按钮
         // ==========================================
         IndustrialButton {
-            text: "急 停"
+            id: emergencyStopButton
             isCircle: false
-            buttonSize: 140 * Theme.scale
-            baseColor: Theme.colorError
-            activeColor: "#FF8A80" // 按下时更亮的红色
+            buttonSize: 150 * Theme.scale
             Layout.alignment: Qt.AlignHCenter
-            onClicked: if(viewModel) viewModel.stop()
+
+            // ── 文字由急停状态决定 ──
+            text: {
+                if (!emergencyViewModel) return "急 停"
+                if (emergencyViewModel.isNotSynchronized)    return "急 停"
+                if (emergencyViewModel.isEmergencyStopped)   return "解除急停"
+                if (emergencyViewModel.isTransitioning)      return emergencyViewModel.safetyStateText  // "急停处理中..." / "急停解除中..."
+                return "急 停"
+            }
+
+            // ── 颜色由急停状态决定 ──
+            // 工业惯例：急停按钮红色 #D32F2F，解除按钮橙红色 #FF5252
+            baseColor: {
+                if (!emergencyViewModel) return Theme.colorError
+                if (emergencyViewModel.isNotSynchronized)    return Theme.colorDisabled
+                if (emergencyViewModel.isEmergencyStopped)   return "#FF5252"   // 橙红色 -- 表示急停锁定中，点击解除
+                if (emergencyViewModel.isTransitioning)      return Theme.colorDisabled
+                return Theme.colorError  // Running -- 正常红色
+            }
+
+            activeColor: {
+                if (!emergencyViewModel) return "#FF8A80"
+                if (emergencyViewModel.isEmergencyStopped) return "#FF8A80"
+                return "#FF8A80"
+            }
+
+            // ── 可点击性 ──
+            // Running -> 可以按急停
+            // EmergencyStopped -> 可以解除急停
+            // 其他过渡态 -> 不可点击
+            enabled: {
+                if (!emergencyViewModel) return false
+                if (emergencyViewModel.isNotSynchronized)    return false
+                if (emergencyViewModel.isTransitioning)      return false
+                return true  // Running 或 EmergencyStopped
+            }
+
+            onClicked: {
+                if (!emergencyViewModel) return
+
+                if (emergencyViewModel.isEmergencyStopped) {
+                    // 当前已急停 -> 执行解除操作
+                    console.log("EmergencyStopButton: 解除急停 -> releaseEmergencyStop()")
+                    emergencyViewModel.releaseEmergencyStop()
+                } else {
+                    // 当前 Running -> 执行急停操作
+                    console.log("EmergencyStopButton: 触发急停 -> triggerEmergencyStop()")
+                    emergencyViewModel.triggerEmergencyStop()
+                }
+            }
         }
     }
 
+    // Jog 模式下使用的点动速度弹窗
     VelocitySettingsPopup {
-        id: velocityPopup
+        id: jogVelocityPopup
         viewModel: root.viewModel
+        speedType: "jog"
+    }
+
+    // POS 模式下使用的定位速度弹窗
+    VelocitySettingsPopup {
+        id: moveVelocityPopup
+        viewModel: root.viewModel
+        speedType: "move"
     }
 }
