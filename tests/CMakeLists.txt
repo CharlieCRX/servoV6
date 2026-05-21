@@ -2,6 +2,7 @@ include(GoogleTest)
 
 add_executable(unit_tests
 
+    # ================ First-party tests ================
     # presentation/viewmodel/test_axis_viewmodel_core.cpp
     # presentation/viewmodel/test_error_translator.cpp
     # presentation/viewmodel/test_gantry_viewmodel.cpp
@@ -28,8 +29,11 @@ add_executable(unit_tests
     # domain/gantry/test_gantry_coupling_state.cpp
     # domain/safety/test_emergency_stop_controller.cpp
 
+    # domain/test_axis.cpp
 
-    domain/test_axis.cpp
+
+    #=============== Third-party tests ================
+    infrastructure/protocol/test_register_codec.cpp
 )
 
 target_include_directories(unit_tests
