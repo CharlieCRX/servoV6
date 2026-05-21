@@ -52,3 +52,15 @@ public:
 private:
     Status m_status = Status::NotSynchronized;
 };
+
+/// @brief 将 GantryCouplingState::Status 枚举值转换为可读字符串（用于日志输出）
+inline const char* gantryCouplingStatusToString(GantryCouplingState::Status s) {
+    switch (s) {
+        case GantryCouplingState::Status::NotSynchronized:    return "NotSynchronized";
+        case GantryCouplingState::Status::Decoupled:           return "Decoupled";
+        case GantryCouplingState::Status::CouplingRequested:   return "CouplingRequested";
+        case GantryCouplingState::Status::Coupled:             return "Coupled";
+        case GantryCouplingState::Status::DecouplingRequested: return "DecouplingRequested";
+    }
+    return "?";
+}

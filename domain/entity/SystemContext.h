@@ -8,7 +8,9 @@
 #include "gantry/GantryPowerController.h"
 #include "safety/EmergencyStopController.h"
 #include "infrastructure/ISystemDriver.h"
+#include "infrastructure/logger/Logger.h"
 #include <unordered_map>
+#include <sstream>
 
 class SystemContext {
 public:
@@ -53,6 +55,8 @@ public:
         if (m_emergencyStopController.isSystemLocked()) {
             reason = ContextRejection::SystemSafetyLocked;
             outAxis = nullptr;
+            // ★ 缺失项2：拒绝日志
+            logAxisRejection(id, reason);
             return false;
         }
 
@@ -116,6 +120,7 @@ private:
      *
      * 被 tryGetAxis() 和 tryReadAxis() 共用。
      * 不包含 Layer 0 安全锁定拦截（由 tryGetAxis 单独处理）。
+     * 在被拒绝时输出详细日志（缺失项2）。
      */
     bool tryGetAxisInternal(AxisId id, Axis*& outAxis, ContextRejection& reason) {
         // 仅龙门相关轴受联动状态约束，非龙门轴跳过
@@ -124,6 +129,8 @@ private:
             if (m_gantryCouplingController->isNotSynchronized()) {
                 reason = ContextRejection::GantryNotSynchronized;
                 outAxis = nullptr;
+                // ★ 缺失项2：拒绝日志（含龙门同步状态详情）
+                logAxisRejection(id, reason, "couplingState=NotSynchronized");
                 return false;
             }
 
@@ -132,12 +139,20 @@ private:
                 if (id == AxisId::X1 || id == AxisId::X2) {
                     reason = ContextRejection::PhysicalAxisLockedByGantry;
                     outAxis = nullptr;
+                    logAxisRejection(id, reason, "isCoupled=true");
                     return false;
                 }
             } else {
                 if (id == AxisId::X) {
                     reason = ContextRejection::LogicalAxisUnavailableWhenDecoupled;
                     outAxis = nullptr;
+                    logAxisRejection(id, reason,
+                        "couplingState="
+                        + std::string(gantryCouplingStatusToString(m_gantryCouplingController->isCouplingRequested()
+                            ? GantryCouplingState::Status::CouplingRequested
+                            : m_gantryCouplingController->isDecouplingRequested()
+                                ? GantryCouplingState::Status::DecouplingRequested
+                                : GantryCouplingState::Status::Decoupled)));
                     return false;
                 }
             }
@@ -148,6 +163,7 @@ private:
         if (it == m_axes.end()) {
             reason = ContextRejection::AxisNotRegistered;
             outAxis = nullptr;
+            logAxisRejection(id, reason);
             return false;
         }
 
@@ -155,6 +171,22 @@ private:
         outAxis = it->second.get();
         reason = ContextRejection::None;
         return true;
+    }
+
+    /**
+     * @brief 统一的轴访问拒绝日志（缺失项2）
+     * @param id 被拒绝访问的轴ID
+     * @param reason 拒绝原因
+     * @param extraDetail 可选额外详情（如龙门同步状态）
+     */
+    void logAxisRejection(AxisId id, ContextRejection reason, const std::string& extraDetail = "") {
+        std::ostringstream oss;
+        oss << "tryGetAxis(" << axisIdToString(id) << ") REJECTED: "
+            << contextRejectionToString(reason);
+        if (!extraDetail.empty()) {
+            oss << " (" << extraDetail << ")";
+        }
+        LOG_WARN_EVERY_MS(5000, LogLayer::DOM, "Context", oss.str());
     }
 
     std::unordered_map<AxisId, std::unique_ptr<Axis>> m_axes;

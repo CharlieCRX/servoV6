@@ -3,7 +3,9 @@
 #include "gantry/GantryCouplingState.h"
 #include "gantry/GantryFeedback.h"
 #include "gantry/GantryRejection.h"
+#include "infrastructure/logger/Logger.h"
 #include <optional>
+#include <sstream>
 
 // 表达龙门联动控制意图的独立 Command
 struct GantryCouplingCommand { 
@@ -100,6 +102,8 @@ public:
     // 注意：只消费 isCoupled 和 errorCode，不消费 enable
     //       enable 由 GantryServoPowerController（原 GantryServoPowerController）消费
     void applyFeedback(const GantryFeedback& feedback) {
+        auto stateBefore = m_state.status();
+
         // 1. 翻译并记录 PLC 错误码
         m_last_error = translatePlcError(feedback.errorCode);
 
@@ -131,6 +135,21 @@ public:
             } else {
                 m_state.applyDecoupledFeedback();
             }
+        }
+
+        // ★ 缺失项1：输出龙门同步状态变化日志
+        auto stateAfter = m_state.status();
+        if (stateBefore != stateAfter || m_last_error != GantryRejection::None) {
+            std::ostringstream oss;
+            oss << "applyFeedback: " << gantryCouplingStatusToString(stateBefore)
+                << " -> " << gantryCouplingStatusToString(stateAfter)
+                << " (isCoupled=" << (feedback.isCoupled ? "true" : "false")
+                << ", errorCode=" << feedback.errorCode;
+            if (m_last_error != GantryRejection::None) {
+                oss << ", lastError=set";
+            }
+            oss << ")";
+            LOG_INFO(LogLayer::DOM, "GantryCoupling", oss.str());
         }
     }
 

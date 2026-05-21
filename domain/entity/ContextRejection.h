@@ -18,3 +18,20 @@ enum class ContextRejection {
     // --- 安全域锁定（新增）---
     SystemSafetyLocked,       // 系统处于安全锁定状态（急停中 / 急停解除中），禁止轴访问
 };
+
+/// @brief 将 ContextRejection 枚举值转换为可读字符串（用于日志输出）
+inline const char* contextRejectionToString(ContextRejection r) {
+    switch (r) {
+        case ContextRejection::None:                               return "None";
+        case ContextRejection::PhysicalAxisLockedByGantry:          return "PhysicalAxisLockedByGantry";
+        case ContextRejection::LogicalAxisUnavailableWhenDecoupled: return "LogicalAxisUnavailableWhenDecoupled";
+        case ContextRejection::GantryNotSynchronized:               return "GantryNotSynchronized";
+        case ContextRejection::AxisNotRegistered:                   return "AxisNotRegistered";
+        case ContextRejection::GroupAlreadyExists:                  return "GroupAlreadyExists";
+        case ContextRejection::GroupNotFound:                       return "GroupNotFound";
+        case ContextRejection::GroupNameInvalid:                    return "GroupNameInvalid";
+        case ContextRejection::DriverNotReady:                      return "DriverNotReady";
+        case ContextRejection::SystemSafetyLocked:                  return "SystemSafetyLocked";
+    }
+    return "?";
+}

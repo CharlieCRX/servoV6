@@ -179,11 +179,45 @@ private:
 #define LOG_ERROR(layer, module, msg)   Logger::log(LogLevel::ERROR, layer, module, msg)
 #define LOG_SUMMARY(layer, module, msg) Logger::log(LogLevel::SUMMARY, layer, module, msg)
 
-// 每 N 次调用输出 1 条
+// 每 N 次调用输出 1 条（TRACE 级别）
 #define LOG_TRACE_EVERY_N(n, layer, module, msg) \
     do { \
         static Throttle _throttle(n); \
         if (_throttle.should()) { \
             Logger::log(LogLevel::TRACE, layer, module, msg); \
+        } \
+    } while(0)
+
+// 每 N 次调用输出 1 条（WARN 级别，防止高频拒绝日志风暴）
+#define LOG_WARN_EVERY_N(n, layer, module, msg) \
+    do { \
+        static Throttle _throttle(n); \
+        if (_throttle.should()) { \
+            Logger::log(LogLevel::WARN, layer, module, msg); \
+        } \
+    } while(0)
+
+// ─── 时间节流辅助：每 intervalMs 毫秒最多输出 1 条 ───
+struct TimeThrottle {
+    std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+    uint64_t intervalMs;
+    explicit TimeThrottle(uint64_t ms) : intervalMs(ms) {}
+    bool should() {
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last).count();
+        if (static_cast<uint64_t>(elapsed) >= intervalMs) {
+            last = now;
+            return true;
+        }
+        return false;
+    }
+};
+
+// 每 intervalMs 毫秒最多输出 1 条（WARN 级别，完全消除高频调用日志风暴）
+#define LOG_WARN_EVERY_MS(ms, layer, module, msg) \
+    do { \
+        static TimeThrottle _timeThrottle(ms); \
+        if (_timeThrottle.should()) { \
+            Logger::log(LogLevel::WARN, layer, module, msg); \
         } \
     } while(0)

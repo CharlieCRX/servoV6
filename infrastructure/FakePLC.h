@@ -474,6 +474,7 @@ private:
             // GANTRY_POWER_DELAY_MS 已提供延迟，直接设置目标状态（无需二次延迟）
             auto& x1 = m_axes.at(AxisId::X1);
             auto& x2 = m_axes.at(AxisId::X2);
+            auto& x  = m_axes.at(AxisId::X);
             if (m_gantryPowerTarget) {
                 // 使能：急停激活时拒绝
                 if (!m_emergencyStoppedReg) {
@@ -483,11 +484,16 @@ private:
                     if (x2.feedback.state == AxisState::Disabled) {
                         x2.feedback.state = AxisState::Idle;
                     }
+
+                    if (x1.feedback.state == AxisState::Idle && x2.feedback.state == AxisState::Idle) {
+                        x.feedback.state = AxisState::Idle; // 逻辑龙门轴与物理轴状态保持一致
+                    }
                 }
             } else {
                 // 掉电：无条件
                 x1.feedback.state = AxisState::Disabled;
                 x2.feedback.state = AxisState::Disabled;
+                x.feedback.state = AxisState::Disabled;
             }
         }
     }
