@@ -40,26 +40,26 @@ constexpr uint16_t getWordCount(RegisterType type) {
 
 // 核心元数据结构升级
 struct RegisterInfo {
-    RegisterArea area;
-    uint16_t address;
-    RegisterType type;
-    RegisterAccess access;
-    
-    RegisterBehavior behavior;
-    RegisterGroup group;
-    
-    const char* unit;        // 物理单位 ("mm", "mm/s", "")
-    const char* description; // 人类可读描述 (UI/Logger极其需要)
-    
-    uint32_t pulseWidthMs;   // 脉冲宽度 (仅对 ManualResetEdgeTrigger 有效)
+  RegisterArea area;
+  uint16_t address;
+  RegisterType type;
+  RegisterAccess access;
+  
+  RegisterBehavior behavior;
+  RegisterGroup group;
+  
+  const char* unit;        // 物理单位 ("mm", "mm/s", "")
+  const char* description; // 人类可读描述 (UI/Logger极其需要)
+  
+  uint32_t pulseWidthMs;   // 脉冲宽度 (仅对 ManualResetEdgeTrigger 有效)
 
-    // 【关键新增】默认为空，表示不覆盖，直接继承 Profile
-    std::optional<EndianPolicy> endianOverride = std::nullopt;
+  // 【关键新增】默认为空，表示不覆盖，直接继承 Profile
+  std::optional<EndianPolicy> endianOverride = std::nullopt;
 
-    // 动态获取 wordCount，编译期计算，保证绝对安全
-    constexpr uint16_t wordCount() const {
-        return getWordCount(type);
-    }
+  // 动态获取 wordCount，编译期计算，保证绝对安全
+  constexpr uint16_t wordCount() const {
+      return getWordCount(type);
+  }
 };
 
 } // namespace plc::protocol
