@@ -2,6 +2,7 @@
 #include <vector>
 #include <cstdint>
 #include <stdexcept>
+#include <cstring>
 
 enum class Endianness {
   BigEndian,         // ABCD (标准 Modbus)
@@ -142,5 +143,27 @@ public:
       static_cast<int32_t>(D);
 
     return result;
+  }
+
+  static std::vector<uint16_t> encodeFloat(float value, Endianness endianness) {
+    uint32_t raw {};
+
+    std::memcpy(&raw, &value, sizeof(float));
+
+    return encodeInt32(
+        static_cast<int32_t>(raw),
+        endianness);
+  }
+
+  static float decodeFloat(const std::vector<uint16_t>& registers, Endianness endianness) {
+    uint32_t raw = static_cast<uint32_t>(decodeInt32(registers, endianness));
+    float value {};
+
+    std::memcpy(
+        &value,
+        &raw,
+        sizeof(float));
+
+    return value;
   }
 };

@@ -180,3 +180,364 @@ TEST(RegisterCodecTest, EncodeThenDecodeInt32_LittleEndianSwap_ShouldRestoreOrig
 
     EXPECT_EQ(decoded, original);
 }
+
+// 第 3 步：浮点数 (float) 内存拷贝转换
+// 测试必须使用：IEEE754 已知稳定值做底层协议黄金数据。
+// --- 测试 Float 编码 (IEEE 754) ---
+TEST(RegisterCodecTest, EncodeFloat_BigEndian_ABCD) {
+    // 浮点数 1.0f 的 IEEE 754 十六进制表示为 0x3F800000
+    // AB = 0x3F80, CD = 0x0000
+    auto result = RegisterCodec::encodeFloat(1.0f, Endianness::BigEndian);
+    ASSERT_EQ(result.size(), 2);
+    EXPECT_EQ(result[0], 0x3F80);
+    EXPECT_EQ(result[1], 0x0000);
+}
+
+// --- 测试 Float 编码 (IEEE 754) ---
+TEST(RegisterCodecTest, EncodeFloat_BigEndian_ABCD2) {
+    // 浮点数 13.25f 的 IEEE 754 十六进制表示为 0x41540000
+    // AB = 0x4154, CD = 0x0000
+    auto result = RegisterCodec::encodeFloat(13.25f, Endianness::BigEndian);
+    ASSERT_EQ(result.size(), 2);
+    EXPECT_EQ(result[0], 0x4154);
+    EXPECT_EQ(result[1], 0x0000);
+}
+
+
+TEST(RegisterCodecTest, DecodeFloat_BigEndian_One)
+{
+    float result = RegisterCodec::decodeFloat(
+            {0x3F80, 0x0000},
+            Endianness::BigEndian);
+
+    EXPECT_FLOAT_EQ(result, 1.0f);
+}
+
+
+// --- 测试 Float 编码 (BigEndianSwap CDAB) ---
+TEST(RegisterCodecTest, EncodeFloat_BigEndianSwap_CDAB) {
+    // 浮点数 1.0f 的 IEEE 754 十六进制表示为 0x3F800000
+    // 原始字节序: [3F][80][00][00]
+    // CDAB -> [00][00][3F][80]
+    // 寄存器0 = 0x0000
+    // 寄存器1 = 0x3F80
+
+    auto result =
+        RegisterCodec::encodeFloat(
+            1.0f,
+            Endianness::BigEndianSwap);
+
+    ASSERT_EQ(result.size(), 2);
+
+    EXPECT_EQ(result[0], 0x0000);
+    EXPECT_EQ(result[1], 0x3F80);
+}
+
+
+// --- 测试 Float 编码 (LittleEndian DCBA) ---
+TEST(RegisterCodecTest, EncodeFloat_LittleEndian_DCBA) {
+    // 浮点数 1.0f 的 IEEE 754 十六进制表示为 0x3F800000
+    // 原始字节序: [3F][80][00][00]
+    // DCBA -> [00][00][80][3F]
+    // 寄存器0 = 0x0000
+    // 寄存器1 = 0x803F
+
+    auto result =
+        RegisterCodec::encodeFloat(
+            1.0f,
+            Endianness::LittleEndian);
+
+    ASSERT_EQ(result.size(), 2);
+
+    EXPECT_EQ(result[0], 0x0000);
+    EXPECT_EQ(result[1], 0x803F);
+}
+
+
+// --- 测试 Float 编码 (LittleEndianSwap BADC) ---
+TEST(RegisterCodecTest, EncodeFloat_LittleEndianSwap_BADC) {
+    // 浮点数 1.0f 的 IEEE 754 十六进制表示为 0x3F800000
+    // 原始字节序: [3F][80][00][00]
+    // BADC -> [80][3F][00][00]
+    // 寄存器0 = 0x803F
+    // 寄存器1 = 0x0000
+
+    auto result =
+        RegisterCodec::encodeFloat(
+            1.0f,
+            Endianness::LittleEndianSwap);
+
+    ASSERT_EQ(result.size(), 2);
+
+    EXPECT_EQ(result[0], 0x803F);
+    EXPECT_EQ(result[1], 0x0000);
+}
+
+
+// --- 测试 Float 解码 (BigEndian ABCD) ---
+TEST(RegisterCodecTest, DecodeFloat_BigEndian_ABCD) {
+    // 0x3F800000 -> 1.0f
+    // AB = 0x3F80
+    // CD = 0x0000
+
+    float result =
+        RegisterCodec::decodeFloat(
+            {0x3F80, 0x0000},
+            Endianness::BigEndian);
+
+    EXPECT_FLOAT_EQ(result, 1.0f);
+}
+
+
+// --- 测试 Float 解码 (BigEndianSwap CDAB) ---
+TEST(RegisterCodecTest, DecodeFloat_BigEndianSwap_CDAB) {
+    // CDAB -> [00][00][3F][80]
+    // 寄存器0 = 0x0000
+    // 寄存器1 = 0x3F80
+    // => 1.0f
+
+    float result =
+        RegisterCodec::decodeFloat(
+            {0x0000, 0x3F80},
+            Endianness::BigEndianSwap);
+
+    EXPECT_FLOAT_EQ(result, 1.0f);
+}
+
+
+// --- 测试 Float 解码 (LittleEndian DCBA) ---
+TEST(RegisterCodecTest, DecodeFloat_LittleEndian_DCBA) {
+    // DCBA -> [00][00][80][3F]
+    // 寄存器0 = 0x0000
+    // 寄存器1 = 0x803F
+    // => 1.0f
+
+    float result =
+        RegisterCodec::decodeFloat(
+            {0x0000, 0x803F},
+            Endianness::LittleEndian);
+
+    EXPECT_FLOAT_EQ(result, 1.0f);
+}
+
+
+// --- 测试 Float 解码 (LittleEndianSwap BADC) ---
+TEST(RegisterCodecTest, DecodeFloat_LittleEndianSwap_BADC) {
+    // BADC -> [80][3F][00][00]
+    // 寄存器0 = 0x803F
+    // 寄存器1 = 0x0000
+    // => 1.0f
+
+    float result =
+        RegisterCodec::decodeFloat(
+            {0x803F, 0x0000},
+            Endianness::LittleEndianSwap);
+
+    EXPECT_FLOAT_EQ(result, 1.0f);
+}
+
+
+// --- 测试 Float 编解码回环 (BigEndian ABCD) ---
+TEST(RegisterCodecTest, EncodeThenDecodeFloat_BigEndian_ShouldRestoreOriginal)
+{
+    float original = 13.25f;
+
+    auto encoded =
+        RegisterCodec::encodeFloat(
+            original,
+            Endianness::BigEndian);
+
+    float decoded =
+        RegisterCodec::decodeFloat(
+            encoded,
+            Endianness::BigEndian);
+
+    EXPECT_FLOAT_EQ(decoded, original);
+}
+
+
+// --- 测试 Float 编解码回环 (BigEndianSwap CDAB) ---
+TEST(RegisterCodecTest, EncodeThenDecodeFloat_BigEndianSwap_ShouldRestoreOriginal)
+{
+    float original = 13.25f;
+
+    auto encoded =
+        RegisterCodec::encodeFloat(
+            original,
+            Endianness::BigEndianSwap);
+
+    float decoded =
+        RegisterCodec::decodeFloat(
+            encoded,
+            Endianness::BigEndianSwap);
+
+    EXPECT_FLOAT_EQ(decoded, original);
+}
+
+
+// --- 测试 Float 编解码回环 (LittleEndian DCBA) ---
+TEST(RegisterCodecTest, EncodeThenDecodeFloat_LittleEndian_ShouldRestoreOriginal)
+{
+    float original = 13.25f;
+
+    auto encoded =
+        RegisterCodec::encodeFloat(
+            original,
+            Endianness::LittleEndian);
+
+    float decoded =
+        RegisterCodec::decodeFloat(
+            encoded,
+            Endianness::LittleEndian);
+
+    EXPECT_FLOAT_EQ(decoded, original);
+}
+
+
+// --- 测试 Float 编解码回环 (LittleEndianSwap BADC) ---
+TEST(RegisterCodecTest, EncodeThenDecodeFloat_LittleEndianSwap_ShouldRestoreOriginal)
+{
+    float original = 13.25f;
+
+    auto encoded =
+        RegisterCodec::encodeFloat(
+            original,
+            Endianness::LittleEndianSwap);
+
+    float decoded =
+        RegisterCodec::decodeFloat(
+            encoded,
+            Endianness::LittleEndianSwap);
+
+    EXPECT_FLOAT_EQ(decoded, original);
+}
+
+
+// --- 测试 Float 编码 (-1.0f BigEndian ABCD) ---
+TEST(RegisterCodecTest, EncodeFloatNegative_BigEndian_ABCD) {
+    // -1.0f -> IEEE754 = 0xBF800000
+    // AB = 0xBF80
+    // CD = 0x0000
+
+    auto result =
+        RegisterCodec::encodeFloat(
+            -1.0f,
+            Endianness::BigEndian);
+
+    ASSERT_EQ(result.size(), 2);
+
+    EXPECT_EQ(result[0], 0xBF80);
+    EXPECT_EQ(result[1], 0x0000);
+}
+
+// --- 测试 Float 编码 (-1.0f BigEndianSwap CDAB) ---
+TEST(RegisterCodecTest, EncodeFloatNegative_BigEndianSwap_CDAB) {
+    // -1.0f -> 0xBF800000
+    // CDAB -> [00][00][BF][80]
+
+    auto result =
+        RegisterCodec::encodeFloat(
+            -1.0f,
+            Endianness::BigEndianSwap);
+
+    ASSERT_EQ(result.size(), 2);
+
+    EXPECT_EQ(result[0], 0x0000);
+    EXPECT_EQ(result[1], 0xBF80);
+}
+
+
+// --- 测试 Float 编码 (-1.0f LittleEndian DCBA) ---
+TEST(RegisterCodecTest, EncodeFloatNegative_LittleEndian_DCBA) {
+    // -1.0f -> 0xBF800000
+    // DCBA -> [00][00][80][BF]
+
+    auto result =
+        RegisterCodec::encodeFloat(
+            -1.0f,
+            Endianness::LittleEndian);
+
+    ASSERT_EQ(result.size(), 2);
+
+    EXPECT_EQ(result[0], 0x0000);
+    EXPECT_EQ(result[1], 0x80BF);
+}
+
+// --- 测试 Float 编码 (-1.0f LittleEndianSwap BADC) ---
+TEST(RegisterCodecTest, EncodeFloatNegative_LittleEndianSwap_BADC) {
+    // -1.0f -> 0xBF800000
+    // BADC -> [80][BF][00][00]
+
+    auto result =
+        RegisterCodec::encodeFloat(
+            -1.0f,
+            Endianness::LittleEndianSwap);
+
+    ASSERT_EQ(result.size(), 2);
+
+    EXPECT_EQ(result[0], 0x80BF);
+    EXPECT_EQ(result[1], 0x0000);
+}
+
+
+// --- 测试 Float 解码 (-1.0f BigEndian ABCD) ---
+TEST(RegisterCodecTest, DecodeFloatNegative_BigEndian_ABCD) {
+
+    float result =
+        RegisterCodec::decodeFloat(
+            {0xBF80, 0x0000},
+            Endianness::BigEndian);
+
+    EXPECT_FLOAT_EQ(result, -1.0f);
+}
+
+
+// --- 测试 Float 解码 (-1.0f BigEndianSwap CDAB) ---
+TEST(RegisterCodecTest, DecodeFloatNegative_BigEndianSwap_CDAB) {
+
+    float result =
+        RegisterCodec::decodeFloat(
+            {0x0000, 0xBF80},
+            Endianness::BigEndianSwap);
+
+    EXPECT_FLOAT_EQ(result, -1.0f);
+}
+
+// --- 测试 Float 解码 (-1.0f LittleEndian DCBA) ---
+TEST(RegisterCodecTest, DecodeFloatNegative_LittleEndian_DCBA) {
+
+    float result =
+        RegisterCodec::decodeFloat(
+            {0x0000, 0x80BF},
+            Endianness::LittleEndian);
+
+    EXPECT_FLOAT_EQ(result, -1.0f);
+}
+
+// --- 测试 Float 解码 (-1.0f LittleEndianSwap BADC) ---
+TEST(RegisterCodecTest, DecodeFloatNegative_LittleEndianSwap_BADC) {
+
+    float result =
+        RegisterCodec::decodeFloat(
+            {0x80BF, 0x0000},
+            Endianness::LittleEndianSwap);
+
+    EXPECT_FLOAT_EQ(result, -1.0f);
+}
+
+TEST(RegisterCodecTest, EncodeThenDecodeNegativeFloat_ShouldRestoreOriginal)
+{
+    float original = -13.25f;
+
+    auto encoded =
+        RegisterCodec::encodeFloat(
+            original,
+            Endianness::BigEndian);
+
+    float decoded =
+        RegisterCodec::decodeFloat(
+            encoded,
+            Endianness::BigEndian);
+
+    EXPECT_FLOAT_EQ(decoded, original);
+}
