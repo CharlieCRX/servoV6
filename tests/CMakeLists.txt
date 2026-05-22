@@ -36,13 +36,9 @@ add_executable(unit_tests
     infrastructure/protocol/test_register_codec.cpp
 )
 
-target_include_directories(unit_tests
-    PRIVATE
-        ${CMAKE_SOURCE_DIR}
-)
-
 target_link_libraries(unit_tests
     PRIVATE
+        infrastructure
         domain
         application
         presentation

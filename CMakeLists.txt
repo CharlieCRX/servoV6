@@ -1,6 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
 project(servoV6)
-include_directories(${CMAKE_SOURCE_DIR})
 
 set(CMAKE_CXX_STANDARD 20)
 
@@ -22,7 +21,8 @@ if(NOT ANDROID)
 
 endif()
 
-# 子模块
+# 子模块（infrastructure 必须在最前面，domain/application 依赖它）
+add_subdirectory(infrastructure)
 add_subdirectory(domain)
 add_subdirectory(application)
 add_subdirectory(presentation)
