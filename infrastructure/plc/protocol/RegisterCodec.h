@@ -1,26 +1,20 @@
+// infrastructure/plc/protocol/RegisterCodec.h
 #pragma once
 #include <vector>
 #include <cstdint>
 #include <stdexcept>
 #include <cstring>
+#include "EndianPolicy.h"
+#include "RegisterMetadata.h"
+#include "ProtocolProfile.h"
 
-enum class ByteOrder {
-  BigEndian,    // 字内高字节在前 (AB)
-  LittleEndian  // 字内低字节在前 (BA)
-};
-
-enum class WordOrder {
-  HighWordFirst, // 多寄存器中，高位字在前
-  LowWordFirst   // 多寄存器中，低位字在前
-};
-
-struct EndianPolicy {
-  ByteOrder byteOrder;
-  WordOrder wordOrder;
-};
+namespace plc::protocol {
 
 class RegisterCodec {
 public:
+  // ========================================================================
+  // Level 1: 基础单寄存器编解码 (不受大小端影响)
+  // ========================================================================
   static std::vector<uint16_t> encodeBool(bool value) {
     return { static_cast<uint16_t>(value ? 1 : 0) };
   }
@@ -39,17 +33,20 @@ public:
     return regs[0];
   }
 
+  // ========================================================================
+  // Level 2: 核心数学拼装引擎 (纯粹的 EndianPolicy 驱动，供基础 TDD 测试调用)
+  // ========================================================================
   static std::vector<uint16_t> encodeInt32(int32_t value, EndianPolicy policy) {
-    // 标准提取 4 个字节 (从高位到低位: MSB -> LSB)
+    // 标准提取 4 个字节 (MSB -> LSB)
     uint8_t A = (value >> 24) & 0xFF;
     uint8_t B = (value >> 16) & 0xFF;
-    uint8_t C = (value >> 8) & 0xFF;
+    uint8_t C = (value >> 8)  & 0xFF;
     uint8_t D = value & 0xFF;
 
     uint16_t highWord = 0;
     uint16_t lowWord = 0;
 
-    // 1. 应用 ByteOrder (解决单寄存器内的字节顺序)
+    // 1. 应用 ByteOrder (字内处理)
     if (policy.byteOrder == ByteOrder::BigEndian) {
       highWord = (static_cast<uint16_t>(A) << 8) | B;
       lowWord  = (static_cast<uint16_t>(C) << 8) | D;
@@ -58,7 +55,7 @@ public:
       lowWord  = (static_cast<uint16_t>(D) << 8) | C;
     }
 
-    // 2. 应用 WordOrder (解决多个寄存器之间的顺序)
+    // 2. 应用 WordOrder (字间拼装)
     if (policy.wordOrder == WordOrder::HighWordFirst) {
       return { highWord, lowWord };
     } else { // LowWordFirst
@@ -72,7 +69,7 @@ public:
     uint16_t highWord = 0;
     uint16_t lowWord = 0;
 
-    // 1. 根据 WordOrder 定位高位字与低位字
+    // 1. 应用 WordOrder 找到高低字
     if (policy.wordOrder == WordOrder::HighWordFirst) {
       highWord = registers[0];
       lowWord  = registers[1];
@@ -83,7 +80,7 @@ public:
 
     uint8_t A{}, B{}, C{}, D{};
 
-    // 2. 根据 ByteOrder 还原具体字节
+    // 2. 应用 ByteOrder 提取原始字节
     if (policy.byteOrder == ByteOrder::BigEndian) {
       A = (highWord >> 8) & 0xFF;
       B = highWord & 0xFF;
@@ -96,11 +93,11 @@ public:
       C = lowWord & 0xFF;
     }
 
-    // 3. 拼装标准的 Int32 (MSB到LSB拼接)
+    // 3. 组装标准 Int32
     return (static_cast<int32_t>(A) << 24) |
          (static_cast<int32_t>(B) << 16) |
          (static_cast<int32_t>(C) << 8)  |
-         static_cast<int32_t>(D);
+        static_cast<int32_t>(D);
   }
 
   static std::vector<uint16_t> encodeFloat(float value, EndianPolicy policy) {
@@ -115,4 +112,34 @@ public:
     std::memcpy(&value, &raw, sizeof(float));
     return value;
   }
+
+  // ========================================================================
+  // Level 3: 业务代理层 (元数据 + Profile 驱动，你的 Driver 主要调用这里)
+  // ========================================================================
+  
+  // 策略决议逻辑
+  static EndianPolicy resolvePolicy(const RegisterInfo& reg, const ProtocolProfile& profile) {
+    // 如果寄存器自身有 override 则用自身的，否则降级使用当前 PLC profile 默认配置
+    return reg.endianOverride.value_or(profile.defaultEndian);
+  }
+
+  // 高级 API 门面：Int32
+  static std::vector<uint16_t> encode(int32_t value, const RegisterInfo& reg, const ProtocolProfile& profile) {
+    return encodeInt32(value, resolvePolicy(reg, profile));
+  }
+
+  static int32_t decodeInt32(const std::vector<uint16_t>& regs, const RegisterInfo& reg, const ProtocolProfile& profile) {
+    return decodeInt32(regs, resolvePolicy(reg, profile));
+  }
+
+  // 高级 API 门面：Float32
+  static std::vector<uint16_t> encode(float value, const RegisterInfo& reg, const ProtocolProfile& profile) {
+    return encodeFloat(value, resolvePolicy(reg, profile));
+  }
+
+  static float decodeFloat(const std::vector<uint16_t>& regs, const RegisterInfo& reg, const ProtocolProfile& profile) {
+    return decodeFloat(regs, resolvePolicy(reg, profile));
+  }
 };
+
+} // namespace plc::protocol

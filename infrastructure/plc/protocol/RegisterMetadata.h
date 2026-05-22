@@ -2,6 +2,8 @@
 #pragma once
 #include <cstdint>
 #include <string>
+#include <optional>
+#include "EndianPolicy.h"
 
 namespace plc::protocol {
 
@@ -47,9 +49,12 @@ struct RegisterInfo {
     RegisterGroup group;
     
     const char* unit;        // 物理单位 ("mm", "mm/s", "")
-    const char* description; // 建议 5 落地：人类可读描述 (UI/Logger极其需要)
+    const char* description; // 人类可读描述 (UI/Logger极其需要)
     
-    uint32_t pulseWidthMs;   // 建议 3 落地：脉冲宽度 (仅对 ManualResetEdgeTrigger 有效)
+    uint32_t pulseWidthMs;   // 脉冲宽度 (仅对 ManualResetEdgeTrigger 有效)
+
+    // 【关键新增】默认为空，表示不覆盖，直接继承 Profile
+    std::optional<EndianPolicy> endianOverride = std::nullopt;
 
     // 动态获取 wordCount，编译期计算，保证绝对安全
     constexpr uint16_t wordCount() const {
