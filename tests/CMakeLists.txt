@@ -33,6 +33,7 @@ add_executable(unit_tests
 
 
     #=============== Third-party tests ================
+    infrastructure/protocol/test_protocol_validator.cpp
     infrastructure/protocol/test_register_codec.cpp
 )
 
