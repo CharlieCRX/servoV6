@@ -4,11 +4,19 @@
 #include <stdexcept>
 #include <cstring>
 
-enum class Endianness {
-  BigEndian,         // ABCD (标准 Modbus)
-  BigEndianSwap,     // CDAB (高低字交换)
-  LittleEndian,      // DCBA
-  LittleEndianSwap   // BADC
+enum class ByteOrder {
+  BigEndian,    // 字内高字节在前 (AB)
+  LittleEndian  // 字内低字节在前 (BA)
+};
+
+enum class WordOrder {
+  HighWordFirst, // 多寄存器中，高位字在前
+  LowWordFirst   // 多寄存器中，低位字在前
+};
+
+struct EndianPolicy {
+  ByteOrder byteOrder;
+  WordOrder wordOrder;
 };
 
 class RegisterCodec {
@@ -31,139 +39,80 @@ public:
     return regs[0];
   }
 
-
-  static std::vector<uint16_t> encodeInt32(int32_t value, Endianness endianness) {
+  static std::vector<uint16_t> encodeInt32(int32_t value, EndianPolicy policy) {
+    // 标准提取 4 个字节 (从高位到低位: MSB -> LSB)
     uint8_t A = (value >> 24) & 0xFF;
     uint8_t B = (value >> 16) & 0xFF;
     uint8_t C = (value >> 8) & 0xFF;
     uint8_t D = value & 0xFF;
 
-    uint8_t bytes[4] {};
+    uint16_t highWord = 0;
+    uint16_t lowWord = 0;
 
-    switch (endianness)
-    {
-    case Endianness::BigEndian:
-      // ABCD
-      bytes[0] = A;
-      bytes[1] = B;
-      bytes[2] = C;
-      bytes[3] = D;
-      break;
-    
-    case Endianness::BigEndianSwap:
-      // CDAB
-      bytes[0] = C;
-      bytes[1] = D;
-      bytes[2] = A;
-      bytes[3] = B;
-      break;
-    
-    case Endianness::LittleEndian:
-      // DCBA
-      bytes[0] = D;
-      bytes[1] = C;
-      bytes[2] = B;
-      bytes[3] = A;
-      break;
-
-    case Endianness::LittleEndianSwap:
-      // BADC
-      bytes[0] = B;
-      bytes[1] = A;
-      bytes[2] = D;
-      bytes[3] = C;
-      break;
-
+    // 1. 应用 ByteOrder (解决单寄存器内的字节顺序)
+    if (policy.byteOrder == ByteOrder::BigEndian) {
+      highWord = (static_cast<uint16_t>(A) << 8) | B;
+      lowWord  = (static_cast<uint16_t>(C) << 8) | D;
+    } else { // LittleEndian
+      highWord = (static_cast<uint16_t>(B) << 8) | A;
+      lowWord  = (static_cast<uint16_t>(D) << 8) | C;
     }
 
-    uint16_t reg0 = (bytes[0] << 8) | bytes[1];
-    uint16_t reg1 = (bytes[2] << 8) | bytes[3];
-
-    return {reg0, reg1};
+    // 2. 应用 WordOrder (解决多个寄存器之间的顺序)
+    if (policy.wordOrder == WordOrder::HighWordFirst) {
+      return { highWord, lowWord };
+    } else { // LowWordFirst
+      return { lowWord, highWord };
+    }
   }
 
+  static int32_t decodeInt32(const std::vector<uint16_t>& registers, EndianPolicy policy) {
+    if (registers.size() < 2) throw std::invalid_argument("Requires at least 2 registers for Int32");
 
+    uint16_t highWord = 0;
+    uint16_t lowWord = 0;
 
-  static int32_t decodeInt32(
-    const std::vector<uint16_t>& registers, 
-    Endianness endianness) 
-  {
-    // 1. 寄存器 -> 字节
-    uint8_t b0 = (registers[0] >> 8) & 0xFF;
-    uint8_t b1 = registers[0] & 0xFF;
-    uint8_t b2 = (registers[1] >> 8) & 0xFF;
-    uint8_t b3 = registers[1] & 0xFF;
-
-    // 2. 根据 endian 恢复 ABCD
-    uint8_t A {};
-    uint8_t B {};
-    uint8_t C {};
-    uint8_t D {};
-
-    switch (endianness)
-    {
-    case Endianness::BigEndian:
-      // ABCD
-      A = b0;
-      B = b1;
-      C = b2;
-      D = b3;
-      break;
-
-    case Endianness::BigEndianSwap:
-      // CDAB
-      C = b0;
-      D = b1;
-      A = b2;
-      B = b3;
-      break;
-
-    case Endianness::LittleEndian:
-      // DCBA
-      D = b0;
-      C = b1;
-      B = b2;
-      A = b3;
-      break;
-
-    case Endianness::LittleEndianSwap:
-      // BADC
-      B = b0;
-      A = b1;
-      D = b2;
-      C = b3;
-      break;
+    // 1. 根据 WordOrder 定位高位字与低位字
+    if (policy.wordOrder == WordOrder::HighWordFirst) {
+      highWord = registers[0];
+      lowWord  = registers[1];
+    } else {
+      highWord = registers[1];
+      lowWord  = registers[0];
     }
 
-    // 3. 拼装 int32
-    int32_t result =
-      (static_cast<int32_t>(A) << 24) |
-      (static_cast<int32_t>(B) << 16) |
-      (static_cast<int32_t>(C) << 8)  |
-      static_cast<int32_t>(D);
+    uint8_t A{}, B{}, C{}, D{};
 
-    return result;
+    // 2. 根据 ByteOrder 还原具体字节
+    if (policy.byteOrder == ByteOrder::BigEndian) {
+      A = (highWord >> 8) & 0xFF;
+      B = highWord & 0xFF;
+      C = (lowWord >> 8) & 0xFF;
+      D = lowWord & 0xFF;
+    } else { // LittleEndian
+      B = (highWord >> 8) & 0xFF;
+      A = highWord & 0xFF;
+      D = (lowWord >> 8) & 0xFF;
+      C = lowWord & 0xFF;
+    }
+
+    // 3. 拼装标准的 Int32 (MSB到LSB拼接)
+    return (static_cast<int32_t>(A) << 24) |
+         (static_cast<int32_t>(B) << 16) |
+         (static_cast<int32_t>(C) << 8)  |
+         static_cast<int32_t>(D);
   }
 
-  static std::vector<uint16_t> encodeFloat(float value, Endianness endianness) {
-    uint32_t raw {};
-
+  static std::vector<uint16_t> encodeFloat(float value, EndianPolicy policy) {
+    uint32_t raw{};
     std::memcpy(&raw, &value, sizeof(float));
-
-    return encodeInt32(
-        static_cast<int32_t>(raw),
-        endianness);
+    return encodeInt32(static_cast<int32_t>(raw), policy);
   }
 
-  static float decodeFloat(const std::vector<uint16_t>& registers, Endianness endianness) {
-    uint32_t raw = static_cast<uint32_t>(decodeInt32(registers, endianness));
-    float value {};
-
-    std::memcpy(
-        &value,
-        &raw,
-        sizeof(float));
-
+  static float decodeFloat(const std::vector<uint16_t>& registers, EndianPolicy policy) {
+    uint32_t raw = static_cast<uint32_t>(decodeInt32(registers, policy));
+    float value{};
+    std::memcpy(&value, &raw, sizeof(float));
     return value;
   }
 };
