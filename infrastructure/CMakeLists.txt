@@ -13,14 +13,16 @@
 #   target_link_libraries(<your_target> PRIVATE infrastructure)
 #
 
-add_library(infrastructure INTERFACE)
+add_library(infrastructure STATIC
+    plc/protocol/validator/ProtocolConstraintValidator.cpp
+)
 
 target_include_directories(infrastructure
-    INTERFACE
+    PUBLIC
         ${CMAKE_SOURCE_DIR}
 )
 
 target_link_libraries(infrastructure
-    INTERFACE
+    PUBLIC
         Qt6::Core
 )
