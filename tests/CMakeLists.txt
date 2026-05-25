@@ -33,6 +33,8 @@ add_executable(unit_tests
 
 
     #=============== Third-party tests ================
+    infrastructure/protocol/test_raw_word_snapshot.cpp
+    infrastructure/protocol/test_raw_bit_snapshot.cpp
     infrastructure/protocol/test_protocol_validator.cpp
     infrastructure/protocol/test_register_registry.cpp
     infrastructure/protocol/test_protocol_validator.cpp
