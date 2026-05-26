@@ -1,7 +1,7 @@
 // tests/infrastructure/protocol/test_register_registry.cpp
 #include <gtest/gtest.h>
 #include "infrastructure/plc/protocol/RegisterRegistry.h"
-#include "infrastructure/plc/protocol/RegisterAddressY.h" // 复用你之前写好的 Y 轴真实寄存器
+#include "infrastructure/plc/protocol/RegisterAddressAll.h" // 复用你之前写好的 Y 轴真实寄存器
 
 using namespace plc::protocol;
 
