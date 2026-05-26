@@ -5,6 +5,7 @@
 #include <gtest/gtest.h>
 #include "infrastructure/plc/protocol/RegisterCodec.h"
 #include "infrastructure/plc/protocol/MemorySnapshot.h"
+#include "infrastructure/plc/protocol/PlcSnapshot.h"
 #include "infrastructure/plc/protocol/PlcValue.h"
 #include "infrastructure/plc/protocol/ProtocolProfile.h"
 #include "infrastructure/plc/protocol/RegisterMetadata.h"
@@ -447,4 +448,79 @@ TEST(RegisterCodecEncodeErrorTest, EncodeString_ThrowsInvalidArgument) {
     EXPECT_THROW({
         RegisterCodec::encode(value, REG_HOLDING_INT16, TEST_PROFILE);
     }, std::invalid_argument);
+}
+
+
+// ============================================================================
+// 第七部分：decode — PlcSnapshot 便捷重载 (P2 v4)
+// ============================================================================
+
+class RegisterCodecDecodePlcSnapshotTest : public ::testing::Test {
+protected:
+    // Coil 101~108: 0b00101001
+    std::vector<uint8_t> coilPayload{0x29};
+    // Word 100~103: STATE=3, ALARM=0, 0x0000, 0x4316
+    std::vector<uint16_t> wordPayload{0x0003, 0x0000, 0x0000, 0x4316};
+};
+
+TEST_F(RegisterCodecDecodePlcSnapshotTest, DecodeBool_FromPlcSnapshot) {
+    RawBitSnapshot bits(101, 8, coilPayload);
+    RawWordSnapshot words(100, wordPayload);
+    PlcSnapshot snap(std::move(bits), std::move(words), true, 1000);
+
+    PlcValue result = RegisterCodec::decode(REG_COIL_MOVE_DONE, snap, TEST_PROFILE);
+
+    EXPECT_TRUE(isBool(result));
+    EXPECT_EQ(getValue<bool>(result), true);
+}
+
+TEST_F(RegisterCodecDecodePlcSnapshotTest, DecodeInt16_FromPlcSnapshot) {
+    RawBitSnapshot bits(101, 8, coilPayload);
+    RawWordSnapshot words(100, wordPayload);
+    PlcSnapshot snap(std::move(bits), std::move(words), true, 1000);
+
+    constexpr RegisterInfo reg_state_d100{
+        RegisterArea::HoldingReg, 100, RegisterType::Int16, RegisterAccess::ReadOnly,
+        RegisterBehavior::Continuous, RegisterGroup::Feedback,
+        "", "STATE D100", 0, std::nullopt
+    };
+
+    PlcValue result = RegisterCodec::decode(reg_state_d100, snap, TEST_PROFILE);
+
+    EXPECT_TRUE(isInt16(result));
+    EXPECT_EQ(getValue<int16_t>(result), 3);
+}
+
+TEST_F(RegisterCodecDecodePlcSnapshotTest, DecodeFloat32_FromPlcSnapshot) {
+    RawBitSnapshot bits(101, 8, coilPayload);
+    std::vector<uint16_t> posPayload{0x0000, 0x4316};
+    RawWordSnapshot words(124, posPayload);
+    PlcSnapshot snap(std::move(bits), std::move(words), true, 1000);
+
+    PlcValue result = RegisterCodec::decode(REG_ABS_POSITION, snap, TEST_PROFILE);
+
+    EXPECT_TRUE(isFloat(result));
+    EXPECT_FLOAT_EQ(getValue<float>(result), 150.0f);
+}
+
+TEST_F(RegisterCodecDecodePlcSnapshotTest, DecodeBool_FromIncompleteSnapshot_StillDecodes) {
+    RawBitSnapshot bits(101, 8, coilPayload);
+    RawWordSnapshot words; // empty, but we're decoding Coil
+    PlcSnapshot snap(std::move(bits), std::move(words), false, 2000);
+
+    PlcValue result = RegisterCodec::decode(REG_COIL_MOVE_DONE, snap, TEST_PROFILE);
+
+    // Even though complete=false, the data itself is valid for decoding
+    EXPECT_TRUE(isBool(result));
+    EXPECT_EQ(getValue<bool>(result), true);
+}
+
+TEST_F(RegisterCodecDecodePlcSnapshotTest, DecodeHoldingReg_WithEmptySnapshot_ThrowsOutOfRange) {
+    RawBitSnapshot bits(101, 8, coilPayload);
+    RawWordSnapshot words; // empty HoldingReg snapshot
+    PlcSnapshot snap(std::move(bits), std::move(words), true, 1000);
+
+    EXPECT_THROW({
+        RegisterCodec::decode(REG_STATE, snap, TEST_PROFILE);
+    }, std::out_of_range);
 }

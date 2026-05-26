@@ -8,6 +8,7 @@
 #include "RegisterMetadata.h"
 #include "ProtocolProfile.h"
 #include "MemorySnapshot.h"
+#include "PlcSnapshot.h"
 #include "PlcValue.h"
 
 namespace plc::protocol {
@@ -195,7 +196,7 @@ public:
    * @param words   保持/输入寄存器快照指针（仅 area==HoldingReg 时有效，否则应传 nullptr）
    * @param profile 目标 PLC 协议全局 Profile
    * @return PlcValue 标准化多态值
-   * * @throws std::invalid_argument 缺失对应区域的 snapshot 或请求了不支持的寄存器类型
+   * @throws std::invalid_argument 缺失对应区域的 snapshot 或请求了不支持的寄存器类型
    * @throws std::out_of_range     请求解析的寄存器地址超出了当前快照的边界
    */
   static PlcValue decode(const RegisterInfo& reg,
@@ -241,6 +242,22 @@ public:
       default:
         throw std::invalid_argument("RegisterCodec::decode: Unsupported RegisterType encountered");
     }
+  }
+
+  /**
+   * @brief 从 PlcSnapshot 便捷解码（v4 便捷重载）
+   * @details 直接从一个完整的 PLC 现场照片中解码出业务值，
+   *          省去手动拆解 bits/words 两个指针的麻烦。
+   *
+   * @param reg      寄存器元数据
+   * @param snapshot 一次完整采集的 PLC 状态照片
+   * @param profile  目标 PLC 协议全局 Profile
+   * @return PlcValue 标准化多态值
+   */
+  static PlcValue decode(const RegisterInfo& reg,
+                          const PlcSnapshot& snapshot,
+                          const ProtocolProfile& profile) {
+    return decode(reg, &snapshot.bits, &snapshot.words, profile);
   }
 
   /**

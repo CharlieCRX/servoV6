@@ -33,6 +33,8 @@ add_executable(unit_tests
 
 
     #=============== Third-party tests ================
+    infrastructure/protocol/test_plc_snapshot.cpp
+    infrastructure/protocol/test_plc_poller.cpp
     infrastructure/protocol/test_register_codec_snapshot.cpp
     infrastructure/protocol/test_plc_value.cpp
     infrastructure/protocol/test_raw_word_snapshot.cpp

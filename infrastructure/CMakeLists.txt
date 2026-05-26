@@ -15,6 +15,7 @@
 
 add_library(infrastructure STATIC
     plc/protocol/validator/ProtocolConstraintValidator.cpp
+    plc/protocol/PlcPoller.cpp
 )
 
 target_include_directories(infrastructure
