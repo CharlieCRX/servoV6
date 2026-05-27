@@ -168,7 +168,12 @@ private:
 
     Config                          m_config;
     asio::io_context                m_ioctx;
-    std::unique_ptr<asio::io_context::work> m_work;  // 防止 io_context 提前退出
+
+    /// @brief 执行器守卫 — 保持 io_context 事件循环持续运行
+    /// unique_ptr 封装: start() 时创建，stop() 时销毁
+    /// 使用 factory 函数保证所有权清晰，支持 stop/start 循环
+    std::unique_ptr<asio::io_context::work> m_workGuard;
+
     std::thread                     m_worker;
     asio::ip::tcp::socket           m_socket;
     asio::steady_timer              m_timer;          // 超时/重连定时器
