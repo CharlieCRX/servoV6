@@ -83,3 +83,4 @@ settings.json
 .rcc/
 .uic/
 /build*/
+/external/asio/

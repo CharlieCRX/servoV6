@@ -33,6 +33,7 @@ add_executable(unit_tests
 
 
     #=============== Third-party tests ================
+    infrastructure/protocol/test_modbus_tcp_frame.cpp
     infrastructure/protocol/test_plc_device.cpp
     infrastructure/protocol/test_plc_snapshot.cpp
     infrastructure/protocol/test_plc_poller.cpp
