@@ -16,11 +16,13 @@
 add_library(infrastructure STATIC
     plc/protocol/validator/ProtocolConstraintValidator.cpp
     plc/protocol/PlcPoller.cpp
+    plc/protocol/AsioModbusTcpClient.cpp
 )
 
 target_include_directories(infrastructure
     PUBLIC
         ${CMAKE_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/domain
 )
 
 target_link_libraries(infrastructure
