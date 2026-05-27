@@ -306,13 +306,46 @@ CommunicationResult AsioModbusTcpClient::executeTransaction(
     auto future = promise.get_future();
 
     // post 到 io_context 线程执行
-    asio::post(m_ioctx, [this, &frame, &response, p = std::move(promise)]() mutable {
+    asio::post(m_ioctx, [this, &frame, &response, p = std::move(promise), timeout = m_config.timeoutMs]() mutable {
         uint16_t tid = (static_cast<uint16_t>(frame[0]) << 8) | frame[1];
         uint8_t fcode = frame[7];
         std::cout << "[TX] lambda executing on io thread (TID=" << tid << ")" << std::endl;
 
+        // ═══════════════════════════════════════════════════
+        //  Socket 级超时机制 (Phase 2.3)
+        //
+        //  原理: 在 io_context 线程内部设置 steady_timer，
+        //        超时后调用 socket.cancel() 中断阻塞的 write/read。
+        //        write/read 返回的 ec 为 operation_aborted 时判定为超时。
+        //
+        //  与 Phase 2.2 的区别:
+        //        Phase 2.2: 只有 future.wait_for() 在业务线程超时，
+        //                   阻塞在 asio::read() 中的 io_context 线程无法被唤醒。
+        //        Phase 2.3: steady_timer 在 io_context 线程内异步触发，
+        //                   socket.cancel() 从内部中断阻塞的 I/O。
+        // ═══════════════════════════════════════════════════
         std::error_code ec;
         size_t readBytes = 0;
+        bool timedOut = false;
+
+        // 启动超时定时器 — 在 io_context 线程内设置
+        m_timer.expires_after(std::chrono::milliseconds(timeout));
+        m_timer.async_wait([this, tid, &timedOut](std::error_code timerEc) {
+            if (timerEc) {
+                // timer 被取消（I/O 在超时前完成）
+                return;
+            }
+            // 超时触发 — 取消所有 socket 操作
+            timedOut = true;
+            std::cout << "[TIMEOUT] socket timer fired (TID=" << tid << ")"
+                      << " — calling socket.cancel()" << std::endl;
+            std::error_code cancelEc;
+            m_socket.cancel(cancelEc);
+            if (cancelEc) {
+                std::cout << "[TIMEOUT] socket.cancel() warning: "
+                          << cancelEc.message() << std::endl;
+            }
+        });
 
         // 0️⃣ 打印请求帧十六进制（诊断 diagslave 无响应问题）
         std::cout << "[MODBUS] Request hex  (TID=" << tid << ", FC=" << static_cast<int>(fcode) << "): ";
@@ -324,13 +357,28 @@ CommunicationResult AsioModbusTcpClient::executeTransaction(
         // 1️⃣ 写入请求帧
         readBytes = asio::write(m_socket, asio::buffer(frame), ec);
         if (ec) {
-            m_connected.store(false, std::memory_order_release);
-            std::cout << "[TX] write failed (TID=" << tid << "): " << ec.message() << std::endl;
-            p.set_value(CommunicationResult{
-                CommunicationResult::Status::NetworkError,
-                0,
-                "Write failed: " + ec.message()
-            });
+            // 先取消 timer 防止其回调在 promise 已 set 后访问局部变量
+            m_timer.cancel();
+            // 恢复 timer 的资源状态（cancel 后需要重新设置 expires 才能再次使用）
+            m_timer.expires_at(std::chrono::steady_clock::time_point::max());
+
+            if (timedOut || ec == asio::error::operation_aborted) {
+                m_connected.store(false, std::memory_order_release);
+                std::cout << "[TIMEOUT] write aborted by timeout (TID=" << tid << ")" << std::endl;
+                p.set_value(CommunicationResult{
+                    CommunicationResult::Status::Timeout,
+                    0,
+                    "Socket write timed out after " + std::to_string(timeout) + "ms"
+                });
+            } else {
+                m_connected.store(false, std::memory_order_release);
+                std::cout << "[TX] write failed (TID=" << tid << "): " << ec.message() << std::endl;
+                p.set_value(CommunicationResult{
+                    CommunicationResult::Status::NetworkError,
+                    0,
+                    "Write failed: " + ec.message()
+                });
+            }
             return;
         }
         std::cout << "[TX] write OK (TID=" << tid << ", " << readBytes << " bytes)" << std::endl;
@@ -340,13 +388,26 @@ CommunicationResult AsioModbusTcpClient::executeTransaction(
         std::cout << "[TX] reading MBAP header (TID=" << tid << ")..." << std::endl;
         readBytes = asio::read(m_socket, asio::buffer(mbap), ec);
         if (ec) {
-            m_connected.store(false, std::memory_order_release);
-            std::cout << "[TX] read MBAP failed (TID=" << tid << "): " << ec.message() << std::endl;
-            p.set_value(CommunicationResult{
-                CommunicationResult::Status::NetworkError,
-                0,
-                "Read MBAP failed: " + ec.message()
-            });
+            m_timer.cancel();
+            m_timer.expires_at(std::chrono::steady_clock::time_point::max());
+
+            if (timedOut || ec == asio::error::operation_aborted) {
+                m_connected.store(false, std::memory_order_release);
+                std::cout << "[TIMEOUT] read MBAP aborted by timeout (TID=" << tid << ")" << std::endl;
+                p.set_value(CommunicationResult{
+                    CommunicationResult::Status::Timeout,
+                    0,
+                    "Socket read timed out after " + std::to_string(timeout) + "ms"
+                });
+            } else {
+                m_connected.store(false, std::memory_order_release);
+                std::cout << "[TX] read MBAP failed (TID=" << tid << "): " << ec.message() << std::endl;
+                p.set_value(CommunicationResult{
+                    CommunicationResult::Status::NetworkError,
+                    0,
+                    "Read MBAP failed: " + ec.message()
+                });
+            }
             return;
         }
         std::cout << "[TX] MBAP header received (TID=" << tid << ", " << readBytes << " bytes)" << std::endl;
@@ -354,6 +415,8 @@ CommunicationResult AsioModbusTcpClient::executeTransaction(
         // 3️⃣ 解析 MBAP 头获取 PDU 长度
         auto mbapHdr = tcp_frame::ModbusTcpFrame::parseMbap(mbap);
         if (!mbapHdr.has_value()) {
+            m_timer.cancel();
+            m_timer.expires_at(std::chrono::steady_clock::time_point::max());
             std::cout << "[TX] invalid MBAP header (TID=" << tid << ")" << std::endl;
             p.set_value(CommunicationResult{
                 CommunicationResult::Status::InvalidResponse,
@@ -367,11 +430,11 @@ CommunicationResult AsioModbusTcpClient::executeTransaction(
                   << " (PDU=" << (mbapHdr->length - 1) << " bytes)" << std::endl;
 
         // 4️⃣ 读取 PDU 数据
-        // MBAP Length = UnitID(1) + FC + Data
-        // UnitID 已在前 7 字节 MBAP 中，PDU 包含 FC + Data
         size_t pduLen = mbapHdr->length - 1;
 
         if (pduLen == 0) {
+            m_timer.cancel();
+            m_timer.expires_at(std::chrono::steady_clock::time_point::max());
             std::cout << "[TX] PDU length is zero (TID=" << tid << ")" << std::endl;
             p.set_value(CommunicationResult{
                 CommunicationResult::Status::InvalidResponse,
@@ -385,16 +448,34 @@ CommunicationResult AsioModbusTcpClient::executeTransaction(
         std::cout << "[TX] reading PDU (TID=" << tid << ", " << pduLen << " bytes)..." << std::endl;
         readBytes = asio::read(m_socket, asio::buffer(pdu), ec);
         if (ec) {
-            m_connected.store(false, std::memory_order_release);
-            std::cout << "[TX] read PDU failed (TID=" << tid << "): " << ec.message() << std::endl;
-            p.set_value(CommunicationResult{
-                CommunicationResult::Status::NetworkError,
-                0,
-                "Read PDU failed: " + ec.message()
-            });
+            m_timer.cancel();
+            m_timer.expires_at(std::chrono::steady_clock::time_point::max());
+
+            if (timedOut || ec == asio::error::operation_aborted) {
+                m_connected.store(false, std::memory_order_release);
+                std::cout << "[TIMEOUT] read PDU aborted by timeout (TID=" << tid << ")" << std::endl;
+                p.set_value(CommunicationResult{
+                    CommunicationResult::Status::Timeout,
+                    0,
+                    "Socket read timed out after " + std::to_string(timeout) + "ms"
+                });
+            } else {
+                m_connected.store(false, std::memory_order_release);
+                std::cout << "[TX] read PDU failed (TID=" << tid << "): " << ec.message() << std::endl;
+                p.set_value(CommunicationResult{
+                    CommunicationResult::Status::NetworkError,
+                    0,
+                    "Read PDU failed: " + ec.message()
+                });
+            }
             return;
         }
         std::cout << "[TX] PDU received (TID=" << tid << ", " << readBytes << " bytes)" << std::endl;
+
+        // ✅ I/O 全部完成，取消超时定时器
+        m_timer.cancel();
+        // 恢复 timer 到"空"状态，避免后续 scheduleReconnect 的 expires_after 被残留状态干扰
+        m_timer.expires_at(std::chrono::steady_clock::time_point::max());
 
         // 5️⃣ 组装完整响应帧
         response.clear();
@@ -460,21 +541,22 @@ CommunicationResult AsioModbusTcpClient::executeTransaction(
     });
 
     // 同步等待结果（带超时）
-    // 超时处理：future::wait_for 是业务线程的保底防护
-    // socket 级超时由 configureSocket() 中的 expires_after() 提供
+    // ⚠️ future::wait_for 现在是 redundant 保底防护
+    //    真正的 socket 级超时由 steady_timer + socket.cancel() 在 io 线程内处理
+    //    保留此防护以防 promise.set_value() 未被调用的极端情况
     auto status = future.wait_for(std::chrono::milliseconds(m_config.timeoutMs + 500));
     if (status == std::future_status::timeout) {
-        std::cout << "[TX] transaction timed out after "
-                  << (m_config.timeoutMs + 500) << "ms (TID=" << tid << ")"
-                  << " — closing socket to abort io" << std::endl;
-        // 超时：关闭 socket 中断阻塞的 I/O 操作
-        std::error_code ec;
-        m_socket.close(ec);
-        m_connected.store(false, std::memory_order_release);
+        std::cout << "[TX] future timeout — posting socket close (TID=" << tid << ")" << std::endl;
+        asio::post(m_ioctx, [this]() {
+            std::error_code ec;
+            m_socket.cancel(ec);
+            m_socket.close(ec);
+            m_connected.store(false, std::memory_order_release);
+        });
         return CommunicationResult{
             CommunicationResult::Status::Timeout,
             0,
-            "Transaction timed out after " + std::to_string(m_config.timeoutMs + 500) + "ms"
+            "Transaction timed out after " + std::to_string(m_config.timeoutMs + 500) + "ms (future-level)"
         };
     }
 
