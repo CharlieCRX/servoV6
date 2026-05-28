@@ -86,9 +86,9 @@ X 轴的所有运动命令通过龙门统一寄存器下发：
 | **ClearRelativeZero** | `CLEAR_REL_ZERO` (M18) | `CLEAR_REL_ZERO` (M19) | `CLEAR_REL_ZERO` (M20) | `CLEAR_REL_ZERO` (M21) |
 | **ZeroAbsoluteCommand** (清空绝对位置) | `CLEAR_ABS_POS` (M30) | `CLEAR_ABS_POS` (M31) | `CLEAR_ABS_POS` (M32) | `CLEAR_ABS_POS` (M33) |
 
-#### 2.1.3 MoveCommand 两阶段映射（根据 MoveType 选通）
+#### 2.1.3 MoveCommand 两阶段映射：预设目标 + 边沿触发执行
 
-MoveCommand 包含 `MoveType type` 字段，运行时选通不同寄存器：
+PLC 的运动模式是**参数预置-触发执行**：先将目标位置写入对应的 D 寄存器（预设参数），再通过边沿触发信号让 PLC 按已设置的目标开始运动。MoveCommand 包含 `MoveType type` 字段，运行时选通不同的目标寄存器与触发寄存器：
 
 ```cpp
 struct MoveCommand {
