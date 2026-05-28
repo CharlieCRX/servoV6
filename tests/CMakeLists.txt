@@ -33,18 +33,19 @@ add_executable(unit_tests
 
 
     #=============== Third-party tests ================
-    infrastructure/protocol/test_asio_modbus_client.cpp
-    infrastructure/protocol/test_modbus_tcp_frame.cpp
-    infrastructure/protocol/test_plc_device.cpp
-    infrastructure/protocol/test_plc_snapshot.cpp
-    infrastructure/protocol/test_plc_poller.cpp
-    infrastructure/protocol/test_register_codec_snapshot.cpp
-    infrastructure/protocol/test_plc_value.cpp
-    infrastructure/protocol/test_raw_word_snapshot.cpp
-    infrastructure/protocol/test_raw_bit_snapshot.cpp
-    infrastructure/protocol/test_protocol_validator.cpp
-    infrastructure/protocol/test_register_registry.cpp
-    infrastructure/protocol/test_register_codec.cpp
+    infrastructure/protocol/test_modbus_tcp_integration.cpp
+    # infrastructure/protocol/test_asio_modbus_client.cpp
+    # infrastructure/protocol/test_modbus_tcp_frame.cpp
+    # infrastructure/protocol/test_plc_device.cpp
+    # infrastructure/protocol/test_plc_snapshot.cpp
+    # infrastructure/protocol/test_plc_poller.cpp
+    # infrastructure/protocol/test_register_codec_snapshot.cpp
+    # infrastructure/protocol/test_plc_value.cpp
+    # infrastructure/protocol/test_raw_word_snapshot.cpp
+    # infrastructure/protocol/test_raw_bit_snapshot.cpp
+    # infrastructure/protocol/test_protocol_validator.cpp
+    # infrastructure/protocol/test_register_registry.cpp
+    # infrastructure/protocol/test_register_codec.cpp
 )
 
 target_link_libraries(unit_tests
