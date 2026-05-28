@@ -328,10 +328,12 @@ TEST_F(RealFeedbackReadTest, FullPipeline_ReadAllFeedback_FromRealPLC) {
 
       // Coils
       auto printCoil = [&](const RegisterInfo& reg, const char* name) {
-        try {
-          PlcValue val = RegisterCodec::decode(reg, device.snapshot(), profile);
-          printf("  Coil %-4u %-16s = %d\n", reg.address, name, getValue<bool>(val));
-        } catch (...) { printf("  Coil %-4u %-16s = ERR\n", reg.address, name); }
+        bool v;
+        if (safeReadBool(device, reg, v)) {
+          printf("  Coil %-4u %-16s = %d\n", reg.address, name, v);
+        } else {
+          printf("  Coil %-4u %-16s = ERR\n", reg.address, name);
+        }
       };
       printCoil(moveDone, "MOVE_DONE");
       printCoil(absMoving, "ABS_MOVING");
@@ -340,21 +342,25 @@ TEST_F(RealFeedbackReadTest, FullPipeline_ReadAllFeedback_FromRealPLC) {
       if (linkageOrNull) printCoil(*linkageOrNull, "LINKAGE_STATE");
 
       // Int16 STATE
-      try {
-        PlcValue val = RegisterCodec::decode(state, device.snapshot(), profile);
+      int16_t stateVal;
+      if (safeReadInt16(device, state, stateVal)) {
         printf("  HR   %-4u %-16s = %-8d [raw: %s]\n",
-               state.address, "STATE", getValue<int16_t>(val),
+               state.address, "STATE", stateVal,
                getInt16Raw(state).c_str());
-      } catch (...) { printf("  HR   %-4u %-16s = ERR\n", state.address, "STATE"); }
+      } else {
+        printf("  HR   %-4u %-16s = ERR\n", state.address, "STATE");
+      }
 
       // Float32 (均带原始 hex)
       auto printFloatReg = [&](const RegisterInfo& reg, const char* name) {
-        try {
-          PlcValue val = RegisterCodec::decode(reg, device.snapshot(), profile);
+        float v;
+        if (safeReadFloat(device, reg, v)) {
           printf("  HR   %-4u %-16s = %-12.3f [raw: %s]\n",
-                 reg.address, name, getValue<float>(val),
+                 reg.address, name, v,
                  getFloat32Raw(reg).c_str());
-        } catch (...) { printf("  HR   %-4u %-16s = ERR\n", reg.address, name); }
+        } else {
+          printf("  HR   %-4u %-16s = ERR\n", reg.address, name);
+        }
       };
 
       printFloatReg(absPos, "ABS_POSITION");
