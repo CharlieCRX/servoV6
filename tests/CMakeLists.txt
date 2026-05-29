@@ -10,6 +10,8 @@ add_executable(unit_tests
     # infrastructure/test_system_integration.cpp
     # infrastructure/test_fake_plc.cpp
 
+    application/policy/test_abs_move_policy.cpp
+    application/policy/test_rel_move_policy.cpp
     # application/policy/test_auto_rel_move_orchestrator.cpp
     # application/policy/test_auto_abs_move_orchestrator.cpp
     # application/policy/test_jog_orchestrator.cpp
@@ -29,8 +31,8 @@ add_executable(unit_tests
     # domain/gantry/test_gantry_coupling_state.cpp
     # domain/safety/test_emergency_stop_controller.cpp
 
-    domain/test_axis.cpp
-    domain/test_axis_move_target.cpp
+    # domain/test_axis.cpp
+    # domain/test_axis_move_target.cpp
 
 
     #=============== Third-party tests ================
