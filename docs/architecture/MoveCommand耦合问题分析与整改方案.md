@@ -613,6 +613,119 @@ public:
 > **核心变更**：Policy 只负责"触发"流程（使能 → 触发 → 等待运动结束 → 关闭使能）。
 > **不包含**目标写入——目标已在 `setAbsTarget()` 的独立路径中写入 PLC。
 
+#### 6.2.1 EnsuringEnabled 步骤的设计关键：防重复发送 + 超时机制
+
+> **问题场景**：`tick()` 第一次进入 `EnsuringEnabled` 时已调用 `EnableUseCase` 发送使能命令。但反馈链路存在延迟（Modbus TCP 轮询周期 + PLC 响应时间），下一个 tick 到来时 `axis->state()` 可能仍为 `Disabled`。如果此时再次发送使能命令，会导致：
+> - PLC 收到重复的使能边沿脉冲，可能触发 PLC 内部状态机异常
+> - 浪费总线带宽
+> - 日志中充满重复的"发送使能"记录，掩盖真实问题
+>
+> **解决方案**：在 `EnsuringEnabled` 步骤中引入两个关键机制：
+>
+> ##### 1. 防重复发送标志（`m_enableSent`）
+>
+> ```
+> tick() 进入 EnsuringEnabled
+>   ├── axis->state() == Disabled ?
+>   │     ├── m_enableSent == false  →  发送使能 + 设置 m_enableSent = true + 记录时间戳
+>   │     └── m_enableSent == true   →  跳过发送，检查超时（见机制 2）
+>   └── axis->state() == Idle ?
+>         └── 清除 m_enableSent → 进入 TriggeringMove
+> ```
+>
+> **关键语义**：
+> - `m_enableSent` 仅在**本流程**内有效——`startAbs()` 入口处复位为 `false`
+> - 一旦发送过使能命令，后续所有 tick 都**不再重复发送**，直到：
+>   - `axis->state()` 变为 `Idle`（使能成功，清除标志，进入下一步）
+>   - 或超时（清除标志 + 转入 Error）
+> - 即使 feedback 延迟导致多帧内 state 仍为 Disabled，也不会误判为"未发送"而重复下发
+>
+> ##### 2. 超时保护机制
+>
+> ```
+> tick() 进入 EnsuringEnabled（m_enableSent == true 但 state 仍为 Disabled）
+>   ├── elapsed = now() - m_enableSentTime
+>   ├── elapsed > m_enableTimeoutSeconds (默认 2.0s) ?
+>   │     └── YES → LOG_ERROR + m_step = Step::Error + m_lastError = ErrorCode::Timeout
+>   └── elapsed <= m_enableTimeoutSeconds ?
+>         └── 静默等待（LOG_TRACE 级别记录等待中状态，不干扰日志）
+> ```
+>
+> **超时参数**：
+> | 参数 | 默认值 | 说明 |
+> |------|--------|------|
+> | `m_enableTimeoutSeconds` | `2.0` | 发送使能后等待 Idle feedback 的最大时长 |
+> | `m_enableSentTime` | `std::chrono::steady_clock::time_point` | 使用系统单调时钟，不受系统时间调整影响 |
+>
+> **设计考量**：
+> - 2 秒超时足以覆盖正常场景（Modbus TCP 典型轮询周期 50~200ms，使能响应通常在 2~5 个周期内完成）
+> - 使用 `std::chrono::steady_clock` 而非 position delta 作为时间基准——`EnsuringEnabled` 阶段轴尚未运动，position 不会变化，无法用 position 差值做超时判定
+> - 超时后转入 `Error` 状态，由上层（ViewModel）通过 `hasError()` / `lastError()` 获取错误信息并呈现给用户
+>
+> ##### 3. UseCaseError 扩展：Timeout 错误码
+>
+> `EnsuringEnabled` 中的超时是一个**Policy 策略层**错误——`EnableUseCase` 本身执行成功（命令已送达 PLC），但反馈在预期时间内未到达。因此需要在 `UseCaseError` variant 中新增 `Timeout` 类型的支持：
+>
+> ```cpp
+> // application/UseCaseError.h —— 追加 ErrTimeout 结构体
+>
+> /// @brief Policy 策略层超时错误
+> struct ErrTimeout {
+>     std::string step;    // 超时发生的步骤名称（如 "EnsuringEnabled"）
+>     double timeoutSec;   // 超时阈值（秒）
+> };
+>
+> using UseCaseError = std::variant<
+>     std::monostate,
+>     ContextRejection,
+>     RejectionReason,
+>     CommunicationResult,
+>     GantryRejection,
+>     SafetyRejection,
+>     ErrTimeout            // ★ 新增：策略层超时
+> >;
+> ```
+>
+> 在 `AbsMovePolicy` 超时分支中使用：
+> ```cpp
+> m_lastError = ErrTimeout{"EnsuringEnabled", m_enableTimeoutSeconds};
+> ```
+>
+> > **为什么不复用 CommunicationResult？**  
+> > `CommunicationResult` 描述的是"命令已生成但未送达 PLC"的通讯失败。而 `EnsuringEnabled` 超时的场景是"命令已成功送达，但 PLC 反馈未返回"——属于**协议级超时**而非**传输级失败**，语义上应该独立分类，方便 ViewModel 层做差异化错误翻译和 UI 提示。
+>
+> ##### 4. 完整状态机图
+>
+> ```
+> EnsuringEnabled 状态的内部转换（每 tick 执行）：
+>
+>                     ┌──────────────────────────────────┐
+>                     │        axis->state() == Idle     │
+>                     │   → m_enableSent = false         │
+>                     │   → step = TriggeringMove        │
+>                     └──────────────────────────────────┘
+>                                  ▲
+>                                  │ (直接转换，无需等待)
+>                                  │
+>   ┌─────────────────┐    ┌─────────────────┐
+>   │ m_enableSent     │    │  m_enableSent   │
+>   │ == false         │    │  == true        │
+>   │ (首次进入)        │    │  (等待反馈中)    │
+>   │                 │    │                 │
+>   │ → 发送 Enable    │    │ → 检查 elapsed  │
+>   │ → 记录时间戳      │    │                 │
+>   │ → m_enableSent   │    │ elapsed > 2.0s? │
+>   │   = true         │    │   YES → Error   │
+>   │                 │    │   NO  → 继续等待  │
+>   └─────────────────┘    └─────────────────┘
+>          │                       │
+>          │    axis->state() 仍为  │
+>          └─────── Disabled ──────┘
+>          (下一个 tick 进入右侧分支)
+> ```
+>
+> **此机制同样适用于 `RelMovePolicy` 的 `EnsuringEnabled` 步骤**，实现完全对称。
+
 ```cpp
 // application/policy/AbsMovePolicy.h
 
@@ -673,6 +786,7 @@ public:
         : m_manager(manager)
         , m_groupName(groupName)
         , m_step(Step::Initial)
+        , m_enableTimeoutSeconds(2.0)   // ★ 使能超时：2 秒后未收到 Idle feedback 则判定失败
     {}
 
     // ========== 入口 ==========
@@ -687,6 +801,10 @@ public:
 
         m_moveTriggered = false;
         m_motionObserved = false;
+
+        // ★ 使能防重复 & 超时相关标志复位
+        m_enableSent       = false;
+        m_enableSentTime   = std::chrono::steady_clock::time_point{};
 
         m_traceId = TraceScope::current().traceId;
 
@@ -747,18 +865,56 @@ public:
 
         // ============================================================
         // Step 1：EnsuringEnabled —— 先使能
+        //
+        // ★ 防重复发送 + 超时机制：
+        //   - 使能命令仅发送一次（m_enableSent 标志位），后续 tick 等待
+        //     feedback 带回 Idle 状态，不重复发送 Enable 命令。
+        //   - 若 m_enableTimeoutSeconds 内仍未收到 Idle 状态，判定使能
+        //     失败，转入 Error 终止流程。
+        //   - feedback 延迟导致 axis->state() 仍为 Disabled 时，不会
+        //     误判为"未发送"而重复下发使能。
         // ============================================================
         case Step::EnsuringEnabled:
             if (axis->state() == AxisState::Disabled) {
-                LOG_DEBUG(LogLayer::APP, "AbsPolicy",
-                          "[" + m_groupName + "][" + axisName(m_targetId)
-                              + "] EnsuringEnabled -- sending Enable");
-                auto err = EnableUseCase{}.execute(
-                    m_manager, m_groupName, m_targetId, true);
-                if (!std::holds_alternative<std::monostate>(err)) {
-                    m_step = Step::Error;
-                    m_lastError = err;
-                    return;
+                if (!m_enableSent) {
+                    // 首次进入 Disabled：发送使能命令
+                    LOG_DEBUG(LogLayer::APP, "AbsPolicy",
+                              "[" + m_groupName + "][" + axisName(m_targetId)
+                                  + "] EnsuringEnabled -- sending Enable (first time)");
+                    auto err = EnableUseCase{}.execute(
+                        m_manager, m_groupName, m_targetId, true);
+                    if (!std::holds_alternative<std::monostate>(err)) {
+                        LOG_ERROR(LogLayer::APP, "AbsPolicy",
+                                  "[" + m_groupName + "][" + axisName(m_targetId)
+                                      + "] EnsuringEnabled -- EnableUseCase FAILED");
+                        m_step = Step::Error;
+                        m_lastError = err;
+                        break;
+                    }
+                    m_enableSent       = true;
+                    m_enableSentTime   = std::chrono::steady_clock::now();
+                    LOG_DEBUG(LogLayer::APP, "AbsPolicy",
+                              "[" + m_groupName + "][" + axisName(m_targetId)
+                                  + "] EnsuringEnabled -- Enable sent, waiting for Idle feedback...");
+                } else {
+                    // 已发送使能，检查超时
+                    auto elapsed = std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - m_enableSentTime).count();
+                    if (elapsed > m_enableTimeoutSeconds) {
+                        LOG_ERROR(LogLayer::APP, "AbsPolicy",
+                                  "[" + m_groupName + "][" + axisName(m_targetId)
+                                      + "] EnsuringEnabled -- TIMEOUT after "
+                                      + std::to_string(m_enableTimeoutSeconds)
+                                      + "s, still not Idle. Aborting.");
+                        m_step = Step::Error;
+                        m_lastError = ErrTimeout{"EnsuringEnabled", m_enableTimeoutSeconds};
+                        break;
+                    }
+                    // 未超时：静默等待，不重复发送使能
+                    LOG_TRACE(LogLayer::APP, "AbsPolicy",
+                              "[" + m_groupName + "][" + axisName(m_targetId)
+                                  + "] EnsuringEnabled -- waiting for Idle feedback... (enable already sent, "
+                                  + std::to_string(elapsed) + "s elapsed)");
                 }
                 break;
             }
@@ -766,6 +922,7 @@ public:
                 LOG_DEBUG(LogLayer::APP, "AbsPolicy",
                           "[" + m_groupName + "][" + axisName(m_targetId)
                               + "] EnsuringEnabled -> TriggeringMove  ★ 直接触发，不写目标");
+                m_enableSent = false;   // ★ 清除标志，完成使能阶段
                 m_step = Step::TriggeringMove;
                 break;
             }
@@ -892,6 +1049,11 @@ private:
 
     bool m_motionObserved = false;
     const double m_epsilon = 0.01;
+
+    // ========== ★ 使能防重复发送 + 超时 ==========
+    bool m_enableSent = false;                                     // 是否已发送使能命令（防止重复下发）
+    std::chrono::steady_clock::time_point m_enableSentTime;        // 发送使能时的系统时钟时间戳
+    const double m_enableTimeoutSeconds;                           // 使能超时阈值（秒），默认 2.0
 
     std::string m_traceId = "N/A";
 };

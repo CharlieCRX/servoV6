@@ -5,6 +5,22 @@
 #include "gantry/GantryRejection.h"
 #include "safety/SafetyRejection.h"
 #include "infrastructure/ISystemDriver.h"  // CommunicationResult
+#include <string>                            // std::string
+
+/**
+ * @brief Policy 策略层超时错误
+ *
+ * 与 CommunicationResult 语义不同：
+ *   - CommunicationResult：命令已生成但未送达 PLC（传输级失败）
+ *   - ErrTimeout：命令已成功送达 PLC，但预期反馈在时限内未返回（协议级超时）
+ *
+ * 用于 Policy 层的等待超时场景，例如：
+ *   - EnsuringEnabled：发送使能后 2s 内未收到 Idle feedback → ErrTimeout
+ */
+struct ErrTimeout {
+    std::string step;    // 超时发生的步骤名称（如 "EnsuringEnabled"）
+    double timeoutSec;   // 超时阈值（秒）
+};
 
 /**
  * @brief 应用层统一的错误聚合类型
@@ -21,5 +37,6 @@ using UseCaseError = std::variant<
     RejectionReason,        // Axis 领域层（命令未生成）
     CommunicationResult,    // 通讯失败（命令已生成但未送达 PLC）
     GantryRejection,        // Gantry 联动层
-    SafetyRejection         // 安全域急停层
+    SafetyRejection,        // 安全域急停层
+    ErrTimeout              // ★ 策略层超时（命令已送达但反馈延迟）
 >;
