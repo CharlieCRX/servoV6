@@ -53,6 +53,10 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
     m_jog_velocity = feedback.getjogVelocity;
     m_move_velocity = feedback.getMoveVelocity;
 
+    // ⭐ 阶段 1：PLC target 寄存器镜像
+    m_abs_move_target = feedback.absMoveTarget;
+    m_rel_move_target = feedback.relMoveTarget;
+
     // --- 状态变更 DEBUG ---
     if (prevState != m_state) {
         LOG_DEBUG(LogLayer::DOM, "Axis",
@@ -210,6 +214,50 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
         if (m_move_velocity == cmd->velocity) {
             LOG_DEBUG(LogLayer::DOM, "Axis",
                 "applyFeedback: SetMoveVelocity CLOSED -- v=" + std::to_string(m_move_velocity));
+            m_pending_intent = std::monostate{};
+        }
+    }
+
+    // ═══════════════════════════════════════════════
+    // 10. SetAbsTarget 闭环：feedback.absMoveTarget 匹配 intent.target 后消费
+    // ═══════════════════════════════════════════════
+    if (auto* cmd = std::get_if<SetAbsTargetCommand>(&m_pending_intent)) {
+        if (std::abs(m_abs_move_target - cmd->target) < POSITION_EPSILON) {
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "applyFeedback: SetAbsTarget CLOSED -- target=" + std::to_string(m_abs_move_target));
+            m_pending_intent = std::monostate{};
+        }
+    }
+
+    // ═══════════════════════════════════════════════
+    // 11. SetRelTarget 闭环：feedback.relMoveTarget 匹配 intent.distance 后消费
+    // ═══════════════════════════════════════════════
+    if (auto* cmd = std::get_if<SetRelTargetCommand>(&m_pending_intent)) {
+        if (std::abs(m_rel_move_target - cmd->distance) < POSITION_EPSILON) {
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "applyFeedback: SetRelTarget CLOSED -- distance=" + std::to_string(m_rel_move_target));
+            m_pending_intent = std::monostate{};
+        }
+    }
+
+    // ═══════════════════════════════════════════════
+    // 12. TriggerAbsMove 闭环：PLC ack（状态变更到 MovingAbsolute）后消费
+    // ═══════════════════════════════════════════════
+    if (std::holds_alternative<TriggerAbsMoveCommand>(m_pending_intent)) {
+        if (m_state == AxisState::MovingAbsolute) {
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "applyFeedback: TriggerAbsMove CLOSED -- state=MovingAbsolute");
+            m_pending_intent = std::monostate{};
+        }
+    }
+
+    // ═══════════════════════════════════════════════
+    // 13. TriggerRelMove 闭环：PLC ack（状态变更到 MovingRelative）后消费
+    // ═══════════════════════════════════════════════
+    if (std::holds_alternative<TriggerRelMoveCommand>(m_pending_intent)) {
+        if (m_state == AxisState::MovingRelative) {
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "applyFeedback: TriggerRelMove CLOSED -- state=MovingRelative");
             m_pending_intent = std::monostate{};
         }
     }
@@ -465,6 +513,227 @@ bool Axis::moveRelative(double distance)
     LOG_DEBUG(LogLayer::DOM, "Axis",
         "moveRelative: PASS -> pending=" + utils::format(m_pending_intent));
     return true;
+}
+
+// ═══════════════════════════════════════════════
+// 阶段 1：四寄存器解耦 —— 新接口实现
+// ═══════════════════════════════════════════════
+
+bool Axis::setAbsTarget(double target)
+{
+    LOG_DEBUG(LogLayer::DOM, "Axis",
+        "setAbsTarget(target=" + std::to_string(target) + ") entry:"
+        + " state=" + std::string(axisStateName(m_state))
+        + " pending=" + utils::format(m_pending_intent));
+
+    // 状态准入：允许 Idle 或 Disabled
+    if (m_state != AxisState::Idle && m_state != AxisState::Disabled) {
+        m_last_rejection = RejectionReason::InvalidState;
+        LOG_DEBUG(LogLayer::DOM, "Axis",
+            "setAbsTarget: REJECT reason=InvalidState, state=" + std::string(axisStateName(m_state)));
+        return false;
+    }
+
+    // 目标值限位预检
+    if (target > m_pos_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
+        LOG_DEBUG(LogLayer::DOM, "Axis",
+            "setAbsTarget: REJECT reason=TargetOutOfPositiveLimit, target=" + std::to_string(target)
+            + " > limit=" + std::to_string(m_pos_limit_value));
+        return false;
+    }
+    if (target < m_neg_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
+        LOG_DEBUG(LogLayer::DOM, "Axis",
+            "setAbsTarget: REJECT reason=TargetOutOfNegativeLimit, target=" + std::to_string(target)
+            + " < limit=" + std::to_string(m_neg_limit_value));
+        return false;
+    }
+
+    m_pending_intent = SetAbsTargetCommand{target};
+    m_last_rejection = RejectionReason::None;
+    LOG_DEBUG(LogLayer::DOM, "Axis",
+        "setAbsTarget: PASS -> pending=" + utils::format(m_pending_intent));
+    return true;
+}
+
+bool Axis::triggerAbsMove()
+{
+    LOG_DEBUG(LogLayer::DOM, "Axis",
+        std::string("triggerAbsMove() entry:")
+        + " state=" + std::string(axisStateName(m_state))
+        + " absTarget=" + std::to_string(m_abs_move_target)
+        + " abs=" + std::to_string(m_current_abs_pos)
+        + " posLimit=" + (m_pos_limit_active ? "true" : "false")
+        + " negLimit=" + (m_neg_limit_active ? "true" : "false")
+        + " pending=" + utils::format(m_pending_intent));
+
+    // 状态准入：仅限 Idle
+    if (m_state != AxisState::Idle) {
+        if (m_state == AxisState::Jogging || 
+            m_state == AxisState::MovingAbsolute || 
+            m_state == AxisState::MovingRelative) {
+            m_last_rejection = RejectionReason::AlreadyMoving;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "triggerAbsMove: REJECT reason=AlreadyMoving, state=" + std::string(axisStateName(m_state)));
+        } else {
+            m_last_rejection = RejectionReason::InvalidState;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "triggerAbsMove: REJECT reason=InvalidState, state=" + std::string(axisStateName(m_state)));
+        }
+        return false;
+    }
+
+    // 限位状态预检
+    if (m_pos_limit_active) {
+        m_last_rejection = RejectionReason::AtPositiveLimit;
+        LOG_DEBUG(LogLayer::DOM, "Axis",
+            "triggerAbsMove: REJECT reason=AtPositiveLimit");
+        return false;
+    }
+    if (m_neg_limit_active) {
+        m_last_rejection = RejectionReason::AtNegativeLimit;
+        LOG_DEBUG(LogLayer::DOM, "Axis",
+            "triggerAbsMove: REJECT reason=AtNegativeLimit");
+        return false;
+    }
+
+    // 目标值限位预检（基于 m_abs_move_target 镜像值）
+    if (m_abs_move_target > m_pos_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
+        LOG_DEBUG(LogLayer::DOM, "Axis",
+            "triggerAbsMove: REJECT reason=TargetOutOfPositiveLimit, target=" + std::to_string(m_abs_move_target)
+            + " > limit=" + std::to_string(m_pos_limit_value));
+        return false;
+    }
+    if (m_abs_move_target < m_neg_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
+        LOG_DEBUG(LogLayer::DOM, "Axis",
+            "triggerAbsMove: REJECT reason=TargetOutOfNegativeLimit, target=" + std::to_string(m_abs_move_target)
+            + " < limit=" + std::to_string(m_neg_limit_value));
+        return false;
+    }
+
+    m_pending_intent = TriggerAbsMoveCommand{};
+    m_last_rejection = RejectionReason::None;
+    LOG_DEBUG(LogLayer::DOM, "Axis",
+        "triggerAbsMove: PASS -> pending=" + utils::format(m_pending_intent));
+    return true;
+}
+
+bool Axis::setRelTarget(double distance)
+{
+    LOG_DEBUG(LogLayer::DOM, "Axis",
+        "setRelTarget(distance=" + std::to_string(distance) + ") entry:"
+        + " state=" + std::string(axisStateName(m_state))
+        + " abs=" + std::to_string(m_current_abs_pos)
+        + " pending=" + utils::format(m_pending_intent));
+
+    // 状态准入：允许 Idle 或 Disabled
+    if (m_state != AxisState::Idle && m_state != AxisState::Disabled) {
+        m_last_rejection = RejectionReason::InvalidState;
+        LOG_DEBUG(LogLayer::DOM, "Axis",
+            "setRelTarget: REJECT reason=InvalidState, state=" + std::string(axisStateName(m_state)));
+        return false;
+    }
+
+    // 目标值限位预检
+    double expectedTarget = m_current_abs_pos + distance;
+    if (expectedTarget > m_pos_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
+        LOG_DEBUG(LogLayer::DOM, "Axis",
+            "setRelTarget: REJECT reason=TargetOutOfPositiveLimit, expected=" + std::to_string(expectedTarget)
+            + " > limit=" + std::to_string(m_pos_limit_value));
+        return false;
+    }
+    if (expectedTarget < m_neg_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
+        LOG_DEBUG(LogLayer::DOM, "Axis",
+            "setRelTarget: REJECT reason=TargetOutOfNegativeLimit, expected=" + std::to_string(expectedTarget)
+            + " < limit=" + std::to_string(m_neg_limit_value));
+        return false;
+    }
+
+    m_pending_intent = SetRelTargetCommand{distance};
+    m_last_rejection = RejectionReason::None;
+    LOG_DEBUG(LogLayer::DOM, "Axis",
+        "setRelTarget: PASS -> pending=" + utils::format(m_pending_intent));
+    return true;
+}
+
+bool Axis::triggerRelMove()
+{
+    LOG_DEBUG(LogLayer::DOM, "Axis",
+        std::string("triggerRelMove() entry:")
+        + " state=" + std::string(axisStateName(m_state))
+        + " relTarget=" + std::to_string(m_rel_move_target)
+        + " abs=" + std::to_string(m_current_abs_pos)
+        + " posLimit=" + (m_pos_limit_active ? "true" : "false")
+        + " negLimit=" + (m_neg_limit_active ? "true" : "false")
+        + " pending=" + utils::format(m_pending_intent));
+
+    // 状态准入：仅限 Idle
+    if (m_state != AxisState::Idle) {
+        if (m_state == AxisState::Jogging || 
+            m_state == AxisState::MovingAbsolute || 
+            m_state == AxisState::MovingRelative) {
+            m_last_rejection = RejectionReason::AlreadyMoving;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "triggerRelMove: REJECT reason=AlreadyMoving, state=" + std::string(axisStateName(m_state)));
+        } else {
+            m_last_rejection = RejectionReason::InvalidState;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "triggerRelMove: REJECT reason=InvalidState, state=" + std::string(axisStateName(m_state)));
+        }
+        return false;
+    }
+
+    // 限位状态预检
+    if (m_pos_limit_active) {
+        m_last_rejection = RejectionReason::AtPositiveLimit;
+        LOG_DEBUG(LogLayer::DOM, "Axis",
+            "triggerRelMove: REJECT reason=AtPositiveLimit");
+        return false;
+    }
+    if (m_neg_limit_active) {
+        m_last_rejection = RejectionReason::AtNegativeLimit;
+        LOG_DEBUG(LogLayer::DOM, "Axis",
+            "triggerRelMove: REJECT reason=AtNegativeLimit");
+        return false;
+    }
+
+    // 目标值限位预检（基于系统当前绝对位置 + m_rel_move_target 镜像值）
+    double expectedTarget = m_current_abs_pos + m_rel_move_target;
+    if (expectedTarget > m_pos_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
+        LOG_DEBUG(LogLayer::DOM, "Axis",
+            "triggerRelMove: REJECT reason=TargetOutOfPositiveLimit, expected=" + std::to_string(expectedTarget)
+            + " > limit=" + std::to_string(m_pos_limit_value));
+        return false;
+    }
+    if (expectedTarget < m_neg_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
+        LOG_DEBUG(LogLayer::DOM, "Axis",
+            "triggerRelMove: REJECT reason=TargetOutOfNegativeLimit, expected=" + std::to_string(expectedTarget)
+            + " < limit=" + std::to_string(m_neg_limit_value));
+        return false;
+    }
+
+    m_pending_intent = TriggerRelMoveCommand{};
+    m_last_rejection = RejectionReason::None;
+    LOG_DEBUG(LogLayer::DOM, "Axis",
+        "triggerRelMove: PASS -> pending=" + utils::format(m_pending_intent));
+    return true;
+}
+
+double Axis::absMoveTarget() const
+{
+    return m_abs_move_target;
+}
+
+double Axis::relMoveTarget() const
+{
+    return m_rel_move_target;
 }
 
 bool Axis::stop()

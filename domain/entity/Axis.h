@@ -2,6 +2,7 @@
 #define AXIS_H
 #pragma once
 #include "AxisId.h"
+#include <limits>
 #include <variant>
 #include <string>
 
@@ -74,6 +75,11 @@ struct AxisFeedback {
 
     double getjogVelocity;
     double getMoveVelocity;
+
+    // ⭐ 阶段 1：PLC target 寄存器镜像（用于 trigger 接口限位预判）
+    // 默认值设为 max，确保 PLC 未反馈时 trigger 限位校验必然拒绝
+    double absMoveTarget = std::numeric_limits<double>::max();   // PLC ABS_TARGET D 寄存器值
+    double relMoveTarget = std::numeric_limits<double>::max();   // PLC REL_TARGET D 寄存器值
 };
 
 
@@ -102,6 +108,26 @@ struct SetMoveVelocityCommand {
     double velocity;
 };
 
+// ═══════════════════════════════════════════════
+// 阶段 1：四寄存器解耦 —— 新增 4 个命令
+// ═══════════════════════════════════════════════
+
+/// @brief 设置绝对移动目标（仅写 ABS_TARGET D 寄存器）
+struct SetAbsTargetCommand {
+    double target;
+};
+
+/// @brief 触发绝对位置移动（仅触发 ABS_MOVE_TRIGGER M 寄存器）
+struct TriggerAbsMoveCommand {};
+
+/// @brief 设置相对移动距离（仅写 REL_TARGET D 寄存器）
+struct SetRelTargetCommand {
+    double distance;
+};
+
+/// @brief 触发相对位置移动（仅触发 REL_MOVE_TRIGGER M 寄存器）
+struct TriggerRelMoveCommand {};
+
 // 坐标控制
 struct ZeroAbsoluteCommand {};
 
@@ -119,7 +145,11 @@ using AxisCommand = std::variant<
     ClearRelativeZeroCommand,
     EnableCommand,
     SetJogVelocityCommand,
-    SetMoveVelocityCommand
+    SetMoveVelocityCommand,
+    SetAbsTargetCommand,
+    TriggerAbsMoveCommand,
+    SetRelTargetCommand,
+    TriggerRelMoveCommand
 >;
 
 class Axis {
@@ -140,6 +170,16 @@ public:
     
     bool moveAbsolute(double target);
     bool moveRelative(double distance);
+
+    // ⭐ 阶段 1：四寄存器解耦 —— 新接口
+    bool setAbsTarget(double target);
+    bool triggerAbsMove();
+    bool setRelTarget(double distance);
+    bool triggerRelMove();
+
+    // ⭐ 阶段 1：target 寄存器查询接口
+    double absMoveTarget() const;
+    double relMoveTarget() const;
 
     bool stop();
 
@@ -199,6 +239,11 @@ private:
     // 速度
     double m_jog_velocity = 0.0;
     double m_move_velocity = 0.0;
+
+    // ⭐ 阶段 1：PLC target 寄存器镜像
+    // 默认值设为 max，确保 PLC 未反馈时 trigger 限位校验必然拒绝
+    double m_abs_move_target = std::numeric_limits<double>::max();
+    double m_rel_move_target = std::numeric_limits<double>::max();
 
     /// @brief 轴身份信息（用于日志系统 TraceScope 上下文）
     AxisId m_id = AxisId::Y;

@@ -43,7 +43,19 @@ inline std::string format(const AxisCommand& cmd) {
         } 
         else if constexpr (std::is_same_v<T, SetMoveVelocityCommand>) {
             return "SetMoveVelocityCommand(velocity=" + std::to_string(arg.velocity) + ")";
-        } 
+        }
+        else if constexpr (std::is_same_v<T, SetAbsTargetCommand>) {
+            return "SetAbsTargetCommand(target=" + std::to_string(arg.target) + ")";
+        }
+        else if constexpr (std::is_same_v<T, TriggerAbsMoveCommand>) {
+            return "TriggerAbsMoveCommand()";
+        }
+        else if constexpr (std::is_same_v<T, SetRelTargetCommand>) {
+            return "SetRelTargetCommand(distance=" + std::to_string(arg.distance) + ")";
+        }
+        else if constexpr (std::is_same_v<T, TriggerRelMoveCommand>) {
+            return "TriggerRelMoveCommand()";
+        }
         else {
             return "UnknownCommand";
         }

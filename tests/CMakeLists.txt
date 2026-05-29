@@ -29,11 +29,12 @@ add_executable(unit_tests
     # domain/gantry/test_gantry_coupling_state.cpp
     # domain/safety/test_emergency_stop_controller.cpp
 
-    # domain/test_axis.cpp
+    domain/test_axis.cpp
+    domain/test_axis_move_target.cpp
 
 
     #=============== Third-party tests ================
-    infrastructure/protocol/test_real_feedback_readonly.cpp
+    # infrastructure/protocol/test_real_feedback_readonly.cpp
     # infrastructure/protocol/test_modbus_tcp_integration.cpp
     # infrastructure/protocol/test_asio_modbus_client.cpp
     # infrastructure/protocol/test_modbus_tcp_frame.cpp

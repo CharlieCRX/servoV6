@@ -286,21 +286,67 @@ public:
 };
 ```
 
-### 4.4 Domain 层新增缓存字段
+### 4.4 Domain 层新增 feedback 字段（替代缓存方案）
+
+> **设计纠正**：原方案使用 `m_cached_abs_target` / `m_cached_rel_distance` 缓存 `setAbsTarget()` / `setRelTarget()` 的目标值，供 `triggerAbsMove()` / `triggerRelMove()` 做二次限位校验。
+>
+> **问题**：PLC 可能绕过软件层直接设置 target 寄存器（例如外部 HMI 或 PLC 内部逻辑直接写 `REL_TARGET = 50`），此时软件层从未调用 `setRelTarget()`，缓存为空，`triggerRelMove()` 会因为 `m_has_cached_rel_target == false` 而错误拒绝——但 PLC 内部确实已有合法的 target 值，理应允许触发。
+>
+> **正确方案**：不在 Domain 层缓存 target 值，而是将 `ABS_TARGET` / `REL_TARGET` 寄存器纳入 PLC feedback 轮询。`triggerAbsMove()` / `triggerRelMove()` 基于 **feedback 中的实时 target 值 + 当前 absolute position** 做限位预判。这保证无论 target 值来自软件层还是外部 PLC 操作，触发时都能正确校验。
+
+#### 4.4.1 AxisFeedback 结构体新增字段
+
+```cpp
+// domain/entity/Axis.h —— AxisFeedback 结构体追加
+
+struct AxisFeedback {
+    // ... 现有字段保持不变 ...
+
+    // ★ 新增：从 PLC 回读的 target 寄存器值（用于 trigger 时做限位预判）
+    double absMoveTarget;   // 对应 ABS_TARGET  D 寄存器
+    double relMoveTarget;   // 对应 REL_TARGET  D 寄存器
+};
+```
+
+#### 4.4.2 Axis 类新增存储字段
 
 ```cpp
 // domain/entity/Axis.h —— class Axis private 成员追加
 
 private:
-    // ★ 新增：缓存最近一次 SetAbsTarget / SetRelTarget 的目标值
-    //         供 triggerAbsMove / triggerRelMove 做二次限位校验
-    double m_cached_abs_target = 0.0;
-    double m_cached_rel_distance = 0.0;
-    bool m_has_cached_abs_target = false;
-    bool m_has_cached_rel_target = false;
+    // ★ 新增：从 feedback 中镜像 PLC 的 target 寄存器值
+    //         供 triggerAbsMove / triggerRelMove 做实时限位预判
+    //         注意：不是"缓存 setAbsTarget 的调用参数"，
+    //         而是"从 PLC feedback 中回读的实际寄存器值"
+    double m_feedback_abs_target = 0.0;
+    double m_feedback_rel_target = 0.0;
 ```
 
+#### 4.4.3 applyFeedback() 新增 target 镜像逻辑
+
+```cpp
+// domain/entity/Axis.cpp —— applyFeedback() 中追加
+
+void Axis::applyFeedback(const AxisFeedback& feedback) {
+    // ... 现有代码 ...
+
+    // ★ 新增：镜像 PLC 内部 target 寄存器值
+    m_feedback_abs_target = feedback.absMoveTarget;
+    m_feedback_rel_target = feedback.relMoveTarget;
+}
+```
+
+> **关键语义区别**：
+> | | 旧缓存方案（❌ 错误） | 新 feedback 方案（✅ 正确） |
+> |---|---|---|
+> | 数据来源 | `setAbsTarget()` 的调用参数 | PLC feedback 轮询的实际寄存器值 |
+> | 覆盖场景 | 仅软件层主动调用时才有值 | 软件层 / 外部 HMI / PLC 逻辑写入都能感知 |
+> | `trigger` 时校验 | 依赖"是否曾经调用过 set" | 基于 PLC 真实状态 + 当前位置实时计算 |
+> | 如果 PLC 外部设 target 后触发 | 拒绝（无缓存） | ✅ 正常通过校验 |
+
 ### 4.5 Domain 方法实现要点
+
+#### setAbsTarget —— 仅校验 + 生成 pending command（不缓存 target）
 
 ```cpp
 // domain/entity/Axis.cpp
@@ -328,12 +374,17 @@ bool Axis::setAbsTarget(double target) {
         return false;
     }
 
+    // ★ 不再缓存 target —— target 值会通过 feedback 从 PLC 回读
     m_pending_intent = SetAbsTargetCommand{target};
-    m_cached_abs_target = target;
-    m_has_cached_abs_target = true;
     m_last_rejection = RejectionReason::None;
     return true;
 }
+```
+
+#### triggerAbsMove —— 基于 PLC feedback 实时 target 做限位预判
+
+```cpp
+// domain/entity/Axis.cpp
 
 bool Axis::triggerAbsMove() {
     // 1. 状态准入：Idle 才允许触发
@@ -342,16 +393,7 @@ bool Axis::triggerAbsMove() {
         return false;
     }
 
-    // 2. 限位二次确认（setAbsTarget 和 triggerAbsMove 之间限位值可能变化）
-    double target = m_cached_abs_target;
-    if (target > m_pos_limit_value || target < m_neg_limit_value) {
-        m_last_rejection = (target > m_pos_limit_value)
-            ? RejectionReason::TargetOutOfPositiveLimit
-            : RejectionReason::TargetOutOfNegativeLimit;
-        return false;
-    }
-
-    // 3. 硬限位拦截
+    // 2. 硬限位拦截
     if (m_pos_limit_active) {
         m_last_rejection = RejectionReason::AtPositiveLimit;
         return false;
@@ -361,13 +403,97 @@ bool Axis::triggerAbsMove() {
         return false;
     }
 
+    // 3. ★ 基于 PLC feedback 回读的 target 值做限位预判
+    //    无论 target 来源是软件 setAbsTarget() 还是外部 PLC 操作，
+    //    只要 feedback 中有合法的 target 值，就能正确校验
+    double target = m_feedback_abs_target;
+    if (target > m_pos_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
+        return false;
+    }
+    if (target < m_neg_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
+        return false;
+    }
+
     m_pending_intent = TriggerAbsMoveCommand{};
     m_last_rejection = RejectionReason::None;
     return true;
 }
-
-// setRelTarget / triggerRelMove 实现类似，校验相对定位的限位逻辑
 ```
+
+#### setRelTarget / triggerRelMove —— 对称实现
+
+```cpp
+// domain/entity/Axis.cpp
+
+bool Axis::setRelTarget(double distance) {
+    if (m_state != AxisState::Idle) {
+        m_last_rejection = RejectionReason::InvalidState;
+        return false;
+    }
+
+    if (m_pos_limit_active) {
+        m_last_rejection = RejectionReason::AtPositiveLimit;
+        return false;
+    }
+    if (m_neg_limit_active) {
+        m_last_rejection = RejectionReason::AtNegativeLimit;
+        return false;
+    }
+
+    double expectedTarget = m_current_abs_pos + distance;
+    if (expectedTarget > m_pos_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
+        return false;
+    }
+    if (expectedTarget < m_neg_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
+        return false;
+    }
+
+    // ★ 不再缓存 distance
+    m_pending_intent = SetRelTargetCommand{distance};
+    m_last_rejection = RejectionReason::None;
+    return true;
+}
+
+bool Axis::triggerRelMove() {
+    if (m_state != AxisState::Idle) {
+        m_last_rejection = RejectionReason::InvalidState;
+        return false;
+    }
+
+    if (m_pos_limit_active) {
+        m_last_rejection = RejectionReason::AtPositiveLimit;
+        return false;
+    }
+    if (m_neg_limit_active) {
+        m_last_rejection = RejectionReason::AtNegativeLimit;
+        return false;
+    }
+
+    // ★ 基于 PLC feedback 回读的 rel_target + 当前 absolute position
+    //    做预期终点限位预判
+    double expectedTarget = m_current_abs_pos + m_feedback_rel_target;
+    if (expectedTarget > m_pos_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
+        return false;
+    }
+    if (expectedTarget < m_neg_limit_value) {
+        m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
+        return false;
+    }
+
+    m_pending_intent = TriggerRelMoveCommand{};
+    m_last_rejection = RejectionReason::None;
+    return true;
+}
+```
+
+> **限位校验公式总结**：
+> - `triggerAbsMove()`：`m_feedback_abs_target` vs `[m_neg_limit_value, m_pos_limit_value]`
+> - `triggerRelMove()`：`m_current_abs_pos + m_feedback_rel_target` vs `[m_neg_limit_value, m_pos_limit_value]`
 
 ---
 
@@ -1001,8 +1127,8 @@ public:
 
 | 层 | 文件 | 改动类型 | 改动量 |
 |----|------|----------|--------|
-| **Domain** | `domain/entity/Axis.h` | 新增 4 个 Command 结构体；variant 追加 4 个变体；Axis 类新增 4 个方法声明 + 4 个缓存字段 | +50 行 |
-| **Domain** | `domain/entity/Axis.cpp` | 实现 `setAbsTarget()` / `triggerAbsMove()` / `setRelTarget()` / `triggerRelMove()` | +120 行 |
+| **Domain** | `domain/entity/Axis.h` | 新增 4 个 Command 结构体；variant 追加 4 个变体；AxisFeedback 新增 2 个字段（absMoveTarget/relMoveTarget）；Axis 类新增 4 个方法声明 + 2 个存储字段（m_feedback_abs_target/m_feedback_rel_target） | +50 行 |
+| **Domain** | `domain/entity/Axis.cpp` | 实现 `setAbsTarget()` / `triggerAbsMove()` / `setRelTarget()` / `triggerRelMove()`；applyFeedback() 追加 target 镜像逻辑 | +125 行 |
 | **Application** | `application/axis/TriggerAbsMoveUseCase.h` | **新文件** | +45 行 |
 | **Application** | `application/axis/TriggerRelMoveUseCase.h` | **新文件** | +45 行 |
 | **Application** | `application/policy/AbsMovePolicy.h` | **新文件** | +220 行 |
@@ -1046,8 +1172,9 @@ public:
 □ 1. 在 Axis.h 中定义 SetAbsTargetCommand / TriggerAbsMoveCommand / SetRelTargetCommand / TriggerRelMoveCommand
 □ 2. 在 AxisCommand variant 中追加 4 个变体
 □ 3. Axis 类新增 setAbsTarget() / triggerAbsMove() / setRelTarget() / triggerRelMove() 声明
-□ 4. Axis 类新增 4 个缓存字段
-□ 5. 实现 4 个方法
+□ 4. AxisFeedback 结构体新增 2 个字段（absMoveTarget / relMoveTarget）
+□ 5. Axis 类新增 2 个存储字段（m_feedback_abs_target / m_feedback_rel_target）
+□ 6. 实现 4 个方法；applyFeedback() 追加 target 镜像逻辑
 □ 6. 编写 domain 层单元测试（test_axis.cpp）
 ```
 
