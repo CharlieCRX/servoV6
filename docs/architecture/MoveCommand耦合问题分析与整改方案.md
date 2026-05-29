@@ -1089,38 +1089,168 @@ private:
 
 ---
 
-## 7. Presentation 层变更
+## 7. Presentation 层变更（阶段 5 重新设计）
 
-### 7.1 AxisViewModelCore 新增接口
+### 7.1 设计原则
+
+> **核心理念**：UI 界面不做任何改动，展示效果不变，QML 尽量少改。ViewModel 内部将 `moveAbsolute()` / `moveRelative()` 重构为两步操作（设置目标 + 触发移动），底层编排器从 `AutoAbsMoveOrchestrator` / `AutoRelMoveOrchestrator` 替换为 `AbsMovePolicy` / `RelMovePolicy`。
+
+| 设计要点 | 说明 |
+|----------|------|
+| **UI 不变** | QML 仍调用 `moveAbsolute(target)` / `moveRelative(distance)`，按钮和输入框布局不变 |
+| **内部拆解** | `moveAbsolute()` 内部拆为 `setAbsTarget(target)` + `triggerAbsMove()` 两步 |
+| **设置目标 = 简单写入** | `setAbsTarget()` / `setRelTarget()` 与 `setJogVelocity()` / `zeroAbsolutePosition()` 模式完全一致：ViewModel 直调 Domain 校验 → pending command → `consumePendingCommands()` 统一消费发送 |
+| **触发移动 = Policy 编排** | `triggerAbsMove()` / `triggerRelMove()` 走 Policy 编排（使能 → 触发 → 等待结束 → 关使能），与现有 `moveAbsolute()` / `moveRelative()` 调用编排器的模式一致（区别：Policy 不写目标、不判定到位） |
+| **Loading 状态** | 暴露 `isLoading` / `moveStep` 属性，在 Policy 运行期间（从 EnsuringEnabled 到 Done）为 true，供 QML 选择性展示加载指示器 |
+| **Feedback 自动更新** | 绝对位置（`absPos`）和相对位置（`relPos`）通过现有 feedback 轮询链路自动更新，无需额外处理 |
+
+### 7.2 调用链对比：旧 vs 新
+
+#### 旧路径（当前代码）
+
+```
+QML: moveAbsolute(150.0)
+  → AxisViewModelCore::moveAbsolute(target)
+    → m_absOrch->startAbs(axisId, target)     // AutoAbsMoveOrchestrator
+      → Orchestrator::tick() 逐帧驱动:
+        EnsuringEnabled → IssuingMove(MoveCommand{target=150.0, type=Absolute})
+        → WaitingMotionStart → WaitingMotionFinish → Done
+```
+- `MoveCommand` 将"写 ABS_TARGET D 寄存器"和"触发 ABS_MOVE_TRIGGER M 寄存器"合并为一个不可分割的操作
+- Infrastructure 层通过 `MoveCommand::type` 判断用哪组寄存器
+
+#### 新路径（重新设计后）
+
+```
+QML: moveAbsolute(150.0)
+  → AxisViewModelCore::moveAbsolute(target)
+    ├── Step 1: setAbsTarget(150.0)            // ★ 直接写入（与 setJogVelocity 模式一致）
+    │     → axis->setAbsTarget(150.0)          // Domain 校验 + 限位检查
+    │     → pending command = SetAbsTargetCommand{150.0}
+    │     → consumePendingCommands() 消费发送   // tick() 中统一消费
+    │       → drv->writeFloat(ABS_TARGET, 150.0) // ★ 仅写 D 寄存器
+    │
+    └── Step 2: triggerAbsMove()               // ★ Policy 编排（与旧 moveAbsolute 调用编排器模式一致）
+          → m_absPolicy->startAbs(axisId)       // AbsMovePolicy（不传 target，PLC 已有）
+            → AbsMovePolicy::tick() 逐帧驱动:
+              EnsuringEnabled → TriggeringMove → WaitingMotionStart
+              → WaitingMotionFinish → Disabling → Done
+```
+- `SetAbsTargetCommand` 仅写 D 寄存器，`TriggerAbsMoveCommand` 仅触发 M 寄存器——**两步完全解耦**
+- Infrastructure 层每个命令直接映射唯一寄存器，**零条件判断**（无需 `if type == Absolute`）
+- Loading 状态：`isLoading` 在 Policy `EnsuringEnabled` → `Done` 期间为 `true`
+
+### 7.3 AxisViewModelCore 头文件变更
 
 ```cpp
 // presentation/viewmodel/AxisViewModelCore.h
+
+// ★ 新增前向声明
+class AbsMovePolicy;
+class RelMovePolicy;
 
 class AxisViewModelCore {
 public:
     // ... 现存接口不变 ...
 
-    // ★ 新增：设置绝对移动目标（仅写 PLC，不触发运动）
-    //         实现方式：直调 axis->setAbsTarget() 生成 pending command，
-    //         由 consumePendingCommands() 统一消费发送。
-    //         与 setJogVelocity() / zeroAbsolutePosition() 模式一致。
-    void setAbsTarget(double target);
+    // ── 控制指令（接口签名不变）──
+    void moveAbsolute(double targetPos);   // ★ 内部重构为两步操作
+    void moveRelative(double distance);    // ★ 内部重构为两步操作
 
-    // ★ 新增：触发绝对移动（需此前已调用 setAbsTarget）
-    //         走 AbsMovePolicy 编排：使能 → 触发 → 等待结束 → 关使能
-    void triggerAbsMove();
+    // ── 新增：两步操作的独立入口（供未来 UI 灵活调用）──
+    void setAbsTarget(double target);      // ★ 设置绝对移动目标（仅写 PLC，不触发运动）
+    void triggerAbsMove();                 // ★ 触发绝对移动（走 AbsMovePolicy 编排）
+    void setRelTarget(double distance);    // ★ 设置相对移动距离（仅写 PLC，不触发运动）
+    void triggerRelMove();                 // ★ 触发相对移动（走 RelMovePolicy 编排）
 
-    // ★ 新增：设置相对移动距离（仅写 PLC，不触发运动）
-    //         同 setAbsTarget，走 consumePendingCommands 消费
-    void setRelTarget(double distance);
+    // ── 新增：Loading 状态查询（供 QML 显示加载指示器）──
+    bool isLoading() const;                // ★ Policy 运行中返回 true
+    std::string moveStep() const;          // ★ 当前编排步骤的可读字符串（调试/日志用）
 
-    // ★ 新增：触发相对移动（需此前已调用 setRelTarget）
-    //         走 RelMovePolicy 编排
-    void triggerRelMove();
+    // ... 其它现存接口不变 ...
+
+private:
+    // ... 现存成员不变 ...
+
+    // ★ 新增：Policy 策略层成员（替代旧的 Orchestrator 作为移动触发的主路径）
+    std::unique_ptr<AbsMovePolicy> m_absPolicy;    // ★ 绝对定位触发策略
+    std::unique_ptr<RelMovePolicy> m_relPolicy;    // ★ 相对定位触发策略
+
+    // ⚠️ 旧编排器保留（向后兼容，逐步退役）
+    std::unique_ptr<AutoAbsMoveOrchestrator>  m_absOrch;  // 保留不动
+    std::unique_ptr<AutoRelMoveOrchestrator>  m_relOrch;  // 保留不动
+
+    // ★ 模板方法扩展：支持 Policy 类型
+    template<typename PolicyOrOrch>
+    void collectPolicyOrOrchError(PolicyOrOrch& p, const std::string& source);
 };
 ```
 
-#### setAbsTarget / setRelTarget 实现（与 zeroAbsolutePosition 模式一致）
+### 7.4 AxisViewModelCore 实现变更
+
+#### 7.4.1 构造函数变更
+
+```cpp
+// presentation/viewmodel/AxisViewModelCore.cpp
+
+AxisViewModelCore::AxisViewModelCore(SystemManager& manager,
+                                     const std::string& groupName,
+                                     AxisId axisId)
+    : m_manager(manager)
+    , m_groupName(groupName)
+    , m_axisId(axisId)
+    , m_enableUc(std::make_unique<EnableUseCase>())
+    , m_jogUc(std::make_unique<JogAxisUseCase>())
+    , m_moveAbsUc(std::make_unique<MoveAbsoluteUseCase>())
+    , m_moveRelUc(std::make_unique<MoveRelativeUseCase>())
+    , m_stopUc(std::make_unique<StopAxisUseCase>())
+    , m_jogOrch(std::make_unique<JogOrchestrator>(manager, groupName))
+    , m_absOrch(std::make_unique<AutoAbsMoveOrchestrator>(manager, groupName))   // ⚠️ 保留
+    , m_relOrch(std::make_unique<AutoRelMoveOrchestrator>(manager, groupName))   // ⚠️ 保留
+    , m_absPolicy(std::make_unique<AbsMovePolicy>(manager, groupName))           // ★ 新增
+    , m_relPolicy(std::make_unique<RelMovePolicy>(manager, groupName))           // ★ 新增
+{
+    // 现有初始化逻辑不变
+}
+```
+
+#### 7.4.2 moveAbsolute 重构（UI 接口不变，内部拆为两步）
+
+```cpp
+// presentation/viewmodel/AxisViewModelCore.cpp
+
+void AxisViewModelCore::moveAbsolute(double targetPos) {
+    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " moveAbsolute target=" + std::to_string(targetPos));
+
+    // Step 1: 设置目标（直接写入 PLC ABS_TARGET D 寄存器）
+    setAbsTarget(targetPos);
+
+    // Step 2: 触发移动（走 AbsMovePolicy 编排）
+    triggerAbsMove();
+
+    // ★ 注意：不需要等待定位完成——Policy 的 tick() 由外部帧循环驱动，
+    //         loading 状态和 error 反馈通过 isLoading() / hasError() 等暴露给 QML
+}
+```
+
+#### 7.4.3 moveRelative 重构（对称实现）
+
+```cpp
+// presentation/viewmodel/AxisViewModelCore.cpp
+
+void AxisViewModelCore::moveRelative(double distance) {
+    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " moveRelative distance=" + std::to_string(distance));
+
+    setRelTarget(distance);
+    triggerRelMove();
+}
+```
+
+#### 7.4.4 setAbsTarget / setRelTarget 实现（与 setJogVelocity 模式完全一致）
 
 ```cpp
 // presentation/viewmodel/AxisViewModelCore.cpp
@@ -1182,23 +1312,7 @@ void AxisViewModelCore::setRelTarget(double distance) {
 }
 ```
 
-#### consumePendingCommands 扩展
-
-```cpp
-// 在 consumePendingCommands() 中，将 isZeroOrVelocity 改为 isSimpleWrite，
-// 追加 SetAbsTargetCommand / SetRelTargetCommand：
-
-bool isSimpleWrite =
-    std::holds_alternative<ZeroAbsoluteCommand>(cmd) ||
-    std::holds_alternative<SetRelativeZeroCommand>(cmd) ||
-    std::holds_alternative<ClearRelativeZeroCommand>(cmd) ||
-    std::holds_alternative<SetJogVelocityCommand>(cmd) ||
-    std::holds_alternative<SetMoveVelocityCommand>(cmd) ||
-    std::holds_alternative<SetAbsTargetCommand>(cmd) ||     // ★
-    std::holds_alternative<SetRelTargetCommand>(cmd);       // ★
-```
-
-#### triggerAbsMove / triggerRelMove 实现
+#### 7.4.5 triggerAbsMove / triggerRelMove 实现
 
 ```cpp
 // presentation/viewmodel/AxisViewModelCore.cpp
@@ -1234,52 +1348,263 @@ void AxisViewModelCore::triggerRelMove() {
 }
 ```
 
-> **架构一致性**：`setAbsTarget()` / `setRelTarget()` 与项目现有的 `setJogVelocity()` / `setMoveVelocity()` / `zeroAbsolutePosition()` 采用完全相同的模式——ViewModel 直调 Domain 校验，pending command 由 `consumePendingCommands()` 统一消费发送。`triggerAbsMove()` / `triggerRelMove()` 则走 Policy 编排，与现有 `moveAbsolute()` / `moveRelative()` 的结构一致（区别在于 Policy 不写目标、不判定到位）。
+#### 7.4.6 consumePendingCommands 扩展
 
-### 7.2 QML 层交互设计
+```cpp
+// 在 consumePendingCommands() 中，将 isZeroOrVelocity 改为 isSimpleWrite，
+// 追加 SetAbsTargetCommand / SetRelTargetCommand：
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  Jog 操作区                                                   │
-│  [◀] [■] [▶]                                                │
-├──────────────────────────────────────────────────────────────┤
-│  Move 操作区                                                  │
-│                                                              │
-│  绝对位置: [____________150.0____________] mm   ← 输入框     │
-│            [设置位置]  [绝对定位]                              │
-│              ↓              ↓                                 │
-│        setAbsTarget()  triggerAbsMove()                       │
-│                                                              │
-│  相对距离: [____________50.0_____________] mm   ← 输入框     │
-│            [设置距离]  [相对定位]                              │
-│              ↓              ↓                                 │
-│        setRelTarget()  triggerRelMove()                       │
-└──────────────────────────────────────────────────────────────┘
+bool isSimpleWrite =
+    std::holds_alternative<ZeroAbsoluteCommand>(cmd) ||
+    std::holds_alternative<SetRelativeZeroCommand>(cmd) ||
+    std::holds_alternative<ClearRelativeZeroCommand>(cmd) ||
+    std::holds_alternative<SetJogVelocityCommand>(cmd) ||
+    std::holds_alternative<SetMoveVelocityCommand>(cmd) ||
+    std::holds_alternative<SetAbsTargetCommand>(cmd) ||     // ★ 新增
+    std::holds_alternative<SetRelTargetCommand>(cmd);       // ★ 新增
 ```
 
-**交互流程**：
-1. 用户在"绝对位置"输入框输入 `150.0`
-2. 点击"设置位置"按钮 → `AxisViewModelCore::setAbsTarget(150.0)` → `axis->setAbsTarget()` 生成 pending command → `consumePendingCommands()` 消费 → 仅写 `ABS_TARGET` D 寄存器
-3. 用户点击"绝对定位"按钮 → `AxisViewModelCore::triggerAbsMove()` → `AbsMovePolicy::tick()` 编排 → `TriggerAbsMoveUseCase` → 仅触发 `ABS_MOVE_TRIGGER` M 寄存器
+#### 7.4.7 tick() 方法变更
 
-> **注意**：UI 上的"设置位置"和"绝对定位"是两个独立的用户操作，对应两步独立的 PLC 写入。如果不点击"触发"，则仅写目标值，轴不会运动。这完全对齐 PLC 硬件的两步操作模型。
+```cpp
+// presentation/viewmodel/AxisViewModelCore.cpp
 
-### 7.3 QtAxisViewModel 桥接
+void AxisViewModelCore::tick() {
+    // ===== 第 1 层：消费 pending commands =====
+    // ★ 此处即消费 setAbsTarget / setRelTarget 写入的 pending command
+    consumePendingCommands();
+
+    // ... 现存 feedback 轮询、ErrorTranslator 等逻辑 ...
+
+    // ===== 第 2 层：驱动 Policy tick（移动触发编排）=====
+    // ★ 绝对定位 Policy
+    if (m_absPolicy && !m_absPolicy->isDone() && !m_absPolicy->hasError()) {
+        m_absPolicy->tick();
+        if (m_absPolicy->hasError()) {
+            auto vmError = translate(m_absPolicy->lastError());
+            pushError(vmError, "AbsPolicy");
+        }
+    }
+
+    // ★ 相对定位 Policy
+    if (m_relPolicy && !m_relPolicy->isDone() && !m_relPolicy->hasError()) {
+        m_relPolicy->tick();
+        if (m_relPolicy->hasError()) {
+            auto vmError = translate(m_relPolicy->lastError());
+            pushError(vmError, "RelPolicy");
+        }
+    }
+
+    // ⚠️ 旧编排器 tick 保留（向后兼容）
+    if (m_absOrch) m_absOrch->tick();
+    if (m_relOrch) m_relOrch->tick();
+
+    // ... 现存 jog tick 等逻辑 ...
+}
+```
+
+#### 7.4.8 isLoading / moveStep 辅助方法
+
+```cpp
+// presentation/viewmodel/AxisViewModelCore.cpp
+
+bool AxisViewModelCore::isLoading() const {
+    // Policy 处于活动编排中（从 EnsuringEnabled 到 Done），视为 loading
+    bool absActive = m_absPolicy &&
+        m_absPolicy->currentStep() != AbsMovePolicy::Step::Initial &&
+        m_absPolicy->currentStep() != AbsMovePolicy::Step::Done &&
+        m_absPolicy->currentStep() != AbsMovePolicy::Step::Error;
+
+    bool relActive = m_relPolicy &&
+        m_relPolicy->currentStep() != RelMovePolicy::Step::Initial &&
+        m_relPolicy->currentStep() != RelMovePolicy::Step::Done &&
+        m_relPolicy->currentStep() != RelMovePolicy::Step::Error;
+
+    return absActive || relActive;
+}
+
+std::string AxisViewModelCore::moveStep() const {
+    if (m_absPolicy &&
+        m_absPolicy->currentStep() != AbsMovePolicy::Step::Initial &&
+        m_absPolicy->currentStep() != AbsMovePolicy::Step::Done) {
+        switch (m_absPolicy->currentStep()) {
+            case AbsMovePolicy::Step::EnsuringEnabled:     return "EnsuringEnabled";
+            case AbsMovePolicy::Step::TriggeringMove:      return "TriggeringMove";
+            case AbsMovePolicy::Step::WaitingMotionStart:  return "WaitingMotionStart";
+            case AbsMovePolicy::Step::WaitingMotionFinish: return "WaitingMotionFinish";
+            case AbsMovePolicy::Step::Disabling:           return "Disabling";
+            case AbsMovePolicy::Step::Error:               return "Error";
+            default: return "Unknown";
+        }
+    }
+    if (m_relPolicy &&
+        m_relPolicy->currentStep() != RelMovePolicy::Step::Initial &&
+        m_relPolicy->currentStep() != RelMovePolicy::Step::Done) {
+        switch (m_relPolicy->currentStep()) {
+            case RelMovePolicy::Step::EnsuringEnabled:     return "EnsuringEnabled";
+            case RelMovePolicy::Step::TriggeringMove:      return "TriggeringMove";
+            case RelMovePolicy::Step::WaitingMotionStart:  return "WaitingMotionStart";
+            case RelMovePolicy::Step::WaitingMotionFinish: return "WaitingMotionFinish";
+            case RelMovePolicy::Step::Disabling:           return "Disabling";
+            case RelMovePolicy::Step::Error:               return "Error";
+            default: return "Unknown";
+        }
+    }
+    return "Idle";
+}
+```
+
+#### 7.4.9 架构一致性总结
+
+> **`setAbsTarget()` / `setRelTarget()`** 与项目现有的 `setJogVelocity()` / `setMoveVelocity()` / `zeroAbsolutePosition()` 采用**完全相同的模式**——ViewModel 直调 Domain 校验生成 pending command，由 `consumePendingCommands()` 统一消费发送到 PLC。
+>
+> **`triggerAbsMove()` / `triggerRelMove()`** 走 Policy 编排，与现有 `moveAbsolute()` / `moveRelative()` 调用编排器的结构**完全一致**。区别仅在于：
+> - Policy **不写目标**（目标已在 `setTarget` 路径中写入 PLC）
+> - Policy **不判定到位**（只看 `isMoveCompleted()`，不检查位置误差）
+>
+> **`moveAbsolute()` / `moveRelative()`** 接口签名不变——QML 无感知。内部重构为两步操作后，底层从 `AutoAbsMoveOrchestrator` / `AutoRelMoveOrchestrator` 迁移到 `AbsMovePolicy` / `RelMovePolicy`。
+
+### 7.5 Loading 状态与反馈更新设计
+
+#### 7.5.1 Loading 流程
+
+```
+用户点击"移动"
+  → moveAbsolute(target) 被调用
+    ├── setAbsTarget(target)  立即完成（pending command 入队，由 tick 消费发送）
+    └── triggerAbsMove()      Policy 状态机设为 EnsuringEnabled
+                               → isLoading() 返回 true
+                               → QML 显示加载指示器（如旋转图标/"移动中"文字）
+
+tick() 每帧调用：
+  ├── consumePendingCommands()  → 消费 SetAbsTargetCommand → PLC 写入
+  ├── m_absPolicy->tick()       → 驱动状态机逐帧推进:
+  │     EnsuringEnabled → TriggeringMove → WaitingMotionStart
+  │     → WaitingMotionFinish → Disabling → Done
+  └── refreshFeedback()         → feedback 轮询自动更新 absPos / relPos
+
+Policy 到达 Done → isLoading() 返回 false → QML 隐藏加载指示器
+```
+
+#### 7.5.2 反馈更新
+
+- **绝对位置** (`absPos`)：通过现有 feedback 轮询链路（`Axis->applyFeedback()` → `AxisFeedback.absPos`）**自动更新**——在 `WaitingMotionFinish` 期间，每帧都会从 PLC 回读最新位置并推送到 QML 属性绑定
+- **相对位置** (`relPos`)：由 `Axis` 实体内部计算（`m_current_abs_pos - m_relative_zero`），同样通过 feedback 链路自动更新
+- **无需额外代码**：`SetAbsTargetCommand` / `SetRelTargetCommand` 写入后在 `tick()` 的 `consumePendingCommands()` 阶段自动消费发送，后续 feedback 轮询自动带回最新状态
+
+### 7.6 QtAxisViewModel 桥接
 
 ```cpp
 // presentation/viewmodel/QtAxisViewModel.h
 
 class QtAxisViewModel : public QObject {
     Q_OBJECT
+
+    // ★ 新增 Q_PROPERTY（供 QML 绑定 loading 状态）
+    Q_PROPERTY(bool isLoading READ isLoading NOTIFY loadingChanged)
+    Q_PROPERTY(QString moveStep READ moveStep NOTIFY moveStepChanged)
+
 public:
     // ... 现有 Q_INVOKABLE 不变 ...
 
+    // ── 控制指令（签名不变）──
+    Q_INVOKABLE void moveAbsolute(double targetPos);   // ★ 内部重构
+    Q_INVOKABLE void moveRelative(double distance);    // ★ 内部重构
+
+    // ── 新增：两步操作的独立入口（供未来 UI 灵活调用）──
     Q_INVOKABLE void setAbsTarget(double target);
     Q_INVOKABLE void triggerAbsMove();
     Q_INVOKABLE void setRelTarget(double distance);
     Q_INVOKABLE void triggerRelMove();
+
+    // ── Loading 状态查询（QML 属性绑定）──
+    bool isLoading() const;
+    QString moveStep() const;
+
+signals:
+    void loadingChanged();
+    void moveStepChanged();
 };
 ```
+
+```cpp
+// presentation/viewmodel/QtAxisViewModel.cpp
+
+void QtAxisViewModel::moveAbsolute(double targetPos) {
+    m_core->moveAbsolute(targetPos);
+    emit loadingChanged();
+}
+
+void QtAxisViewModel::moveRelative(double distance) {
+    m_core->moveRelative(distance);
+    emit loadingChanged();
+}
+
+void QtAxisViewModel::setAbsTarget(double target) {
+    m_core->setAbsTarget(target);
+}
+
+void QtAxisViewModel::triggerAbsMove() {
+    m_core->triggerAbsMove();
+    emit loadingChanged();
+}
+
+void QtAxisViewModel::setRelTarget(double distance) {
+    m_core->setRelTarget(distance);
+}
+
+void QtAxisViewModel::triggerRelMove() {
+    m_core->triggerRelMove();
+    emit loadingChanged();
+}
+
+bool QtAxisViewModel::isLoading() const {
+    return m_core->isLoading();
+}
+
+QString QtAxisViewModel::moveStep() const {
+    return QString::fromStdString(m_core->moveStep());
+}
+```
+
+### 7.7 QML 层变更（最小改动）
+
+> **原则**：UI 界面不做任何改动，展示效果不变。仅新增可选的 loading 指示器绑定。
+
+```qml
+// presentation/qml/views/AxisControlView.qml（示意，仅展示增量改动）
+
+// ★ 现有按钮绑定 —— 完全不变
+Button {
+    text: "绝对定位"
+    onClicked: {
+        // 内部已重构为 setAbsTarget + triggerAbsMove 两步
+        axisViewModel.moveAbsolute(targetInput.value)
+    }
+}
+
+Button {
+    text: "相对定位"
+    onClicked: {
+        // 内部已重构为 setRelTarget + triggerRelMove 两步
+        axisViewModel.moveRelative(distanceInput.value)
+    }
+}
+
+// ★ 可选新增：Loading 指示器（绑定 ViewModel 状态）
+BusyIndicator {
+    visible: axisViewModel.isLoading
+}
+
+Text {
+    text: axisViewModel.moveStep  // 显示当前编排步骤（调试用）
+    visible: axisViewModel.isLoading
+    color: "gray"
+    font.pixelSize: 12
+}
+```
+
+> **最小改动总结**：QML 端仅需新增 2 个 UI 控件的属性绑定（`isLoading`、`moveStep`），**无需修改任何现有按钮、输入框或布局**。现有 `moveAbsolute()` / `moveRelative()` 调用完全不变。
 
 ---
 
@@ -1302,10 +1627,10 @@ public:
 | **Infrastructure** | `infrastructure/FakePLC.h` | 新增 4 个 `processCommand` 重载 | +50 行 |
 | **Infrastructure** | `infrastructure/utils/CommandFormatter.h` | 新增 4 个格式化分支 | +20 行 |
 | **Infrastructure** | ModbusSystemDriver（如存在） | 新增 4 个 `if constexpr` 分支 | +30 行 |
-| **Presentation** | `presentation/viewmodel/AxisViewModelCore.h` | 新增 4 个方法声明 | +10 行 |
-| **Presentation** | `presentation/viewmodel/AxisViewModelCore.cpp` | 新增 4 个方法实现 | +40 行 |
-| **Presentation** | `presentation/viewmodel/QtAxisViewModel.h` | 新增 4 个 Q_INVOKABLE | +10 行 |
-| **Presentation** | `presentation/viewmodel/QtAxisViewModel.cpp` | 转发调用 | +20 行 |
+| **Presentation** | `presentation/viewmodel/AxisViewModelCore.h` | 新增 4 个方法声明 + 2 个 Policy 成员 + 2 个辅助方法（isLoading/moveStep）+ 前向声明 | +20 行 |
+| **Presentation** | `presentation/viewmodel/AxisViewModelCore.cpp` | 构造函数扩展（2 Policy 初始化）；moveAbsolute/moveRelative 重构；实现 setAbsTarget/setRelTarget/triggerAbsMove/triggerRelMove（含错误翻译）；consumePendingCommands 扩展（isSimpleWrite 重命名 + 2 个新 command）；tick() Policy 驱动；isLoading/moveStep 实现 | +140 行 |
+| **Presentation** | `presentation/viewmodel/QtAxisViewModel.h` | 新增 2 个 Q_PROPERTY（isLoading/moveStep）+ 4 个 Q_INVOKABLE（setAbsTarget/triggerAbsMove/setRelTarget/triggerRelMove）+ 2 个 signal | +15 行 |
+| **Presentation** | `presentation/viewmodel/QtAxisViewModel.cpp` | 转发调用实现（moveAbsolute/moveRelative 新增 emit loadingChanged；新增 4 个 Q_INVOKABLE 实现 + 2 个属性 getter） | +40 行 |
 | **Tests** | `tests/domain/test_axis.cpp` | 新增 4 组测试用例 | +80 行 |
 | **Tests** | `tests/infrastructure/test_fake_plc.cpp` | 新增 4 组测试用例 | +60 行 |
 | **Tests** | `tests/application/policy/` | **新目录** `test_abs_move_policy.cpp` / `test_rel_move_policy.cpp` | +160 行 |
@@ -1371,18 +1696,41 @@ public:
 ### 阶段 5：Presentation 层桥接
 
 ```
-□ 17. AxisViewModelCore 新增 setAbsTarget() / triggerAbsMove() / setRelTarget() / triggerRelMove()
-□ 18. QtAxisViewModel 新增 Q_INVOKABLE 接口
-□ 19. QML 端绑定新增接口，UI 布局加入"设置位置"/"绝对定位"分离按钮
+□ 17. AxisViewModelCore 新增两个策略成员（m_absPolicy / m_relPolicy）及构造函数初始化
+□ 18. AxisViewModelCore 重构 moveAbsolute() / moveRelative()：
+      - moveAbsolute() 内部分为两步：setAbsTarget(target) + triggerAbsMove()
+      - moveRelative() 内部分为两步：setRelTarget(distance) + triggerRelMove()
+      - 接口签名完全不变（QML 零改动）
+□ 19. AxisViewModelCore 新增 4 个方法：
+      - setAbsTarget() / setRelTarget()：与 setJogVelocity() / zeroAbsolutePosition() 模式一致
+        （ViewModel 直调 Domain 校验 → pending command → consumePendingCommands() 消费发送）
+      - triggerAbsMove() / triggerRelMove()：调用 m_absPolicy->startAbs(id) / m_relPolicy->startRel(id)
+□ 20. AxisViewModelCore::consumePendingCommands() 扩展：
+      - 新增 SetAbsTargetCommand / SetRelTargetCommand 到 isSimpleWrite 分支
+      - （旧 isZeroOrVelocity 重命名为 isSimpleWrite，语义更准确）
+□ 21. AxisViewModelCore::tick() 新增 Policy 驱动：
+      - 在 consumePendingCommands() 之后、旧编排器 tick 之前
+      - 驱动 m_absPolicy->tick() / m_relPolicy->tick()
+      - 检测 hasError() 并通过 translate() → pushError() 报告
+□ 22. AxisViewModelCore 新增 isLoading() / moveStep() 辅助方法
+□ 23. QtAxisViewModel 桥接层新增：
+      - Q_PROPERTY(bool isLoading ...) / Q_PROPERTY(QString moveStep ...)
+      - Q_INVOKABLE setAbsTarget / triggerAbsMove / setRelTarget / triggerRelMove
+      - moveAbsolute / moveRelative 内部重构为 C++ 侧两步调用
+□ 24. QML 层最小改动（可选）：
+      - 新增 BusyIndicator { visible: axisViewModel.isLoading }（可选）
+      - 新增 Text { text: axisViewModel.moveStep } 调试用（可选）
+      - 现有按钮、输入框、布局完全不变
+      - ★ 绝对位置/相对位置的显示通过现有 feedback 轮询自动更新，无需额外操作
 ```
 
 ### 阶段 6：回归验证
 
 ```
-□ 20. 运行全量单元测试，确保旧路径无回归
-□ 21. FakePLC 集成测试：验证 setAbsTarget → triggerAbsMove 分步流程
-□ 22. FakePLC 集成测试：验证 setRelTarget → triggerRelMove 分步流程
-□ 23. 验证 MoveAbsoluteUseCase / MoveRelativeUseCase 旧路径行为不变
+□ 25. 运行全量单元测试，确保旧路径无回归
+□ 26. FakePLC 集成测试：验证 setAbsTarget → triggerAbsMove 分步流程
+□ 27. FakePLC 集成测试：验证 setRelTarget → triggerRelMove 分步流程
+□ 28. 验证 MoveAbsoluteUseCase / MoveRelativeUseCase 旧路径行为不变（旧编排器仍可用）
 ```
 
 ---
