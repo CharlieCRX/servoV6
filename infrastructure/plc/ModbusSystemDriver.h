@@ -4,8 +4,36 @@
 #include "infrastructure/plc/protocol/RegisterAddressAll.h"
 #include "domain/entity/AxisId.h"
 #include <cstdint>
+#include <deque>
+#include <algorithm>
 
 namespace plc {
+
+// =============================================================================
+// TDD 阶段 2: PendingEdge — 边沿触发协议待执行项
+//
+// 每条 PendingEdge 代表一次边沿触发序列:
+//   Idle → WroteOn → WroteOff → (dequeue)
+//
+// 设计依据: 《边沿触发协议（ManualResetEdgeTrigger）TDD 实现文档》§5
+// =============================================================================
+
+struct PendingEdge {
+    enum class State {
+        /// 初始状态: 尚未写入 ON
+        Idle,
+        /// 已写入 ON (=1)，等待下一 tick 写 OFF
+        WroteOn,
+        /// 已写入 OFF (=0)，等待出队确认
+        WroteOff
+    };
+
+    /// 指向目标寄存器元数据（只读引用，生命周期由命名空间常量保证）
+    const protocol::RegisterInfo* reg = nullptr;
+
+    /// 当前序列状态
+    State state = State::Idle;
+};
 
 /**
  * @brief Modbus 系统驱动 —— 统一命令/反馈的门面
@@ -14,6 +42,7 @@ namespace plc {
  *   1. regCmd* / regFb* : 寄存器选择器（AxisId → RegisterInfo 映射）
  *   2. send(SystemCommand) : 命令分派到 PlcDevice 写入
  *   3. pollFeedback(SystemContext&) : 反馈轮询及领域实体分发
+ *   4. PendingEdge 队列管理 : 边沿触发协议的待执行队列
  *
  * 阶段一仅实现寄存器选择器（regCmd* / regFb*），其余方法为 stub。
  */
@@ -68,6 +97,35 @@ public:
 
     CommunicationResult send(const SystemCommand& cmd) override;
     void pollFeedback(SystemContext& ctx) override;
+
+    // =========================================================================
+    // TDD 阶段 2: PendingEdge 队列管理
+    // =========================================================================
+
+    /// @brief 将寄存器加入待执行队列（同地址去重）
+    /// @param reg 目标寄存器元数据指针（生命周期由命名空间常量保证）
+    void enqueueEdge(const protocol::RegisterInfo* reg);
+
+    /// @brief 从队列头部取出一个待执行项（并弹出）
+    /// @return 队首 PendingEdge 副本；队列空时 reg 为 nullptr
+    PendingEdge dequeueEdge();
+
+    /// @brief 查询指定寄存器是否在队列中
+    [[nodiscard]] bool isEdgePending(const protocol::RegisterInfo* reg) const;
+
+    /// @brief 当前待执行项数量
+    [[nodiscard]] size_t pendingEdgeCount() const;
+
+    /// @brief 清空待执行队列
+    void clearPendingEdges();
+
+private:
+    /// 边沿触发待执行队列（FIFO）
+    std::deque<PendingEdge> m_pendingEdges;
+
+    /// 辅助：查找指定寄存器地址的迭代器
+    std::deque<PendingEdge>::iterator findEdgeByAddress(const protocol::RegisterInfo* reg);
+    std::deque<PendingEdge>::const_iterator findEdgeByAddress(const protocol::RegisterInfo* reg) const;
 };
 
 // =============================================================================
@@ -347,6 +405,67 @@ inline CommunicationResult ModbusSystemDriver::send(const SystemCommand& /*cmd*/
 
 inline void ModbusSystemDriver::pollFeedback(SystemContext& /*ctx*/) {
     // 阶段一不实现
+}
+
+// =============================================================================
+// TDD 阶段 2: PendingEdge 队列管理 — 内联实现
+// =============================================================================
+
+// ---------- 辅助查找函数（必须先定义，供后续 enqueue/isEdgePending 调用） ----------
+
+inline std::deque<PendingEdge>::iterator ModbusSystemDriver::findEdgeByAddress(const protocol::RegisterInfo* reg) {
+    return std::find_if(
+        m_pendingEdges.begin(),
+        m_pendingEdges.end(),
+        [reg](const PendingEdge& e) {
+            return e.reg && reg && e.reg->address == reg->address;
+        }
+    );
+}
+
+inline std::deque<PendingEdge>::const_iterator ModbusSystemDriver::findEdgeByAddress(const protocol::RegisterInfo* reg) const {
+    return std::find_if(
+        m_pendingEdges.begin(),
+        m_pendingEdges.end(),
+        [reg](const PendingEdge& e) {
+            return e.reg && reg && e.reg->address == reg->address;
+        }
+    );
+}
+
+// ---------- 队列管理 ----------
+
+inline void ModbusSystemDriver::enqueueEdge(const protocol::RegisterInfo* reg) {
+    if (!reg) return;
+
+    // 去重：同地址的寄存器已在队列中则不重复入队
+    auto it = findEdgeByAddress(reg);
+    if (it != m_pendingEdges.end()) return;
+
+    PendingEdge edge;
+    edge.reg = reg;
+    edge.state = PendingEdge::State::Idle;
+    m_pendingEdges.push_back(edge);
+}
+
+inline PendingEdge ModbusSystemDriver::dequeueEdge() {
+    if (m_pendingEdges.empty()) return {};
+    PendingEdge edge = m_pendingEdges.front();
+    m_pendingEdges.pop_front();
+    return edge;
+}
+
+inline bool ModbusSystemDriver::isEdgePending(const protocol::RegisterInfo* reg) const {
+    if (!reg) return false;
+    return findEdgeByAddress(reg) != m_pendingEdges.end();
+}
+
+inline size_t ModbusSystemDriver::pendingEdgeCount() const {
+    return m_pendingEdges.size();
+}
+
+inline void ModbusSystemDriver::clearPendingEdges() {
+    m_pendingEdges.clear();
 }
 
 } // namespace plc
