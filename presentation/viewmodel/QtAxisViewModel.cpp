@@ -110,12 +110,22 @@ void QtAxisViewModel::jogNegativeReleased() {
     if (m_core) m_core->jogStop(Direction::Backward);
 }
 
-void QtAxisViewModel::moveAbsolute(double targetPos) {
-    if (m_core) m_core->moveAbsolute(targetPos);
+// ★ 独立按钮映射 — 两步操作 API
+
+void QtAxisViewModel::setAbsTarget(double target) {
+    if (m_core) m_core->setAbsTarget(target);
 }
 
-void QtAxisViewModel::moveRelative(double distance) {
-    if (m_core) m_core->moveRelative(distance);
+void QtAxisViewModel::triggerAbsMove() {
+    if (m_core) m_core->triggerAbsMove();
+}
+
+void QtAxisViewModel::setRelTarget(double distance) {
+    if (m_core) m_core->setRelTarget(distance);
+}
+
+void QtAxisViewModel::triggerRelMove() {
+    if (m_core) m_core->triggerRelMove();
 }
 
 void QtAxisViewModel::setJogVelocity(double v) {
@@ -183,6 +193,16 @@ void QtAxisViewModel::acknowledgeError(int index) {
 
 void QtAxisViewModel::acknowledgeAllErrors() {
     if (m_core) m_core->clearAllErrors();
+}
+
+// ★ Policy 状态查询
+
+bool QtAxisViewModel::isLoading() const {
+    return m_core ? m_core->isLoading() : false;
+}
+
+QString QtAxisViewModel::moveStep() const {
+    return m_core ? QString::fromStdString(m_core->moveStep()) : QString("Idle");
 }
 
 // =============================================================================

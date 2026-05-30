@@ -60,8 +60,11 @@ public:
     Q_INVOKABLE void jogNegativePressed();
     Q_INVOKABLE void jogNegativeReleased();
 
-    Q_INVOKABLE void moveAbsolute(double targetPos);
-    Q_INVOKABLE void moveRelative(double distance);
+    // ★ 独立按钮映射 — 两步操作 API
+    Q_INVOKABLE void setAbsTarget(double target);
+    Q_INVOKABLE void triggerAbsMove();
+    Q_INVOKABLE void setRelTarget(double distance);
+    Q_INVOKABLE void triggerRelMove();
 
     Q_INVOKABLE void setJogVelocity(double v);
     Q_INVOKABLE void setMoveVelocity(double v);
@@ -80,6 +83,10 @@ public:
     Q_INVOKABLE QVariantList getAllErrors() const;
     Q_INVOKABLE void acknowledgeError(int index);
     Q_INVOKABLE void acknowledgeAllErrors();
+
+    // ★ Policy 状态查询（QML 按钮 enabled / 动画控制）
+    Q_INVOKABLE bool isLoading() const;
+    Q_INVOKABLE QString moveStep() const;
 
     // 辅助方法（供周期性摘要使用）
     Q_INVOKABLE QString fullName() const;

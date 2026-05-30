@@ -15,10 +15,10 @@ class SystemManager;
 class AutoAbsMoveOrchestrator;
 class AutoRelMoveOrchestrator;
 class JogOrchestrator;
+class AbsMovePolicy;
+class RelMovePolicy;
 class EnableUseCase;
 class JogAxisUseCase;
-class MoveAbsoluteUseCase;
-class MoveRelativeUseCase;
 class StopAxisUseCase;
 
 struct ErrorEntry {
@@ -58,11 +58,19 @@ public:
     void disable();
     void jog(Direction dir);
     void jogStop(Direction dir);
-    void moveAbsolute(double targetPos);
-    void moveRelative(double distance);
     void stop();
     void setJogVelocity(double v);
     void setMoveVelocity(double v);
+
+    // ── ★ 独立按钮映射：绝对/相对定位两步操作 ──
+    void setAbsTarget(double target);      // 设置绝对移动目标（仅写 PLC，不触发运动）
+    void triggerAbsMove();                 // 触发绝对移动（走 AbsMovePolicy 编排）
+    void setRelTarget(double distance);    // 设置相对移动距离（仅写 PLC，不触发运动）
+    void triggerRelMove();                 // 触发相对移动（走 RelMovePolicy 编排）
+
+    // ── ★ Loading 状态查询（供 QML 显示加载指示器）──
+    bool isLoading() const;                // Policy 运行中返回 true
+    std::string moveStep() const;          // 当前编排步骤的可读字符串（调试/日志用）
 
     // ── 零位操作 ──
     void zeroAbsolutePosition();
@@ -84,13 +92,15 @@ private:
 
     std::unique_ptr<EnableUseCase>         m_enableUc;
     std::unique_ptr<JogAxisUseCase>        m_jogUc;
-    std::unique_ptr<MoveAbsoluteUseCase>   m_moveAbsUc;
-    std::unique_ptr<MoveRelativeUseCase>   m_moveRelUc;
     std::unique_ptr<StopAxisUseCase>       m_stopUc;
 
     std::unique_ptr<JogOrchestrator>         m_jogOrch;
     std::unique_ptr<AutoAbsMoveOrchestrator>  m_absOrch;
     std::unique_ptr<AutoRelMoveOrchestrator>  m_relOrch;
+
+    // ★ 新增：Policy 策略层成员
+    std::unique_ptr<AbsMovePolicy> m_absPolicy;
+    std::unique_ptr<RelMovePolicy> m_relPolicy;
 
     std::vector<ErrorEntry> m_errorHistory;
 
@@ -98,6 +108,9 @@ private:
 
     template<typename Orch>
     void collectOrchError(Orch& orch, const std::string& source);
+
+    template<typename PolicyOrOrch>
+    void collectPolicyOrOrchError(PolicyOrOrch& p, const std::string& source);
 
     void consumePendingCommands();
 

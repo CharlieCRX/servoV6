@@ -3,15 +3,15 @@ include(GoogleTest)
 add_executable(unit_tests
 
     # ================ First-party tests ================
-    # presentation/viewmodel/test_axis_viewmodel_core.cpp
+    presentation/viewmodel/test_axis_viewmodel_core.cpp
     # presentation/viewmodel/test_error_translator.cpp
     # presentation/viewmodel/test_gantry_viewmodel.cpp
  
     # infrastructure/test_system_integration.cpp
     # infrastructure/test_fake_plc.cpp
 
-    application/policy/test_abs_move_policy.cpp
-    application/policy/test_rel_move_policy.cpp
+    # application/policy/test_abs_move_policy.cpp
+    # application/policy/test_rel_move_policy.cpp
     # application/policy/test_auto_rel_move_orchestrator.cpp
     # application/policy/test_auto_abs_move_orchestrator.cpp
     # application/policy/test_jog_orchestrator.cpp

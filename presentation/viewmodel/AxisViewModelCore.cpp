@@ -3,9 +3,9 @@
 #include "application/SystemManager.h"
 #include "application/axis/EnableUseCase.h"
 #include "application/axis/JogAxisUseCase.h"
-#include "application/axis/MoveAbsoluteUseCase.h"
-#include "application/axis/MoveRelativeUseCase.h"
 #include "application/axis/StopAxisUseCase.h"
+#include "application/policy/AbsMovePolicy.h"
+#include "application/policy/RelMovePolicy.h"
 #include "application/policy/AutoAbsMoveOrchestrator.h"
 #include "application/policy/AutoRelMoveOrchestrator.h"
 #include "application/policy/JogOrchestrator.h"
@@ -121,12 +121,12 @@ AxisViewModelCore::AxisViewModelCore(SystemManager& manager,
     , m_axisId(axisId)
     , m_enableUc(std::make_unique<EnableUseCase>())
     , m_jogUc(std::make_unique<JogAxisUseCase>())
-    , m_moveAbsUc(std::make_unique<MoveAbsoluteUseCase>())
-    , m_moveRelUc(std::make_unique<MoveRelativeUseCase>())
     , m_stopUc(std::make_unique<StopAxisUseCase>())
     , m_jogOrch(std::make_unique<JogOrchestrator>(manager, groupName))
     , m_absOrch(std::make_unique<AutoAbsMoveOrchestrator>(manager, groupName))
     , m_relOrch(std::make_unique<AutoRelMoveOrchestrator>(manager, groupName))
+    , m_absPolicy(std::make_unique<AbsMovePolicy>(manager, groupName))
+    , m_relPolicy(std::make_unique<RelMovePolicy>(manager, groupName))
 {
     LOG_INFO(LogLayer::UI, "AxisVM",
         logPrefix() + " ViewModel created");
@@ -328,38 +328,6 @@ void AxisViewModelCore::jogStop(Direction dir)
     m_jogOrch->stopJog(m_axisId, dir);
 }
 
-void AxisViewModelCore::moveAbsolute(double targetPos)
-{
-    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
-
-    LOG_INFO(LogLayer::UI, "AxisVM",
-        logPrefix() + " moveAbsolute target=" + std::to_string(targetPos));
-
-    m_absOrch->startAbs(m_axisId, targetPos);
-
-    if (m_absOrch->hasError()) {
-        auto vmError = translate(m_absOrch->lastError());
-        LOG_WARN(LogLayer::UI, "AxisVM",
-            logPrefix() + " moveAbsolute rejected at start: " + vmError.code);
-    }
-}
-
-void AxisViewModelCore::moveRelative(double distance)
-{
-    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
-
-    LOG_INFO(LogLayer::UI, "AxisVM",
-        logPrefix() + " moveRelative distance=" + std::to_string(distance));
-
-    m_relOrch->startRel(m_axisId, distance);
-
-    if (m_relOrch->hasError()) {
-        auto vmError = translate(m_relOrch->lastError());
-        LOG_WARN(LogLayer::UI, "AxisVM",
-            logPrefix() + " moveRelative rejected at start: " + vmError.code);
-    }
-}
-
 void AxisViewModelCore::stop()
 {
     TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
@@ -430,6 +398,144 @@ void AxisViewModelCore::setMoveVelocity(double v)
         LOG_DEBUG(LogLayer::UI, "AxisVM",
             logPrefix() + " moveVelocity set to " + std::to_string(v));
     }
+}
+
+// ── ★ 独立按钮映射：绝对/相对定位两步操作 ──
+
+void AxisViewModelCore::setAbsTarget(double target)
+{
+    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " setAbsTarget target=" + std::to_string(target));
+
+    auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
+    if (!axis) {
+        auto error = ViewModelError{
+            "CTX_AXIS_NOT_REGISTERED",
+            "轴未注册，无法设置目标位置",
+            logPrefix() + " not found in system context",
+            ErrorCategory::Modal
+        };
+        pushError(error, "SetAbsTarget");
+        return;
+    }
+
+    if (!axis->setAbsTarget(target)) {
+        auto vmError = translate(UseCaseError{axis->lastRejection()});
+        pushError(vmError, "SetAbsTarget");
+        LOG_WARN(LogLayer::UI, "AxisVM",
+            logPrefix() + " setAbsTarget rejected: " + vmError.code);
+    } else {
+        LOG_DEBUG(LogLayer::UI, "AxisVM",
+            logPrefix() + " setAbsTarget accepted, pending command queued");
+    }
+}
+
+void AxisViewModelCore::triggerAbsMove()
+{
+    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " triggerAbsMove requested");
+
+    m_absPolicy->startAbs(m_axisId);
+
+    if (m_absPolicy->hasError()) {
+        auto vmError = translate(m_absPolicy->lastError());
+        pushError(vmError, "AbsPolicy");
+        LOG_WARN(LogLayer::UI, "AxisVM",
+            logPrefix() + " triggerAbsMove rejected: " + vmError.code);
+    }
+}
+
+void AxisViewModelCore::setRelTarget(double distance)
+{
+    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " setRelTarget distance=" + std::to_string(distance));
+
+    auto* axis = tryGetAxis(m_manager, m_groupName, m_axisId);
+    if (!axis) {
+        auto error = ViewModelError{
+            "CTX_AXIS_NOT_REGISTERED",
+            "轴未注册，无法设置移动距离",
+            logPrefix() + " not found in system context",
+            ErrorCategory::Modal
+        };
+        pushError(error, "SetRelTarget");
+        return;
+    }
+
+    if (!axis->setRelTarget(distance)) {
+        auto vmError = translate(UseCaseError{axis->lastRejection()});
+        pushError(vmError, "SetRelTarget");
+        LOG_WARN(LogLayer::UI, "AxisVM",
+            logPrefix() + " setRelTarget rejected: " + vmError.code);
+    } else {
+        LOG_DEBUG(LogLayer::UI, "AxisVM",
+            logPrefix() + " setRelTarget accepted, pending command queued");
+    }
+}
+
+void AxisViewModelCore::triggerRelMove()
+{
+    TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
+    LOG_INFO(LogLayer::UI, "AxisVM",
+        logPrefix() + " triggerRelMove requested");
+
+    m_relPolicy->startRel(m_axisId);
+
+    if (m_relPolicy->hasError()) {
+        auto vmError = translate(m_relPolicy->lastError());
+        pushError(vmError, "RelPolicy");
+        LOG_WARN(LogLayer::UI, "AxisVM",
+            logPrefix() + " triggerRelMove rejected: " + vmError.code);
+    }
+}
+
+bool AxisViewModelCore::isLoading() const
+{
+    bool absActive = m_absPolicy &&
+        m_absPolicy->currentStep() != AbsMovePolicy::Step::Initial &&
+        m_absPolicy->currentStep() != AbsMovePolicy::Step::Done &&
+        m_absPolicy->currentStep() != AbsMovePolicy::Step::Error;
+
+    bool relActive = m_relPolicy &&
+        m_relPolicy->currentStep() != RelMovePolicy::Step::Initial &&
+        m_relPolicy->currentStep() != RelMovePolicy::Step::Done &&
+        m_relPolicy->currentStep() != RelMovePolicy::Step::Error;
+
+    return absActive || relActive;
+}
+
+std::string AxisViewModelCore::moveStep() const
+{
+    if (m_absPolicy &&
+        m_absPolicy->currentStep() != AbsMovePolicy::Step::Initial &&
+        m_absPolicy->currentStep() != AbsMovePolicy::Step::Done) {
+        switch (m_absPolicy->currentStep()) {
+            case AbsMovePolicy::Step::EnsuringEnabled:     return "EnsuringEnabled";
+            case AbsMovePolicy::Step::TriggeringMove:      return "TriggeringMove";
+            case AbsMovePolicy::Step::WaitingMotionStart:  return "WaitingMotionStart";
+            case AbsMovePolicy::Step::WaitingMotionFinish: return "WaitingMotionFinish";
+            case AbsMovePolicy::Step::Disabling:           return "Disabling";
+            case AbsMovePolicy::Step::Error:               return "Error";
+            default: return "Unknown";
+        }
+    }
+    if (m_relPolicy &&
+        m_relPolicy->currentStep() != RelMovePolicy::Step::Initial &&
+        m_relPolicy->currentStep() != RelMovePolicy::Step::Done) {
+        switch (m_relPolicy->currentStep()) {
+            case RelMovePolicy::Step::EnsuringEnabled:     return "EnsuringEnabled";
+            case RelMovePolicy::Step::TriggeringMove:      return "TriggeringMove";
+            case RelMovePolicy::Step::WaitingMotionStart:  return "WaitingMotionStart";
+            case RelMovePolicy::Step::WaitingMotionFinish: return "WaitingMotionFinish";
+            case RelMovePolicy::Step::Disabling:           return "Disabling";
+            case RelMovePolicy::Step::Error:               return "Error";
+            default: return "Unknown";
+        }
+    }
+    return "Idle";
 }
 
 // =============================================================================
@@ -529,20 +635,37 @@ void AxisViewModelCore::clearRelativeZero()
 
 void AxisViewModelCore::tick()
 {
-    // Step 1: 驱动所有编排器状态机
+    // Step 1: 消费 pending commands（消费 setAbsTarget / setRelTarget 等简单写入）
+    consumePendingCommands();
+
+    // Step 2: 驱动 Policy tick（移动触发编排）
+    if (m_absPolicy && !m_absPolicy->isDone() && !m_absPolicy->hasError()) {
+        m_absPolicy->tick();
+        if (m_absPolicy->hasError()) {
+            auto vmError = translate(m_absPolicy->lastError());
+            pushError(vmError, "AbsPolicy");
+        }
+    }
+
+    if (m_relPolicy && !m_relPolicy->isDone() && !m_relPolicy->hasError()) {
+        m_relPolicy->tick();
+        if (m_relPolicy->hasError()) {
+            auto vmError = translate(m_relPolicy->lastError());
+            pushError(vmError, "RelPolicy");
+        }
+    }
+
+    // Step 3: 驱动旧编排器 tick（向后兼容）
     m_jogOrch->tick();
     m_absOrch->tick();
     m_relOrch->tick();
 
-    // Step 2: 收集错误（追加模式，不再覆盖）
+    // Step 4: 收集旧编排器错误
     collectOrchError(*m_jogOrch, "JogOrch");
     collectOrchError(*m_absOrch, "AbsOrch");
     collectOrchError(*m_relOrch, "RelOrch");
 
-    // Step 3: 消费零位/速度类 pending command
-    consumePendingCommands();
-
-    // Step 4: 日志摘要（每 100 帧输出一次）
+    // Step 5: 日志摘要
     LOG_TRACE_EVERY_N(100, LogLayer::UI, "AxisVM",
         logPrefix()
         + " tick: state=" + std::to_string(static_cast<int>(state()))
@@ -561,15 +684,17 @@ void AxisViewModelCore::consumePendingCommands()
     }
 
     const AxisCommand& cmd = axis->getPendingCommand();
-    bool isZeroOrVelocity =
+    bool isSimpleWrite =
         std::holds_alternative<ZeroAbsoluteCommand>(cmd) ||
         std::holds_alternative<SetRelativeZeroCommand>(cmd) ||
         std::holds_alternative<ClearRelativeZeroCommand>(cmd) ||
         std::holds_alternative<SetJogVelocityCommand>(cmd) ||
-        std::holds_alternative<SetMoveVelocityCommand>(cmd);
+        std::holds_alternative<SetMoveVelocityCommand>(cmd) ||
+        std::holds_alternative<SetAbsTargetCommand>(cmd) ||
+        std::holds_alternative<SetRelTargetCommand>(cmd);
 
-    if (!isZeroOrVelocity) {
-        return;  // 运动类命令由 Orchestrator 处理
+    if (!isSimpleWrite) {
+        return;  // 触发类命令由 Policy 处理
     }
 
     // 获取 driver
