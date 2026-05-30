@@ -53,6 +53,7 @@ add_executable(unit_tests
 
     #=============== Third-party tests ================
     infrastructure/test_modbus_system_driver.cpp
+    infrastructure/test_modbus_system_driver_edge_trigger.cpp
 
 )
 
