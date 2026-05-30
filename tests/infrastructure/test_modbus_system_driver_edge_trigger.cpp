@@ -468,3 +468,149 @@ TEST_F(SendEdgeTriggerFailureTest, WriteFailureThenSuccessOnlyEnqueuesSuccess) {
     EXPECT_TRUE(r2.ok());
     EXPECT_EQ(driver.pendingEdgeCount(), 1);
 }
+
+// =============================================================================
+// TDD 阶段 4: servicePendingEdgeTriggers — 扫描并写入 OFF
+//
+// 测试目标 (§7.3):
+//   1. SingleEdgeTriggerFullLifecycle — ON → 150ms → OFF 完整生命周期
+//   2. MultipleConcurrentEdgeTriggersIndependentTiming — 多个并发独立计时
+//   3. SameRegisterTriggeredTwiceSequentially — 同一寄存器连续触发
+//
+// 设计依据: 《边沿触发协议（ManualResetEdgeTrigger）TDD 实现文档》§7
+// =============================================================================
+
+class ServicePendingEdgeTriggersTest : public ::testing::Test {
+protected:
+    FakeModbusClientForEdgeTrigger fakeClient;
+    PlcDevice device{TEST_PROFILE_ET};
+    ModbusSystemDriver driver;
+
+    void SetUp() override {
+        device.bindTransport(&fakeClient);
+        driver.setDevice(&device);
+    }
+
+    /// 辅助：注入 FakeClock 并返回原始指针，用于后续 advance 控制时间
+    FakeClock* injectFakeClock() {
+        auto fakeClock = std::make_unique<FakeClock>();
+        auto* raw = fakeClock.get();
+        driver.setClock(std::move(fakeClock));
+        return raw;
+    }
+};
+
+// =============================================================================
+// §7.3.1 单次 EdgeTrigger 完整生命周期：ON → 150ms → OFF
+// =============================================================================
+
+TEST_F(ServicePendingEdgeTriggersTest, SingleEdgeTriggerFullLifecycle) {
+    const auto& reg = reg::x_axis::command::CLEAR_ABS_POS;  // M30
+    auto* clock = injectFakeClock();
+
+    // Step 1: 发送 ON 脉冲
+    CommunicationResult result = driver.sendEdgeTrigger(reg);
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(driver.pendingEdgeCount(), 1);
+
+    // 验证 ON 已写入
+    EXPECT_EQ(fakeClient.coilWriteCount, 1);
+    EXPECT_TRUE(fakeClient.lastCoilValue);  // ON = true
+
+    // Step 2: 推进 100ms — 脉冲未到期，不应写入 OFF
+    clock->advance(std::chrono::milliseconds(100));
+    int coilCountBeforeService = fakeClient.coilWriteCount;
+    driver.servicePendingEdgeTriggers();
+
+    // 队列仍保留（脉冲未到期）
+    EXPECT_EQ(driver.pendingEdgeCount(), 1);
+    // 不应有新的写入
+    EXPECT_EQ(fakeClient.coilWriteCount, coilCountBeforeService);
+
+    // Step 3: 推进到 150ms — 脉冲到期，应写入 OFF
+    clock->advance(std::chrono::milliseconds(50));  // 累计 150ms
+    driver.servicePendingEdgeTriggers();
+
+    // OFF 已写入
+    EXPECT_EQ(fakeClient.coilWriteCount, 2);
+    EXPECT_FALSE(fakeClient.lastCoilValue);  // OFF = false
+    EXPECT_EQ(fakeClient.lastCoilAddress, reg.address);
+
+    // 队列已清空
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);
+}
+
+// =============================================================================
+// §7.3.2 多个并发 EdgeTrigger 独立计时
+// =============================================================================
+
+TEST_F(ServicePendingEdgeTriggersTest, MultipleConcurrentEdgeTriggersIndependentTiming) {
+    const auto& regA = reg::x_axis::command::CLEAR_ABS_POS;   // M30
+    const auto& regB = reg::y_axis::command::CLEAR_ABS_POS;   // M31
+    auto* clock = injectFakeClock();
+
+    // T=0: 写入 regA ON
+    driver.sendEdgeTrigger(regA);
+    EXPECT_EQ(driver.pendingEdgeCount(), 1);
+
+    // T=10: 写入 regB ON
+    clock->advance(std::chrono::milliseconds(10));
+    driver.sendEdgeTrigger(regB);
+    EXPECT_EQ(driver.pendingEdgeCount(), 2);
+    EXPECT_EQ(fakeClient.coilWriteCount, 2);  // 两次 ON 写入
+
+    // T=150: regA 到期 (T=0 + 150 = 150), regB 还差 10ms (T=10 + 150 = 160)
+    clock->advance(std::chrono::milliseconds(140));  // 累计 T=150
+    driver.servicePendingEdgeTriggers();
+
+    // regA 应被写入 OFF，regB 不应被写入 OFF
+    EXPECT_EQ(fakeClient.coilWriteCount, 3);  // 仅新增 1 次 OFF
+    EXPECT_FALSE(fakeClient.lastCoilValue);   // OFF = false
+    EXPECT_EQ(fakeClient.lastCoilAddress, regA.address);
+
+    // 队列还剩 regB
+    EXPECT_EQ(driver.pendingEdgeCount(), 1);
+
+    // T=160: regB 也到期
+    clock->advance(std::chrono::milliseconds(10));  // 累计 T=160
+    driver.servicePendingEdgeTriggers();
+
+    // regB 应被写入 OFF
+    EXPECT_EQ(fakeClient.coilWriteCount, 4);  // 再次新增 1 次 OFF
+    EXPECT_FALSE(fakeClient.lastCoilValue);
+    EXPECT_EQ(fakeClient.lastCoilAddress, regB.address);
+
+    // 队列清空
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);
+}
+
+// =============================================================================
+// §7.3.3 同一寄存器连续两次触发（覆盖前一个）
+// =============================================================================
+
+TEST_F(ServicePendingEdgeTriggersTest, SameRegisterTriggeredTwiceSequentially) {
+    const auto& reg = reg::x_axis::command::REL_MOVE_TRIGGER;  // M41
+    auto* clock = injectFakeClock();
+
+    // 第一次触发：T=0
+    driver.sendEdgeTrigger(reg);
+    EXPECT_EQ(driver.pendingEdgeCount(), 1);
+    EXPECT_EQ(fakeClient.coilWriteCount, 1);  // 第 1 次 ON
+
+    // T=50: 第一次还没到期，第二次触发
+    clock->advance(std::chrono::milliseconds(50));
+    driver.sendEdgeTrigger(reg);
+    EXPECT_EQ(driver.pendingEdgeCount(), 2);  // 两个独立的 PendingEdge
+    EXPECT_EQ(fakeClient.coilWriteCount, 2);  // 第 2 次 ON
+
+    // T=200: 第一个到期（T=0 + 150 = 150 <= 200），第二个也到期（T=50 + 150 = 200 <= 200）
+    clock->advance(std::chrono::milliseconds(150));  // 累计 T=200
+    driver.servicePendingEdgeTriggers();
+
+    // 两个都应被写入 OFF
+    EXPECT_EQ(fakeClient.coilWriteCount, 4);  // 新增 2 次 OFF
+    EXPECT_FALSE(fakeClient.lastCoilValue);
+
+    // 队列清空
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);
+}

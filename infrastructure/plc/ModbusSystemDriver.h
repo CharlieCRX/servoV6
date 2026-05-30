@@ -154,6 +154,23 @@ public:
     /// @return 通讯结果 — 写入 ON 的通讯结果
     CommunicationResult sendEdgeTrigger(const protocol::RegisterInfo& reg);
 
+    // =========================================================================
+    // TDD 阶段 4: servicePendingEdgeTriggers — 扫描并写入 OFF
+    //
+    // 设计依据: 《边沿触发协议（ManualResetEdgeTrigger）TDD 实现文档》§7
+    // =========================================================================
+
+    /// @brief 扫描挂起的边沿触发队列，对到期的边沿写入 OFF
+    ///
+    /// 逻辑:
+    ///   1. 遍历 m_pendingEdges，对每个 state == WroteOn 的条目：
+    ///      a. 计算 elapsed = now() - onTime
+    ///      b. 如果 elapsed >= pulseWidthMs (默认 EDGE_TRIGGER_PULSE_MS = 150ms)
+    ///         → 调用 m_device->writeBool(reg, false) 写入 OFF
+    ///         → 将 state 置为 WroteOff（即使写入失败也标记，防止泄漏）
+    ///   2. 遍历完成后，使用 erase 移除所有 state == WroteOff 的条目
+    void servicePendingEdgeTriggers();
+
 private:
     /// 边沿触发待执行队列（FIFO）
     std::deque<PendingEdge> m_pendingEdges;
@@ -554,6 +571,46 @@ inline CommunicationResult ModbusSystemDriver::sendEdgeTrigger(
     m_pendingEdges.push_back(edge);
 
     return result;
+}
+
+// =============================================================================
+// TDD 阶段 4: servicePendingEdgeTriggers — 内联实现
+// =============================================================================
+
+inline void ModbusSystemDriver::servicePendingEdgeTriggers() {
+    if (!m_device) return;
+    if (m_pendingEdges.empty()) return;
+
+    const auto now = m_clock->now();
+
+    // 第一遍：遍历所有 WroteOn 条目，检查脉冲是否到期
+    for (auto& edge : m_pendingEdges) {
+        if (edge.state != PendingEdge::State::WroteOn) continue;
+        if (!edge.reg) continue;
+
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - edge.onTime
+        );
+
+        if (elapsed.count() >= EDGE_TRIGGER_PULSE_MS) {
+            // 脉冲到期：写入 OFF
+            m_device->writeBool(*edge.reg, false);
+            // 无论写入成功或失败，标记为 WroteOff（防止重复处理泄漏）
+            edge.state = PendingEdge::State::WroteOff;
+        }
+    }
+
+    // 第二遍：移除所有已标记为 WroteOff 的条目
+    m_pendingEdges.erase(
+        std::remove_if(
+            m_pendingEdges.begin(),
+            m_pendingEdges.end(),
+            [](const PendingEdge& e) {
+                return e.state == PendingEdge::State::WroteOff;
+            }
+        ),
+        m_pendingEdges.end()
+    );
 }
 
 } // namespace plc
