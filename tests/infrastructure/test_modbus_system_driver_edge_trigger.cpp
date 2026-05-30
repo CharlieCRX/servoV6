@@ -235,3 +235,236 @@ TEST(PendingEdgeQueueTest, ClearThenEnqueueWorks) {
     EXPECT_EQ(driver.pendingEdgeCount(), 1);
     EXPECT_EQ(driver.dequeueEdge().reg, &reg::x_axis::command::REL_MOVE_TRIGGER);
 }
+
+// =============================================================================
+// TDD 阶段 3: sendEdgeTrigger — 写入 ON 并入队
+//
+// 测试目标 (§6):
+//   1. sendEdgeTrigger 成功时写入 ON，并入队（WroteOn 状态 + 记录 onTime）
+//   2. 无 PlcDevice 时返回 Disconnected
+//   3. 写入失败时返回失败结果，不入队（避免队列泄漏）
+//   4. 入队项保存正确的寄存器引用
+//
+// 设计依据: 《边沿触发协议（ManualResetEdgeTrigger）TDD 实现文档》§6
+// =============================================================================
+
+#include "infrastructure/plc/protocol/PlcDevice.h"
+#include "infrastructure/plc/protocol/ProtocolProfile.h"
+
+using namespace plc::protocol;
+
+// =============================================================================
+// 测试辅助：FakeModbusClient — 可按需配置通讯成功/失败
+// =============================================================================
+
+namespace {
+
+class FakeModbusClientForEdgeTrigger : public IModbusClient {
+public:
+    CommunicationResult nextWriteResult = CommunicationResult{CommunicationResult::Status::Sent};
+
+    int coilWriteCount = 0;
+    uint16_t lastCoilAddress = 0;
+    bool lastCoilValue = false;
+
+    CommunicationResult readCoils(uint16_t, uint16_t, std::vector<uint8_t>&) override {
+        return CommunicationResult{CommunicationResult::Status::Sent};
+    }
+
+    CommunicationResult readHoldingRegisters(uint16_t, uint16_t, std::vector<uint16_t>&) override {
+        return CommunicationResult{CommunicationResult::Status::Sent};
+    }
+
+    CommunicationResult writeSingleCoil(uint16_t address, bool value) override {
+        coilWriteCount++;
+        lastCoilAddress = address;
+        lastCoilValue = value;
+        return nextWriteResult;
+    }
+
+    CommunicationResult writeSingleRegister(uint16_t, uint16_t) override {
+        return CommunicationResult{CommunicationResult::Status::Sent};
+    }
+
+    CommunicationResult writeMultipleRegisters(uint16_t, const std::vector<uint16_t>&) override {
+        return CommunicationResult{CommunicationResult::Status::Sent};
+    }
+};
+
+constexpr ProtocolProfile TEST_PROFILE_ET = {
+    "Test_EdgeTrigger",
+    {ByteOrder::BigEndian, WordOrder::LowWordFirst},
+    120, 120, true, false
+};
+
+} // anonymous namespace
+
+// =============================================================================
+// §6.1 成功路径：写入 ON 并入队
+// =============================================================================
+
+class SendEdgeTriggerTest : public ::testing::Test {
+protected:
+    FakeModbusClientForEdgeTrigger fakeClient;
+    PlcDevice device{TEST_PROFILE_ET};
+    ModbusSystemDriver driver;
+
+    void SetUp() override {
+        device.bindTransport(&fakeClient);
+        driver.setDevice(&device);
+    }
+};
+
+TEST_F(SendEdgeTriggerTest, SuccessfulSendWritesOnAndEnqueues) {
+    const auto& reg = reg::x_axis::command::ABS_MOVE_TRIGGER;
+
+    CommunicationResult result = driver.sendEdgeTrigger(reg);
+
+    // 1. 通讯成功
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(result.status, CommunicationResult::Status::Sent);
+
+    // 2. 确实调用了 writeSingleCoil(address, true)
+    EXPECT_EQ(fakeClient.coilWriteCount, 1);
+    EXPECT_EQ(fakeClient.lastCoilAddress, reg.address);
+    EXPECT_TRUE(fakeClient.lastCoilValue);
+
+    // 3. 队列中有一项
+    EXPECT_EQ(driver.pendingEdgeCount(), 1);
+
+    // 4. 队列项状态为 WroteOn
+    PendingEdge edge = driver.dequeueEdge();
+    ASSERT_NE(edge.reg, nullptr);
+    EXPECT_EQ(edge.reg->address, reg.address);
+    EXPECT_EQ(edge.state, PendingEdge::State::WroteOn);
+}
+
+TEST_F(SendEdgeTriggerTest, EnqueuedEdgeRecordsOnTime) {
+    const auto& reg = reg::x_axis::command::ABS_MOVE_TRIGGER;
+
+    // 注入 FakeClock 以控制时间
+    auto fakeClock = std::make_unique<FakeClock>();
+    auto* rawClock = fakeClock.get();
+    driver.setClock(std::move(fakeClock));
+
+    // 推进到 100ms 后发送
+    rawClock->advance(std::chrono::milliseconds(100));
+    driver.sendEdgeTrigger(reg);
+
+    PendingEdge edge = driver.dequeueEdge();
+    ASSERT_NE(edge.reg, nullptr);
+
+    // onTime 应为 100ms（从 epoch 算起）
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        edge.onTime.time_since_epoch()
+    ).count();
+    EXPECT_EQ(elapsed, 100);
+}
+
+TEST_F(SendEdgeTriggerTest, MultipleSuccessfulSendsAllEnqueued) {
+    const auto& r1 = reg::x_axis::command::ABS_MOVE_TRIGGER;
+    const auto& r2 = reg::x_axis::command::REL_MOVE_TRIGGER;
+    const auto& r3 = reg::x_axis::command::ENABLE_REQUEST;
+
+    driver.sendEdgeTrigger(r1);
+    driver.sendEdgeTrigger(r2);
+    driver.sendEdgeTrigger(r3);
+
+    EXPECT_EQ(driver.pendingEdgeCount(), 3);
+    EXPECT_EQ(fakeClient.coilWriteCount, 3);
+
+    // FIFO 顺序
+    PendingEdge e1 = driver.dequeueEdge();
+    PendingEdge e2 = driver.dequeueEdge();
+    PendingEdge e3 = driver.dequeueEdge();
+
+    EXPECT_EQ(e1.reg->address, r1.address);
+    EXPECT_EQ(e2.reg->address, r2.address);
+    EXPECT_EQ(e3.reg->address, r3.address);
+
+    EXPECT_EQ(e1.state, PendingEdge::State::WroteOn);
+    EXPECT_EQ(e2.state, PendingEdge::State::WroteOn);
+    EXPECT_EQ(e3.state, PendingEdge::State::WroteOn);
+}
+
+// =============================================================================
+// §6.2 失败路径：无 PlcDevice
+// =============================================================================
+
+TEST(SendEdgeTriggerNoDeviceTest, ReturnsDisconnectedWhenNoDevice) {
+    ModbusSystemDriver driver;
+    // 未调用 setDevice()
+
+    const auto& reg = reg::x_axis::command::ABS_MOVE_TRIGGER;
+    CommunicationResult result = driver.sendEdgeTrigger(reg);
+
+    EXPECT_FALSE(result.ok());
+    EXPECT_EQ(result.status, CommunicationResult::Status::Disconnected);
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);  // 未入队
+}
+
+// =============================================================================
+// §6.3 失败路径：写入失败不入队
+// =============================================================================
+
+class SendEdgeTriggerFailureTest : public ::testing::Test {
+protected:
+    FakeModbusClientForEdgeTrigger fakeClient;
+    PlcDevice device{TEST_PROFILE_ET};
+    ModbusSystemDriver driver;
+
+    void SetUp() override {
+        device.bindTransport(&fakeClient);
+        driver.setDevice(&device);
+    }
+};
+
+TEST_F(SendEdgeTriggerFailureTest, WriteTimeoutDoesNotEnqueue) {
+    fakeClient.nextWriteResult = CommunicationResult{
+        CommunicationResult::Status::Timeout, 0, "write timeout"
+    };
+
+    const auto& reg = reg::x_axis::command::ABS_MOVE_TRIGGER;
+    CommunicationResult result = driver.sendEdgeTrigger(reg);
+
+    EXPECT_FALSE(result.ok());
+    EXPECT_EQ(result.status, CommunicationResult::Status::Timeout);
+    EXPECT_TRUE(result.retryable());
+
+    // 队列没有增长
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);
+    EXPECT_EQ(fakeClient.coilWriteCount, 1);  // 尝试写入但失败
+}
+
+TEST_F(SendEdgeTriggerFailureTest, WriteNetworkErrorDoesNotEnqueue) {
+    fakeClient.nextWriteResult = CommunicationResult{
+        CommunicationResult::Status::NetworkError, 0, "ECONNRESET"
+    };
+
+    const auto& reg = reg::x_axis::command::ENABLE_REQUEST;
+    CommunicationResult result = driver.sendEdgeTrigger(reg);
+
+    EXPECT_FALSE(result.ok());
+    EXPECT_EQ(result.status, CommunicationResult::Status::NetworkError);
+    EXPECT_FALSE(result.retryable());
+
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);
+}
+
+TEST_F(SendEdgeTriggerFailureTest, WriteFailureThenSuccessOnlyEnqueuesSuccess) {
+    const auto& reg = reg::x_axis::command::ABS_MOVE_TRIGGER;
+
+    // 第一次写入失败
+    fakeClient.nextWriteResult = CommunicationResult{
+        CommunicationResult::Status::Timeout, 0, "timeout"
+    };
+    auto r1 = driver.sendEdgeTrigger(reg);
+    EXPECT_FALSE(r1.ok());
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);
+
+    // 第二次写入成功
+    fakeClient.nextWriteResult = CommunicationResult{CommunicationResult::Status::Sent};
+    auto r2 = driver.sendEdgeTrigger(reg);
+    EXPECT_TRUE(r2.ok());
+    EXPECT_EQ(driver.pendingEdgeCount(), 1);
+}

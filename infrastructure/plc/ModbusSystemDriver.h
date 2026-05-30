@@ -2,10 +2,14 @@
 
 #include "infrastructure/ISystemDriver.h"
 #include "infrastructure/plc/protocol/RegisterAddressAll.h"
+#include "infrastructure/plc/protocol/PlcDevice.h"
+#include "infrastructure/utils/IClock.h"
 #include "domain/entity/AxisId.h"
 #include <cstdint>
 #include <deque>
 #include <algorithm>
+#include <memory>
+#include <chrono>
 
 namespace plc {
 
@@ -33,6 +37,9 @@ struct PendingEdge {
 
     /// 当前序列状态
     State state = State::Idle;
+
+    /// ON 脉冲写入时刻（用于计算脉冲宽度是否到期）
+    std::chrono::steady_clock::time_point onTime{};
 };
 
 /**
@@ -48,7 +55,9 @@ struct PendingEdge {
  */
 class ModbusSystemDriver : public ISystemDriver {
 public:
-    ModbusSystemDriver() = default;
+    ModbusSystemDriver()
+        : m_clock(std::make_unique<SteadyClock>())
+    {}
     ~ModbusSystemDriver() override = default;
 
     // =========================================================================
@@ -119,6 +128,32 @@ public:
     /// @brief 清空待执行队列
     void clearPendingEdges();
 
+    // =========================================================================
+    // TDD 阶段 3: sendEdgeTrigger — 写入 ON 并入队
+    //
+    // 设计依据: 《边沿触发协议（ManualResetEdgeTrigger）TDD 实现文档》§6
+    // =========================================================================
+
+    /// @brief 设置 PlcDevice 引用（用于写操作）
+    void setDevice(protocol::PlcDevice* device) { m_device = device; }
+
+    /// @brief 注入时钟（测试用，生产环境默认 SteadyClock）
+    void setClock(std::unique_ptr<IClock> clock) { m_clock = std::move(clock); }
+
+    /// @brief 推进时间（仅在使用 FakeClock 时有效，测试用）
+    void advanceTime(std::chrono::milliseconds ms);
+
+    /// @brief 边沿触发：立即写入 ON (=true) 并入队
+    ///
+    /// 逻辑:
+    ///   1. 调用 m_device->writeBool(reg, true) 写入 ON
+    ///   2. 如果写入成功，将 {reg, now(), WroteOn} 加入 m_pendingEdges 队列
+    ///   3. 如果写入失败，返回失败结果，不入队（避免泄漏）
+    ///
+    /// @param reg 目标寄存器元数据引用
+    /// @return 通讯结果 — 写入 ON 的通讯结果
+    CommunicationResult sendEdgeTrigger(const protocol::RegisterInfo& reg);
+
 private:
     /// 边沿触发待执行队列（FIFO）
     std::deque<PendingEdge> m_pendingEdges;
@@ -126,6 +161,19 @@ private:
     /// 辅助：查找指定寄存器地址的迭代器
     std::deque<PendingEdge>::iterator findEdgeByAddress(const protocol::RegisterInfo* reg);
     std::deque<PendingEdge>::const_iterator findEdgeByAddress(const protocol::RegisterInfo* reg) const;
+
+    // =========================================================================
+    // TDD 阶段 3: 边沿触发协议成员
+    // =========================================================================
+
+    /// 默认脉冲宽度（ms）
+    static constexpr int EDGE_TRIGGER_PULSE_MS = 150;
+
+    /// PlcDevice 指针（非拥有，生命周期由外部管理）
+    protocol::PlcDevice* m_device = nullptr;
+
+    /// 时钟抽象（默认 SteadyClock，测试可注入 FakeClock）
+    std::unique_ptr<IClock> m_clock;
 };
 
 // =============================================================================
@@ -466,6 +514,46 @@ inline size_t ModbusSystemDriver::pendingEdgeCount() const {
 
 inline void ModbusSystemDriver::clearPendingEdges() {
     m_pendingEdges.clear();
+}
+
+// =============================================================================
+// TDD 阶段 3: sendEdgeTrigger — 内联实现
+// =============================================================================
+
+inline void ModbusSystemDriver::advanceTime(std::chrono::milliseconds ms) {
+    // 仅在使用 FakeClock 时有效
+    auto* fake = dynamic_cast<FakeClock*>(m_clock.get());
+    if (fake) {
+        fake->advance(ms);
+    }
+}
+
+inline CommunicationResult ModbusSystemDriver::sendEdgeTrigger(
+    const protocol::RegisterInfo& reg
+) {
+    // 1. 防御：设备未初始化
+    if (!m_device) {
+        return CommunicationResult{
+            CommunicationResult::Status::Disconnected,
+            0,
+            "ModbusSystemDriver::sendEdgeTrigger: No PlcDevice bound"
+        };
+    }
+
+    // 2. 立即发送 ON 脉冲
+    auto result = m_device->writeBool(reg, true);
+    if (!result.ok()) {
+        return result;  // 写入失败，不入队（避免队列泄漏）
+    }
+
+    // 3. 记录时间戳并入队（状态设为 WroteOn，表示已写入 ON）
+    PendingEdge edge;
+    edge.reg = &reg;
+    edge.state = PendingEdge::State::WroteOn;
+    edge.onTime = m_clock->now();
+    m_pendingEdges.push_back(edge);
+
+    return result;
 }
 
 } // namespace plc
