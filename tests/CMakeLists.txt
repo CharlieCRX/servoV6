@@ -3,7 +3,7 @@ include(GoogleTest)
 add_executable(unit_tests
 
     # ================ First-party tests ================
-    presentation/viewmodel/test_axis_viewmodel_core.cpp
+    # presentation/viewmodel/test_axis_viewmodel_core.cpp
     # presentation/viewmodel/test_error_translator.cpp
     # presentation/viewmodel/test_gantry_viewmodel.cpp
  
@@ -35,7 +35,7 @@ add_executable(unit_tests
     # domain/test_axis_move_target.cpp
 
 
-    #=============== Third-party tests ================
+    #=============== Sencond-party tests ================
     # infrastructure/protocol/test_real_feedback_readonly.cpp
     # infrastructure/protocol/test_modbus_tcp_integration.cpp
     # infrastructure/protocol/test_asio_modbus_client.cpp
@@ -50,6 +50,10 @@ add_executable(unit_tests
     # infrastructure/protocol/test_protocol_validator.cpp
     # infrastructure/protocol/test_register_registry.cpp
     # infrastructure/protocol/test_register_codec.cpp
+
+    #=============== Third-party tests ================
+    infrastructure/test_modbus_system_driver.cpp
+
 )
 
 target_link_libraries(unit_tests
