@@ -295,6 +295,17 @@ void QtAxisViewModel::tick() {
     if (emitErCnt) {
         emit errorCountChanged();
     }
+
+    // ★ Policy loading 状态检测
+    {
+        bool newLoading = isLoading();
+        QString newStep = moveStep();
+        if (newLoading != m_lastLoading || newStep != m_lastMoveStep) {
+            m_lastLoading  = newLoading;
+            m_lastMoveStep = newStep;
+            emit loadingChanged();
+        }
+    }
 }
 
 // =============================================================================

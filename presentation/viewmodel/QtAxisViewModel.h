@@ -29,6 +29,10 @@ class QtAxisViewModel : public QObject {
     Q_PROPERTY(QString errorCategory READ errorCategory NOTIFY errorChanged)
     Q_PROPERTY(int errorCount READ errorCount NOTIFY errorCountChanged)
 
+    // ★ Policy 运行中状态 + 当前步骤（带 NOTIFY，QML 绑定可自动刷新）
+    Q_PROPERTY(bool isLoading READ isLoading NOTIFY loadingChanged)
+    Q_PROPERTY(QString moveStep READ moveStep NOTIFY loadingChanged)
+
 public:
     explicit QtAxisViewModel(AxisViewModelCore* core, QObject *parent = nullptr);
 
@@ -105,6 +109,7 @@ signals:
 
     // ⭐ 新增 signal
     void errorCountChanged();
+    void loadingChanged();
 
 private:
     AxisViewModelCore* m_core;
@@ -121,6 +126,10 @@ private:
     double    m_lastJogVelocity  = 0.0;
     double    m_lastMoveVelocity = 0.0;
     int       m_lastErrorCount   = 0;
+
+    // ★ Policy 状态缓存
+    bool      m_lastLoading   = false;
+    QString   m_lastMoveStep;
 
     const double EPSILON = 0.001;
 };

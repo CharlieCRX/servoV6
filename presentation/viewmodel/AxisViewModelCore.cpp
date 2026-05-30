@@ -494,15 +494,32 @@ void AxisViewModelCore::triggerRelMove()
 
 bool AxisViewModelCore::isLoading() const
 {
-    bool absActive = m_absPolicy &&
-        m_absPolicy->currentStep() != AbsMovePolicy::Step::Initial &&
-        m_absPolicy->currentStep() != AbsMovePolicy::Step::Done &&
-        m_absPolicy->currentStep() != AbsMovePolicy::Step::Error;
+    bool absActive = false;
+    bool relActive = false;
 
-    bool relActive = m_relPolicy &&
-        m_relPolicy->currentStep() != RelMovePolicy::Step::Initial &&
-        m_relPolicy->currentStep() != RelMovePolicy::Step::Done &&
-        m_relPolicy->currentStep() != RelMovePolicy::Step::Error;
+    if (m_absPolicy) {
+        auto step = m_absPolicy->currentStep();
+        absActive = (step != AbsMovePolicy::Step::Initial &&
+                     step != AbsMovePolicy::Step::Done &&
+                     step != AbsMovePolicy::Step::Error);
+        if (absActive) {
+            LOG_TRACE_EVERY_N(10, LogLayer::UI, "AxisVM",
+                logPrefix() + " isLoading=true [AbsPolicy] step="
+                + std::to_string(static_cast<int>(step)));
+        }
+    }
+
+    if (m_relPolicy) {
+        auto step = m_relPolicy->currentStep();
+        relActive = (step != RelMovePolicy::Step::Initial &&
+                     step != RelMovePolicy::Step::Done &&
+                     step != RelMovePolicy::Step::Error);
+        if (relActive) {
+            LOG_TRACE_EVERY_N(10, LogLayer::UI, "AxisVM",
+                logPrefix() + " isLoading=true [RelPolicy] step="
+                + std::to_string(static_cast<int>(step)));
+        }
+    }
 
     return absActive || relActive;
 }
