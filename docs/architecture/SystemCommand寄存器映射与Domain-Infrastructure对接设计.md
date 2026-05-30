@@ -1,7 +1,7 @@
 # SystemCommand 寄存器映射与 Domain-Infrastructure 对接设计
 
-> 状态：设计文档 v3.2  
-> 日期：2026-05-28  
+> 状态：设计文档 v4.0  
+> 日期：2026-05-30  
 > 项目：servoV6
 
 ---
@@ -86,36 +86,49 @@ X 轴的所有运动命令通过龙门统一寄存器下发：
 | **ClearRelativeZero** | `CLEAR_REL_ZERO` (M18) | `CLEAR_REL_ZERO` (M19) | `CLEAR_REL_ZERO` (M20) | `CLEAR_REL_ZERO` (M21) |
 | **ZeroAbsoluteCommand** (清空绝对位置) | `CLEAR_ABS_POS` (M30) | `CLEAR_ABS_POS` (M31) | `CLEAR_ABS_POS` (M32) | `CLEAR_ABS_POS` (M33) |
 
-#### 2.1.3 MoveCommand 两阶段映射：预设目标 + 边沿触发执行
+#### 2.1.3 绝对/相对定位四命令独立映射
 
-PLC 的运动模式是**参数预置-触发执行**：先将目标位置写入对应的 D 寄存器（预设参数），再通过边沿触发信号让 PLC 按已设置的目标开始运动。MoveCommand 包含 `MoveType type` 字段，运行时选通不同的目标寄存器与触发寄存器：
+PLC 的运动模式是**参数预置-触发执行**：先将目标位置写入 D 寄存器（预设参数），再通过边沿触发信号让 PLC 按已设置的目标开始运动。真实 PLC 中绝对定位和相对定位使用**四组完全独立的寄存器**：
+
+| 操作 | 寄存器 | 含义 |
+|------|--------|------|
+| 设置绝对移动位置 | `D20/D24/D28/D32` | **ABS_TARGET** — 仅写目标位置，不触发运动 |
+| 触发绝对位置移动 | `M40/M42/M44/M46` | **ABS_MOVE_TRIGGER** — 边沿脉冲触发已设置的目标 |
+| 设置相对移动距离 | `D22/D26/D30/D34` | **REL_TARGET** — 仅写移动距离，不触发运动 |
+| 触发相对位置移动 | `M41/M43/M45/M47` | **REL_MOVE_TRIGGER** — 边沿脉冲触发已设置的距离 |
+
+Domain 层对应四个独立命令（`MoveCommand` 已废弃）：
+
+| Domain 命令 | Domain 接口 | PLC 操作 | 寄存器 |
+|-------------|------------|---------|--------|
+| **SetAbsTargetCommand** | `Axis::setAbsTarget(target)` | writeFloat(ABS_TARGET, target) | D20/D24/D28/D32 |
+| **TriggerAbsMoveCommand** | `Axis::triggerAbsMove()` | sendEdgeTrigger(ABS_MOVE_TRIGGER) | M40/M42/M44/M46 |
+| **SetRelTargetCommand** | `Axis::setRelTarget(distance)` | writeFloat(REL_TARGET, distance) | D22/D26/D30/D34 |
+| **TriggerRelMoveCommand** | `Axis::triggerRelMove()` | sendEdgeTrigger(REL_MOVE_TRIGGER) | M41/M43/M45/M47 |
 
 ```cpp
-struct MoveCommand {
-    MoveType type;   // Absolute 或 Relative
-    double target;   // 目标位置或距离
-    double startAbs; // 发起指令时的绝对位置快照（domain 层使用，不写入 PLC）
-};
-```
+// ===== 设置绝对目标（仅写 D 寄存器，不触发运动） =====
+CommunicationResult sendSetAbsTarget(AxisId id, const SetAbsTargetCommand& cmd) {
+    return m_device.writeFloat(regCmdAbsTarget(id), static_cast<float>(cmd.target));
+}
 
-| MoveType | 步骤 1：写目标位置 (Float32) | 步骤 2：EdgeTrigger |
-|----------|------------------------------|---------------------|
-| **Absolute** | X: `ABS_TARGET` (D20)<br>Y: `ABS_TARGET` (D24)<br>Z: `ABS_TARGET` (D28)<br>R: `ABS_TARGET` (D32) | X: `ABS_MOVE_TRIGGER` (M40)<br>Y: `ABS_MOVE_TRIGGER` (M42)<br>Z: `ABS_MOVE_TRIGGER` (M44)<br>R: `ABS_MOVE_TRIGGER` (M46) |
-| **Relative** | X: `REL_TARGET` (D22)<br>Y: `REL_TARGET` (D26)<br>Z: `REL_TARGET` (D30)<br>R: `REL_TARGET` (D34) | X: `REL_MOVE_TRIGGER` (M41)<br>Y: `REL_MOVE_TRIGGER` (M43)<br>Z: `REL_MOVE_TRIGGER` (M45)<br>R: `REL_MOVE_TRIGGER` (M47) |
+// ===== 触发绝对移动（仅发 M 寄存器 EdgeTrigger） =====
+CommunicationResult sendTriggerAbsMove(AxisId id) {
+    return sendEdgeTrigger(regCmdAbsTrigger(id));   // M40/M42/M44/M46
+}
 
-```cpp
-CommunicationResult sendMoveCommand(AxisId id, const MoveCommand& cmd) {
-    if (cmd.type == MoveType::Absolute) {
-        m_device.writeFloat(regCmdAbsTarget(id), static_cast<float>(cmd.target));
-        return sendEdgeTrigger(regCmdAbsTrigger(id));   // M40/M42/M44/M46
-    } else { // Relative
-        m_device.writeFloat(regCmdRelTarget(id), static_cast<float>(cmd.target));
-        return sendEdgeTrigger(regCmdRelTrigger(id));   // M41/M43/M45/M47
-    }
+// ===== 设置相对目标（仅写 D 寄存器，不触发运动） =====
+CommunicationResult sendSetRelTarget(AxisId id, const SetRelTargetCommand& cmd) {
+    return m_device.writeFloat(regCmdRelTarget(id), static_cast<float>(cmd.distance));
+}
+
+// ===== 触发相对移动（仅发 M 寄存器 EdgeTrigger） =====
+CommunicationResult sendTriggerRelMove(AxisId id) {
+    return sendEdgeTrigger(regCmdRelTrigger(id));   // M41/M43/M45/M47
 }
 ```
 
-> `cmd.startAbs` 是 domain 层记录的位置快照，不需要写入 PLC。
+> **设计原则**：每个命令只做一件事，PLC 和 Domain 层一一对应。`SetAbsTargetCommand` / `SetRelTargetCommand` 仅写 D 寄存器（Level 型），`TriggerAbsMoveCommand` / `TriggerRelMoveCommand` 仅发 M 寄存器 EdgeTrigger。`MoveCommand`（含 `MoveType` 字段的两阶段命令）已废弃，不再使用。
 
 #### 2.1.4 StopCommand
 
@@ -200,8 +213,8 @@ static constexpr int EDGE_TRIGGER_PULSE_MS = 150;
 | ZeroAbsoluteCommand | CLEAR_ABS_POS (M30) | M31/M32/M33 |
 | SetRelativeZero | SET_REL_ZERO (M14) | M15/M16/M17 |
 | ClearRelativeZero | CLEAR_REL_ZERO (M18) | M19/M20/M21 |
-| MoveAbsolute 触发 | ABS_MOVE_TRIGGER (M40) | M42/M44/M46 |
-| MoveRelative 触发 | REL_MOVE_TRIGGER (M41) | M43/M45/M47 |
+| TriggerAbsMoveCommand | ABS_MOVE_TRIGGER (M40) | M42/M44/M46 |
+| TriggerRelMoveCommand | REL_MOVE_TRIGGER (M41) | M43/M45/M47 |
 
 > ⚠️ 本版本不开放回原点操作，HOME_TRIGGER (M10/M11/M12/M13) 不注册、不使用。
 
@@ -215,6 +228,8 @@ static constexpr int EDGE_TRIGGER_PULSE_MS = 150;
 | **EmergencyStop** | Level 型：ON=急停中, OFF=解除 |
 | **GantryCoupling** | Level 型：ON=联动, OFF=解耦 |
 | **GantryPower** | Level 型：ON=使能, OFF=掉电 (与 M0 共用) |
+| **SetAbsTarget** | 仅写 D 寄存器目标值，不触发运动 |
+| **SetRelTarget** | 仅写 D 寄存器距离值，不触发运动 |
 
 ---
 
@@ -259,7 +274,10 @@ private:
 
     // EdgeTrigger
     CommunicationResult sendEdgeTrigger(const RegisterInfo& reg);
-    CommunicationResult sendMoveCommand(AxisId id, const MoveCommand& cmd);
+    CommunicationResult sendSetAbsTarget(AxisId id, const SetAbsTargetCommand& cmd);
+    CommunicationResult sendTriggerAbsMove(AxisId id);
+    CommunicationResult sendSetRelTarget(AxisId id, const SetRelTargetCommand& cmd);
+    CommunicationResult sendTriggerRelMove(AxisId id);
 
     // 反馈
     void servicePendingEdgeTriggers();
@@ -437,9 +455,34 @@ CommunicationResult ModbusSystemDriver::sendAxisCommand(AxisId id, const AxisCom
             auto& reg = fwd ? regCmdJogFwd(id) : regCmdJogBwd(id);
             return m_device.writeBool(reg, c.active);
         }
+        else if constexpr (std::is_same_v<T, SetAbsTargetCommand>) {
+            // 仅写 ABS_TARGET D 寄存器，不触发运动
+            return m_device.writeFloat(regCmdAbsTarget(id), static_cast<float>(c.target));
+        }
+        else if constexpr (std::is_same_v<T, TriggerAbsMoveCommand>) {
+            // 仅发 ABS_MOVE_TRIGGER M 寄存器 EdgeTrigger
+            return sendEdgeTrigger(regCmdAbsTrigger(id));
+        }
+        else if constexpr (std::is_same_v<T, SetRelTargetCommand>) {
+            // 仅写 REL_TARGET D 寄存器，不触发运动
+            return m_device.writeFloat(regCmdRelTarget(id), static_cast<float>(c.distance));
+        }
+        else if constexpr (std::is_same_v<T, TriggerRelMoveCommand>) {
+            // 仅发 REL_MOVE_TRIGGER M 寄存器 EdgeTrigger
+            return sendEdgeTrigger(regCmdRelTrigger(id));
+        }
         else if constexpr (std::is_same_v<T, MoveCommand>) {
-            // ⭐ 根据 MoveType 选通 ABS/REL 目标寄存器 + 触发寄存器
-            return sendMoveCommand(id, c);
+            // ⚠️ MoveCommand 已废弃，此分支仅用于向后兼容
+            // 建议迁移到 SetAbsTarget / TriggerAbsMove / SetRelTarget / TriggerRelMove
+            if (c.type == MoveType::Absolute) {
+                auto r = m_device.writeFloat(regCmdAbsTarget(id), static_cast<float>(c.target));
+                if (!r.isOk()) return r;
+                return sendEdgeTrigger(regCmdAbsTrigger(id));
+            } else {
+                auto r = m_device.writeFloat(regCmdRelTarget(id), static_cast<float>(c.target));
+                if (!r.isOk()) return r;
+                return sendEdgeTrigger(regCmdRelTrigger(id));
+            }
         }
         else if constexpr (std::is_same_v<T, StopCommand>) {
             auto r1 = m_device.writeBool(regCmdJogFwd(id), false);
@@ -492,17 +535,27 @@ CommunicationResult ModbusSystemDriver::sendEmergencyStop(const EmergencyStopCom
 ### 4.7 EdgeTrigger 脉冲管理
 
 ```cpp
-CommunicationResult ModbusSystemDriver::sendMoveCommand(AxisId id, const MoveCommand& cmd) {
-    if (cmd.type == MoveType::Absolute) {
-        auto r = m_device.writeFloat(regCmdAbsTarget(id), static_cast<float>(cmd.target));
-        if (!r.isOk()) return r;
-        return sendEdgeTrigger(regCmdAbsTrigger(id));   // M40/M42/M44/M46
-    } else { // Relative
-        auto r = m_device.writeFloat(regCmdRelTarget(id), static_cast<float>(cmd.target));
-        if (!r.isOk()) return r;
-        return sendEdgeTrigger(regCmdRelTrigger(id));   // M41/M43/M45/M47
-    }
+// ===== 四命令独立实现（推荐） =====
+
+CommunicationResult ModbusSystemDriver::sendSetAbsTarget(AxisId id, const SetAbsTargetCommand& cmd) {
+    return m_device.writeFloat(regCmdAbsTarget(id), static_cast<float>(cmd.target));
 }
+
+CommunicationResult ModbusSystemDriver::sendTriggerAbsMove(AxisId id) {
+    return sendEdgeTrigger(regCmdAbsTrigger(id));   // M40/M42/M44/M46
+}
+
+CommunicationResult ModbusSystemDriver::sendSetRelTarget(AxisId id, const SetRelTargetCommand& cmd) {
+    return m_device.writeFloat(regCmdRelTarget(id), static_cast<float>(cmd.distance));
+}
+
+CommunicationResult ModbusSystemDriver::sendTriggerRelMove(AxisId id) {
+    return sendEdgeTrigger(regCmdRelTrigger(id));   // M41/M43/M45/M47
+}
+
+// ===== 已废弃：sendMoveCommand 不再使用 =====
+// MoveCommand 已被 SetAbsTarget / TriggerAbsMove / SetRelTarget / TriggerRelMove 取代。
+// sendAxisCommand() 中 MoveCommand 分支保留仅用于向后兼容，建议迁移后删除。
 
 CommunicationResult ModbusSystemDriver::sendEdgeTrigger(const RegisterInfo& reg) {
     auto result = m_device.writeBool(reg, true);
