@@ -469,7 +469,10 @@ inline CommunicationResult ModbusSystemDriver::send(const SystemCommand& /*cmd*/
 }
 
 inline void ModbusSystemDriver::pollFeedback(SystemContext& /*ctx*/) {
-    // 阶段一不实现
+    // TDD 阶段 5: 先处理到期的 EdgeTrigger OFF 脉冲，再读取反馈
+    servicePendingEdgeTriggers();
+
+    // 后续阶段将在此处添加反馈读取逻辑
 }
 
 // =============================================================================

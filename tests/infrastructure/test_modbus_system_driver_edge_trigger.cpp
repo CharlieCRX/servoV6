@@ -614,3 +614,86 @@ TEST_F(ServicePendingEdgeTriggersTest, SameRegisterTriggeredTwiceSequentially) {
     // 队列清空
     EXPECT_EQ(driver.pendingEdgeCount(), 0);
 }
+
+// =============================================================================
+// TDD 阶段 5: pollFeedback 中的 EdgeTrigger 集成调用
+//
+// 测试目标 (§8.2):
+//   1. PollFeedbackServicesEdgeTriggersBeforeReading
+//      — pollFeedback 应在读取反馈前先处理到期的 EdgeTrigger OFF 脉冲
+//   2. PollFeedbackWorksWhenNoPendingEdges
+//      — 即使没有到期的 EdgeTrigger，pollFeedback 也应正常执行（不崩溃）
+//
+// 设计依据: 《边沿触发协议（ManualResetEdgeTrigger）TDD 实现文档》§8
+// =============================================================================
+
+#include "domain/entity/SystemContext.h"
+
+class PollFeedbackEdgeTriggerTest : public ::testing::Test {
+protected:
+    FakeModbusClientForEdgeTrigger fakeClient;
+    PlcDevice device{TEST_PROFILE_ET};
+    ModbusSystemDriver driver;
+
+    void SetUp() override {
+        device.bindTransport(&fakeClient);
+        driver.setDevice(&device);
+    }
+
+    /// 辅助：注入 FakeClock 并返回原始指针
+    FakeClock* injectFakeClock() {
+        auto fakeClock = std::make_unique<FakeClock>();
+        auto* raw = fakeClock.get();
+        driver.setClock(std::move(fakeClock));
+        return raw;
+    }
+};
+
+// pollFeedback 应在读取反馈前先处理到期的 EdgeTrigger OFF 脉冲
+TEST_F(PollFeedbackEdgeTriggerTest,
+       PollFeedbackServicesEdgeTriggersBeforeReading) {
+    const auto& reg = reg::x_axis::command::CLEAR_ABS_POS;  // M30
+    auto* clock = injectFakeClock();
+
+    // Step 1: 发送 ON 脉冲（入队，state = WroteOn）
+    CommunicationResult result = driver.sendEdgeTrigger(reg);
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(driver.pendingEdgeCount(), 1);
+    EXPECT_EQ(fakeClient.coilWriteCount, 1);  // ON 已通过 sendEdgeTrigger 写入
+    EXPECT_TRUE(fakeClient.lastCoilValue);     // ON = true
+
+    // Step 2: 推进 150ms（脉冲到期）
+    clock->advance(std::chrono::milliseconds(150));
+
+    // Step 3: 预期 pollFeedback 内部会先调用 servicePendingEdgeTriggers()
+    //   从而写入 writeBool(reg, false)，然后再执行反馈读取逻辑
+    SystemContext ctx;
+    driver.pollFeedback(ctx);
+
+    // 验证：OFF 脉冲已被 servicePendingEdgeTriggers 写入
+    EXPECT_EQ(fakeClient.coilWriteCount, 2);   // 新增 1 次 OFF 写入
+    EXPECT_FALSE(fakeClient.lastCoilValue);    // OFF = false
+    EXPECT_EQ(fakeClient.lastCoilAddress, reg.address);
+
+    // 验证：队列已被清空
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);
+}
+
+// 即使没有到期的 EdgeTrigger，pollFeedback 也应正常执行
+TEST_F(PollFeedbackEdgeTriggerTest,
+       PollFeedbackWorksWhenNoPendingEdges) {
+    auto* clock = injectFakeClock();
+    (void)clock;  // 使用 FakeClock 避免真实时间依赖
+
+    // 队列为空
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);
+
+    // pollFeedback 不应崩溃或挂起
+    SystemContext ctx;
+    EXPECT_NO_THROW(driver.pollFeedback(ctx));
+
+    // 队列仍为空
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);
+    // 不应有任何写入
+    EXPECT_EQ(fakeClient.coilWriteCount, 0);
+}
