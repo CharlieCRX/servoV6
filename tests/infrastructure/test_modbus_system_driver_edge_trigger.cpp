@@ -697,3 +697,303 @@ TEST_F(PollFeedbackEdgeTriggerTest,
     // 不应有任何写入
     EXPECT_EQ(fakeClient.coilWriteCount, 0);
 }
+
+// =============================================================================
+// TDD 阶段 6: 边界条件与异常路径
+//
+// 测试目标 (§9.2):
+//   1. OffWriteFailureStillMarksOffSent
+//      — OFF 写入失败时仍标记 WroteOff，防止队列泄漏
+//   2. SendEdgeTriggerWithoutDeviceDoesNotCrash
+//      — 设备未初始化时 sendEdgeTrigger 不应崩溃，返回 Disconnected
+//   3. ServiceEmptyQueueDoesNotCrash
+//      — 有设备但无 pending edge 时，不应崩溃
+//   4. DestructorClearsPendingEdges
+//      — 析构时清理未完成的边沿，不尝试写入 OFF
+//   5. RepeatedServiceDoesNotWriteDuplicateOff
+//      — 多次调用 servicePendingEdgeTriggers 不会重复写入 OFF
+//   6. ServiceWithNullDeviceDoesNotCrash
+//      — 设备为空时 servicePendingEdgeTriggers 安全返回
+//
+// 设计依据: 《边沿触发协议（ManualResetEdgeTrigger）TDD 实现文档》§9
+// =============================================================================
+
+class BoundaryConditionTest : public ::testing::Test {
+protected:
+    FakeModbusClientForEdgeTrigger fakeClient;
+    PlcDevice device{TEST_PROFILE_ET};
+    ModbusSystemDriver driver;
+
+    void SetUp() override {
+        device.bindTransport(&fakeClient);
+        driver.setDevice(&device);
+    }
+
+    FakeClock* injectFakeClock() {
+        auto fakeClock = std::make_unique<FakeClock>();
+        auto* raw = fakeClock.get();
+        driver.setClock(std::move(fakeClock));
+        return raw;
+    }
+};
+
+// =============================================================================
+// §9.2 边界 1: OFF 写入失败 → 仍然标记 WroteOff（防止队列泄漏）
+// =============================================================================
+
+TEST_F(BoundaryConditionTest, OffWriteFailureStillMarksOffSent) {
+    const auto& reg = reg::x_axis::command::CLEAR_ABS_POS;  // M30
+    auto* clock = injectFakeClock();
+
+    // Step 1: 写入 ON 成功
+    CommunicationResult onResult = driver.sendEdgeTrigger(reg);
+    EXPECT_TRUE(onResult.ok());
+    EXPECT_EQ(driver.pendingEdgeCount(), 1);
+    EXPECT_EQ(fakeClient.coilWriteCount, 1);
+    EXPECT_TRUE(fakeClient.lastCoilValue);  // ON = true
+
+    // Step 2: 推进 150ms，设置下一次写入为失败
+    clock->advance(std::chrono::milliseconds(150));
+    fakeClient.nextWriteResult = CommunicationResult{
+        CommunicationResult::Status::NetworkError, 0, "OFF write failed"
+    };
+
+    // Step 3: servicePendingEdgeTriggers — 不应抛异常
+    EXPECT_NO_THROW(driver.servicePendingEdgeTriggers());
+
+    // 关键断言：即使 OFF 写入失败，队列也应清空（不泄漏）
+    // 设计理由：防止无限重试导致队列无限增长
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);
+
+    // 验证：确实尝试了写入 OFF（但失败了）
+    EXPECT_EQ(fakeClient.coilWriteCount, 2);   // 第 2 次是 OFF 写入
+    EXPECT_FALSE(fakeClient.lastCoilValue);     // OFF = false
+    EXPECT_EQ(fakeClient.lastCoilAddress, reg.address);
+}
+
+// =============================================================================
+// §9.2 边界 2: 设备未初始化时 sendEdgeTrigger 不应崩溃
+// =============================================================================
+
+TEST(BoundaryConditionNoDeviceTest, SendEdgeTriggerWithoutDeviceDoesNotCrash) {
+    // 构造一个没有 setDevice 的 driver_
+    ModbusSystemDriver driver_no_device;
+    driver_no_device.setClock(std::make_unique<FakeClock>());
+
+    const auto& reg = reg::x_axis::command::CLEAR_ABS_POS;
+
+    // 不应崩溃
+    CommunicationResult result = driver_no_device.sendEdgeTrigger(reg);
+    EXPECT_FALSE(result.ok());
+    EXPECT_EQ(result.status, CommunicationResult::Status::Disconnected);
+    EXPECT_EQ(driver_no_device.pendingEdgeCount(), 0);
+}
+
+// =============================================================================
+// §9.2 边界 3: 服务空队列不应崩溃
+// =============================================================================
+
+TEST_F(BoundaryConditionTest, ServiceEmptyQueueDoesNotCrash) {
+    auto* clock = injectFakeClock();
+    (void)clock;
+
+    // 确保队列为空
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);
+
+    // 直接调用 servicePendingEdgeTriggers 而不添加任何边沿
+    EXPECT_NO_THROW(driver.servicePendingEdgeTriggers());
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);  // 无害操作
+
+    // 即使推进任意时间也不应该有写入
+    clock->advance(std::chrono::milliseconds(1000));
+    EXPECT_NO_THROW(driver.servicePendingEdgeTriggers());
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);
+    EXPECT_EQ(fakeClient.coilWriteCount, 0);  // 完全无写入
+}
+
+// =============================================================================
+// §9.2 边界 4: 析构时清空挂起的边沿
+// =============================================================================
+
+TEST_F(BoundaryConditionTest, DestructorClearsPendingEdgesSafely) {
+    const auto& reg = reg::x_axis::command::CLEAR_ABS_POS;
+    auto* clock = injectFakeClock();
+    (void)clock;
+
+    // 写入 ON 成功（driver 的 ON），但未推进时间（OFF 未发送）
+    CommunicationResult result = driver.sendEdgeTrigger(reg);
+    EXPECT_TRUE(result.ok());
+    EXPECT_EQ(driver.pendingEdgeCount(), 1);
+    EXPECT_EQ(fakeClient.coilWriteCount, 1);  // driver 的 ON 写入
+
+    // 析构 tempDriver → 不应尝试写入 OFF（析构时设备可能已释放）
+    // tempDriver 的 sendEdgeTrigger 也会写入 ON（共用同一个 device/fakeClient）
+    {
+        ModbusSystemDriver tempDriver;
+        tempDriver.setDevice(&device);
+        auto* tempClock = new FakeClock();
+        tempDriver.setClock(std::unique_ptr<FakeClock>(tempClock));
+        tempDriver.sendEdgeTrigger(reg);
+        EXPECT_EQ(tempDriver.pendingEdgeCount(), 1);
+
+        // 此时 coilWriteCount = 2（driver ON + tempDriver ON）
+        int writeCountBeforeTempDestroy = fakeClient.coilWriteCount;
+        EXPECT_EQ(writeCountBeforeTempDestroy, 2);
+
+        // tempDriver 在此作用域结束析构 → 不应尝试写入 OFF
+    }
+
+    // 验证：析构期间没有额外调用 writeBool
+    EXPECT_EQ(fakeClient.coilWriteCount, 2);  // 仍为 2，无额外写入
+}
+
+// =============================================================================
+// §9.2 边界 5: 多次调用 servicePendingEdgeTriggers 不会重复写入 OFF
+// =============================================================================
+
+TEST_F(BoundaryConditionTest, RepeatedServiceDoesNotWriteDuplicateOff) {
+    const auto& reg = reg::x_axis::command::ABS_MOVE_TRIGGER;  // M40
+    auto* clock = injectFakeClock();
+
+    // Step 1: 发送 ON 脉冲
+    driver.sendEdgeTrigger(reg);
+    EXPECT_EQ(driver.pendingEdgeCount(), 1);
+    EXPECT_EQ(fakeClient.coilWriteCount, 1);  // 1 次 ON
+
+    // Step 2: 推进 150ms
+    clock->advance(std::chrono::milliseconds(150));
+
+    // Step 3: 第一次 service — 应写入 OFF
+    driver.servicePendingEdgeTriggers();
+    EXPECT_EQ(fakeClient.coilWriteCount, 2);  // ON + OFF = 2
+    EXPECT_FALSE(fakeClient.lastCoilValue);    // OFF = false
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);   // 队列已清空
+
+    // Step 4: 第二次 service — 不应有任何额外写入
+    int writeCountAfterFirstService = fakeClient.coilWriteCount;
+    driver.servicePendingEdgeTriggers();
+    EXPECT_EQ(fakeClient.coilWriteCount, writeCountAfterFirstService);  // 无新增写入
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);  // 队列仍为空
+}
+
+// =============================================================================
+// §9.2 边界 6: 设备为空时 servicePendingEdgeTriggers 安全返回
+// =============================================================================
+
+TEST(BoundaryConditionNoDeviceTest, ServiceWithNullDeviceDoesNotCrash) {
+    ModbusSystemDriver driver_no_device;
+    driver_no_device.setClock(std::make_unique<FakeClock>());
+
+    // 入队一个 edge（通过 setDevice(nullptr) 会失败，所以队列为空）
+    // servicePendingEdgeTriggers 即使设备为空也不应崩溃
+    EXPECT_NO_THROW(driver_no_device.servicePendingEdgeTriggers());
+    EXPECT_EQ(driver_no_device.pendingEdgeCount(), 0);
+}
+
+// =============================================================================
+// §9.2 边界 7: 脉冲刚好在边界（exactly 150ms）触发
+// =============================================================================
+
+TEST_F(BoundaryConditionTest, PulseExactlyAtBoundaryTriggersOff) {
+    const auto& reg = reg::x_axis::command::CLEAR_ABS_POS;  // M30
+    auto* clock = injectFakeClock();
+
+    // 发送 ON
+    driver.sendEdgeTrigger(reg);
+    EXPECT_EQ(driver.pendingEdgeCount(), 1);
+    EXPECT_EQ(fakeClient.coilWriteCount, 1);
+
+    // 推进 exactly 149ms — 不应触发
+    clock->advance(std::chrono::milliseconds(149));
+    driver.servicePendingEdgeTriggers();
+    EXPECT_EQ(driver.pendingEdgeCount(), 1);  // 仍在队列
+    EXPECT_EQ(fakeClient.coilWriteCount, 1);  // 没有新增写入
+
+    // 再推进 1ms — exactly 150ms，应触发
+    clock->advance(std::chrono::milliseconds(1));
+    driver.servicePendingEdgeTriggers();
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);  // 队列清空
+    EXPECT_EQ(fakeClient.coilWriteCount, 2);  // OFF 写入
+    EXPECT_FALSE(fakeClient.lastCoilValue);
+}
+
+// =============================================================================
+// §9.2 边界 8: 多个寄存器在同一 service 周期内到期
+// =============================================================================
+
+TEST_F(BoundaryConditionTest, MultipleRegistersExpireInSameServiceCycle) {
+    const auto& regA = reg::x_axis::command::CLEAR_ABS_POS;   // M30
+    const auto& regB = reg::x_axis::command::ABS_MOVE_TRIGGER; // M40
+    auto* clock = injectFakeClock();
+
+    // 在同一时刻发送两个 ON 脉冲
+    driver.sendEdgeTrigger(regA);
+    driver.sendEdgeTrigger(regB);
+    EXPECT_EQ(driver.pendingEdgeCount(), 2);
+    EXPECT_EQ(fakeClient.coilWriteCount, 2);  // 2 次 ON
+
+    // 推进 150ms — 两个同时到期
+    clock->advance(std::chrono::milliseconds(150));
+    driver.servicePendingEdgeTriggers();
+
+    // 两个都应被清理
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);
+    // 总共 4 次写入：2 次 ON + 2 次 OFF
+    EXPECT_EQ(fakeClient.coilWriteCount, 4);
+}
+
+// =============================================================================
+// §9.2 边界 9: ON 写入失败后再次触发同一寄存器
+// =============================================================================
+
+TEST_F(BoundaryConditionTest, RetryAfterOnFailureWorksCorrectly) {
+    const auto& reg = reg::x_axis::command::REL_MOVE_TRIGGER;  // M41
+    auto* clock = injectFakeClock();
+
+    // 第一次：ON 写入失败
+    fakeClient.nextWriteResult = CommunicationResult{
+        CommunicationResult::Status::Timeout, 0, "timeout"
+    };
+    auto r1 = driver.sendEdgeTrigger(reg);
+    EXPECT_FALSE(r1.ok());
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);  // 未入队
+
+    // 第二次：ON 写入成功
+    fakeClient.nextWriteResult = CommunicationResult{CommunicationResult::Status::Sent};
+    auto r2 = driver.sendEdgeTrigger(reg);
+    EXPECT_TRUE(r2.ok());
+    EXPECT_EQ(driver.pendingEdgeCount(), 1);
+
+    // 验证只有成功的那次触发了完整生命周期
+    clock->advance(std::chrono::milliseconds(150));
+    driver.servicePendingEdgeTriggers();
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);
+    // 1 次失败 ON + 1 次成功 ON + 1 次 OFF = 3 次写入
+    EXPECT_EQ(fakeClient.coilWriteCount, 3);
+}
+
+// =============================================================================
+// §9.2 边界 10: 队列去重 + 边界行为
+// =============================================================================
+
+TEST_F(BoundaryConditionTest, DuplicateQueuedThenServiceCleansOnce) {
+    const auto& reg = reg::x_axis::command::CLEAR_ABS_POS;  // M30
+    auto* clock = injectFakeClock();
+
+    // sendEdgeTrigger 不自动去重（每次触发都是独立的 PendingEdge）
+    driver.sendEdgeTrigger(reg);
+    EXPECT_EQ(driver.pendingEdgeCount(), 1);
+    driver.sendEdgeTrigger(reg);
+    EXPECT_EQ(driver.pendingEdgeCount(), 2);  // 两次独立的 PendingEdge
+
+    EXPECT_EQ(fakeClient.coilWriteCount, 2);  // 2 次 ON
+
+    // 推进 150ms
+    clock->advance(std::chrono::milliseconds(150));
+    driver.servicePendingEdgeTriggers();
+
+    // 两个都应该被写入 OFF 并清理
+    EXPECT_EQ(driver.pendingEdgeCount(), 0);
+    // 总共 4 次写入：2 ON + 2 OFF
+    EXPECT_EQ(fakeClient.coilWriteCount, 4);
+}
