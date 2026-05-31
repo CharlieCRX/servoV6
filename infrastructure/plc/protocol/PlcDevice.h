@@ -129,7 +129,7 @@ public:
     }
 
     /// @brief 当前快照是否可信（所有子快照来自成功的网络读取）
-    bool isStateTrusted() const {
+    virtual bool isStateTrusted() const {
         return m_snapshot.isTrusted();
     }
 

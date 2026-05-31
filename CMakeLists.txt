@@ -28,7 +28,13 @@ FetchContent_Declare(
 
 FetchContent_GetProperties(asio)
 if(NOT asio_POPULATED)
-    FetchContent_Populate(asio)
+    # 如果 external/asio 已经存在内容，跳过重新下载（避免目录占用导致失败）
+    if(EXISTS ${asio_SOURCE_DIR}/asio/include)
+        set(asio_POPULATED TRUE)
+        set(asio_SOURCE_DIR ${CMAKE_SOURCE_DIR}/external/asio)
+    else()
+        FetchContent_Populate(asio)
+    endif()
 endif()
 
 # asio 原生使用 autotools，不提供 CMakeLists.txt。

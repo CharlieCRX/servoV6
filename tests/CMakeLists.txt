@@ -52,6 +52,7 @@ add_executable(unit_tests
     # infrastructure/protocol/test_register_codec.cpp
 
     #=============== Third-party tests ================
+    infrastructure/test_modbus_system_driver_poll_feedback.cpp
     infrastructure/test_modbus_system_driver_send.cpp
     infrastructure/test_modbus_system_driver_state_derive.cpp
     infrastructure/test_modbus_system_driver.cpp

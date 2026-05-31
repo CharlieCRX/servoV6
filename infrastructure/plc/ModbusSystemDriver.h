@@ -559,11 +559,16 @@ inline CommunicationResult ModbusSystemDriver::send(const SystemCommand& cmd) {
     }, cmd);
 }
 
-inline void ModbusSystemDriver::pollFeedback(SystemContext& /*ctx*/) {
+inline void ModbusSystemDriver::pollFeedback(SystemContext& ctx) {
     // TDD 阶段 5: 先处理到期的 EdgeTrigger OFF 脉冲，再读取反馈
     servicePendingEdgeTriggers();
 
-    // 后续阶段将在此处添加反馈读取逻辑
+    // Sprint 1: 数据可信度门禁 — 不可信快照直接返回，不注入任何反馈
+    if (m_device && !m_device->isStateTrusted()) {
+        return;
+    }
+
+    (void)ctx; // 后续 Sprint 将使用 ctx 进行轴/系统反馈注入
 }
 
 // =============================================================================
