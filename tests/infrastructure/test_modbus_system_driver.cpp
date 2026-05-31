@@ -429,10 +429,10 @@ TEST_F(ModbusSystemDriverRegisterTest, ShouldMapExactAddressesForGlobalRegisters
 TEST_F(ModbusSystemDriverRegisterTest, ShouldNotCrashWhenCallingStubSend) {
     SystemCommand dummy;
     CommunicationResult result;
-    // stub send() 应该是空操作，不抛异常，不崩溃
+    // send() 无绑定设备时返回 Disconnected，不抛异常，不崩溃
     EXPECT_NO_THROW(result = driver.send(dummy));
-    // stub 返回的 CommunicationResult 默认 status 为 Sent
-    EXPECT_EQ(result.status, CommunicationResult::Status::Sent);
+    // 未绑定 PlcDevice 时返回 Disconnected
+    EXPECT_EQ(result.status, CommunicationResult::Status::Disconnected);
 }
 
 TEST_F(ModbusSystemDriverRegisterTest, ShouldNotCrashWhenCallingStubPollFeedback) {

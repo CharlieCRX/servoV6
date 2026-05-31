@@ -4,6 +4,7 @@
 #include "infrastructure/plc/protocol/RegisterAddressAll.h"
 #include "infrastructure/plc/protocol/PlcDevice.h"
 #include "infrastructure/utils/IClock.h"
+#include "infrastructure/utils/overloaded.h"
 #include "domain/entity/AxisId.h"
 #include <cstdint>
 #include <deque>
@@ -464,8 +465,98 @@ inline const protocol::RegisterInfo& ModbusSystemDriver::regFbLinkageState() con
 
 // ---------- ISystemDriver 接口 stub (阶段一不实现) ----------
 
-inline CommunicationResult ModbusSystemDriver::send(const SystemCommand& /*cmd*/) {
-    return CommunicationResult{};
+inline CommunicationResult ModbusSystemDriver::send(const SystemCommand& cmd) {
+    // 防御：未注入 PlcDevice
+    if (!m_device) {
+        return CommunicationResult::Disconnected();
+    }
+
+    return std::visit(overloaded{
+        // ── AxisCommandWithId ──
+        [this](const AxisCommandWithId& ac) -> CommunicationResult {
+            const auto id = ac.id;
+            return std::visit(overloaded{
+                // monostate — 空命令，不做任何写操作
+                [](std::monostate) -> CommunicationResult {
+                    return CommunicationResult::Sent();
+                },
+
+                // Level 型 — writeBool
+                [this, id](const JogCommand& j) -> CommunicationResult {
+                    if (j.dir == Direction::Forward) {
+                        return m_device->writeBool(regCmdJogFwd(id), j.active);
+                    } else {
+                        return m_device->writeBool(regCmdJogBwd(id), j.active);
+                    }
+                },
+                [this, id](const StopCommand&) -> CommunicationResult {
+                    auto r1 = m_device->writeBool(regCmdJogFwd(id), false);
+                    auto r2 = m_device->writeBool(regCmdJogBwd(id), false);
+                    if (!r1.ok()) return r1;
+                    if (!r2.ok()) return r2;
+                    return CommunicationResult::Sent();
+                },
+                [this, id](const EnableCommand& e) -> CommunicationResult {
+                    return m_device->writeBool(regCmdEnable(id), e.active);
+                },
+
+                // D-Register 型 — writeFloat
+                [this, id](const SetJogVelocityCommand& v) -> CommunicationResult {
+                    return m_device->writeFloat(regCmdJogSpeed(id),
+                                                static_cast<float>(v.velocity));
+                },
+                [this, id](const SetMoveVelocityCommand& v) -> CommunicationResult {
+                    return m_device->writeFloat(regCmdMoveSpeed(id),
+                                                static_cast<float>(v.velocity));
+                },
+                [this, id](const SetAbsTargetCommand& t) -> CommunicationResult {
+                    return m_device->writeFloat(regCmdAbsTarget(id),
+                                                static_cast<float>(t.target));
+                },
+                [this, id](const SetRelTargetCommand& t) -> CommunicationResult {
+                    return m_device->writeFloat(regCmdRelTarget(id),
+                                                static_cast<float>(t.distance));
+                },
+
+                // EdgeTrigger 型 — sendEdgeTrigger (writeBool ON + enqueue)
+                [this, id](const TriggerAbsMoveCommand&) -> CommunicationResult {
+                    return sendEdgeTrigger(regCmdAbsTrigger(id));
+                },
+                [this, id](const TriggerRelMoveCommand&) -> CommunicationResult {
+                    return sendEdgeTrigger(regCmdRelTrigger(id));
+                },
+                [this, id](const ZeroAbsoluteCommand&) -> CommunicationResult {
+                    return sendEdgeTrigger(regCmdClearAbsPos(id));
+                },
+                [this, id](const SetRelativeZeroCommand&) -> CommunicationResult {
+                    return sendEdgeTrigger(regCmdSetRelZero(id));
+                },
+                [this, id](const ClearRelativeZeroCommand&) -> CommunicationResult {
+                    return sendEdgeTrigger(regCmdClearRelZero(id));
+                },
+
+                // 兼容兜底: MoveCommand 废弃命令返回成功
+                [](const MoveCommand&) -> CommunicationResult {
+                    return CommunicationResult::Sent();
+                }
+            }, ac.cmd);
+        },
+
+        // ── GantryCouplingCommand 龙门联动/解耦 (Level 型) ──
+        [this](const GantryCouplingCommand& g) -> CommunicationResult {
+            return m_device->writeBool(regGantryCoupling(), g.enableCoupling);
+        },
+
+        // ── GantryPowerCommand 龙门上电/掉电 (Level 型, 共用 X 轴 M0) ──
+        [this](const GantryPowerCommand& g) -> CommunicationResult {
+            return m_device->writeBool(regCmdEnable(AxisId::X), g.enable);
+        },
+
+        // ── EmergencyStopCommand 急停 (Level 型) ──
+        [this](const EmergencyStopCommand& e) -> CommunicationResult {
+            return m_device->writeBool(regEmergencyStopTrigger(), e.active);
+        }
+    }, cmd);
 }
 
 inline void ModbusSystemDriver::pollFeedback(SystemContext& /*ctx*/) {

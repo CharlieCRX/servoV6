@@ -52,10 +52,16 @@ add_executable(unit_tests
     # infrastructure/protocol/test_register_codec.cpp
 
     #=============== Third-party tests ================
+    infrastructure/test_modbus_system_driver_send.cpp
     infrastructure/test_modbus_system_driver_state_derive.cpp
     infrastructure/test_modbus_system_driver.cpp
     infrastructure/test_modbus_system_driver_edge_trigger.cpp
 
+)
+
+target_include_directories(unit_tests
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/infrastructure
 )
 
 target_link_libraries(unit_tests
@@ -66,6 +72,8 @@ target_link_libraries(unit_tests
         presentation
         GTest::gtest
         GTest::gtest_main
+        GTest::gmock
+        GTest::gmock_main
         Qt6::Core
 )
 

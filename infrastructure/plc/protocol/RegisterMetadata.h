@@ -60,6 +60,17 @@ struct RegisterInfo {
   constexpr uint16_t wordCount() const {
       return getWordCount(type);
   }
+
+  /// @brief 相等比较（仅比较 area + address + type，用于测试匹配）
+  constexpr bool operator==(const RegisterInfo& other) const {
+      return area == other.area
+          && address == other.address
+          && type == other.type;
+  }
+
+  constexpr bool operator!=(const RegisterInfo& other) const {
+      return !(*this == other);
+  }
 };
 
 } // namespace plc::protocol

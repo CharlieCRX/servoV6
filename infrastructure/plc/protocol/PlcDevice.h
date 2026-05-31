@@ -98,7 +98,7 @@ public:
 
     /// @brief 写入 Bool 值
     /// @return 通讯结果
-    CommunicationResult writeBool(const RegisterInfo& reg, bool v) {
+    virtual CommunicationResult writeBool(const RegisterInfo& reg, bool v) {
         return writeValue(reg, PlcValue{v});
     }
 
@@ -110,7 +110,7 @@ public:
 
     /// @brief 写入 Float32 值
     /// @return 通讯结果
-    CommunicationResult writeFloat(const RegisterInfo& reg, float v) {
+    virtual CommunicationResult writeFloat(const RegisterInfo& reg, float v) {
         return writeValue(reg, PlcValue{v});
     }
 
