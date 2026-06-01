@@ -23,6 +23,96 @@ void Axis::setIdentity(AxisId id, const std::string& groupName)
     m_group = groupName;
 }
 
+void Axis::applyPlcFeedback(AxisState state, double absPos, double relPos)
+{
+    // 为日志系统创建 TraceScope，输出时自动携带 [group][axis] 上下文
+    TraceScope scope(m_group, axisIdToString(m_id), "");
+
+    // --- 基线 TRACE（节流: 每50次tick输出1条）---
+    LOG_TRACE_EVERY_N(50, LogLayer::DOM, "Axis",
+        "applyPlcFeedback: plcState=" + std::string(axisStateName(state))
+        + " abs=" + std::to_string(absPos)
+        + " rel=" + std::to_string(relPos));
+
+    // --- 保存 PLC 推导状态（仅用于诊断）---
+    m_plcState = state;
+
+    // --- 镜像 PLC 绝对/相对位置 ---
+    m_current_abs_pos = absPos;
+    m_current_rel_pos = relPos;
+
+    // --- 状态变更 DEBUG ---
+    AxisState prevState = m_state;
+    if (prevState != state) {
+        LOG_DEBUG(LogLayer::DOM, "Axis",
+            "applyPlcFeedback: plcState " + std::string(axisStateName(prevState))
+            + " -> " + std::string(axisStateName(state)));
+    }
+
+    // ═══════════════════════════════════════════════
+    // 精简版反馈闭环（与 applyFeedback 保持一致的最小闭环逻辑）
+    // ═══════════════════════════════════════════════
+
+    // 1. 运动类状态：清理运动意图
+    if (state == AxisState::Jogging ||
+        state == AxisState::MovingAbsolute ||
+        state == AxisState::MovingRelative)
+    {
+        if (std::holds_alternative<JogCommand>(m_pending_intent)) {
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "applyPlcFeedback: axis=" + std::string(axisStateName(state))
+                + " -> clearing Jog intent");
+            m_pending_intent = std::monostate{};
+        }
+    }
+
+    // 2. 静止类状态：清理停止意图
+    if (state == AxisState::Idle ||
+        state == AxisState::Disabled ||
+        state == AxisState::Error)
+    {
+        if (std::holds_alternative<StopCommand>(m_pending_intent)) {
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "applyPlcFeedback: state=" + std::string(axisStateName(state))
+                + " -> clearing Stop intent");
+            m_pending_intent = std::monostate{};
+        }
+    }
+
+    // 3. Enable/Disable 闭环
+    if (auto* cmd = std::get_if<EnableCommand>(&m_pending_intent)) {
+        if (cmd->active) {
+            if (state != AxisState::Disabled && state != AxisState::Unknown) {
+                LOG_DEBUG(LogLayer::DOM, "Axis",
+                    "applyPlcFeedback: Enable CLOSED -- plcState=" + std::string(axisStateName(state)));
+                m_pending_intent = std::monostate{};
+            }
+        } else {
+            if (state == AxisState::Disabled) {
+                LOG_DEBUG(LogLayer::DOM, "Axis",
+                    "applyPlcFeedback: Disable CLOSED -- plcState=Disabled");
+                m_pending_intent = std::monostate{};
+            }
+        }
+    }
+
+    // 4. TriggerAbsMove / TriggerRelMove 闭环（状态变更后消费）
+    if (std::holds_alternative<TriggerAbsMoveCommand>(m_pending_intent)) {
+        if (state == AxisState::MovingAbsolute) {
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "applyPlcFeedback: TriggerAbsMove CLOSED -- plcState=MovingAbsolute");
+            m_pending_intent = std::monostate{};
+        }
+    }
+    if (std::holds_alternative<TriggerRelMoveCommand>(m_pending_intent)) {
+        if (state == AxisState::MovingRelative) {
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "applyPlcFeedback: TriggerRelMove CLOSED -- plcState=MovingRelative");
+            m_pending_intent = std::monostate{};
+        }
+    }
+}
+
 void Axis::applyFeedback(const AxisFeedback &feedback)
 {
     // 为日志系统创建 TraceScope，输出时自动携带 [group][axis] 上下文

@@ -36,7 +36,7 @@ add_executable(unit_tests
 
 
     #=============== Sencond-party tests ================
-    # infrastructure/protocol/test_real_feedback_readonly.cpp
+    infrastructure/protocol/test_real_feedback_readonly.cpp
     # infrastructure/protocol/test_modbus_tcp_integration.cpp
     # infrastructure/protocol/test_asio_modbus_client.cpp
     # infrastructure/protocol/test_modbus_tcp_frame.cpp

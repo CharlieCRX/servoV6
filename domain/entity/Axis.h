@@ -163,6 +163,12 @@ public:
 
     void applyFeedback(const AxisFeedback& feedback);
 
+    /// @brief 接受 infrastructure 层注入的 PLC 反馈（精简版，仅状态 + 位置）
+    /// @param state 多信号融合后的轴状态（由 AxisStateDeriver 推导）
+    /// @param absPos 绝对位置 (mm/deg)
+    /// @param relPos 相对位置 (mm/deg)
+    void applyPlcFeedback(AxisState state, double absPos, double relPos);
+
     bool enable(bool active);
     
     bool jog(Direction dir);
@@ -248,6 +254,9 @@ private:
     /// @brief 轴身份信息（用于日志系统 TraceScope 上下文）
     AxisId m_id = AxisId::Y;
     std::string m_group;
+
+    /// @brief PLC 反馈推导的状态（与领域层状态机区分，仅用于调试/诊断）
+    AxisState m_plcState = AxisState::Disabled;
 
     static constexpr double POSITION_EPSILON = 0.01;
     RejectionReason m_last_rejection = RejectionReason::None;

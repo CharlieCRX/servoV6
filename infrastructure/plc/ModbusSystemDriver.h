@@ -3,9 +3,15 @@
 #include "infrastructure/ISystemDriver.h"
 #include "infrastructure/plc/protocol/RegisterAddressAll.h"
 #include "infrastructure/plc/protocol/PlcDevice.h"
+#include "infrastructure/plc/protocol/IModbusClient.h"
+#include "infrastructure/plc/protocol/PlcPoller.h"
 #include "infrastructure/utils/IClock.h"
 #include "infrastructure/utils/overloaded.h"
+#include "infrastructure/plc/AxisStateDeriver.h"
 #include "domain/entity/AxisId.h"
+#include "domain/entity/ContextRejection.h"
+#include "domain/entity/SystemContext.h"
+#include "domain/gantry/GantryFeedback.h"
 #include <cstdint>
 #include <deque>
 #include <algorithm>
@@ -141,6 +147,18 @@ public:
     /// @brief 注入时钟（测试用，生产环境默认 SteadyClock）
     void setClock(std::unique_ptr<IClock> clock) { m_clock = std::move(clock); }
 
+    /// @brief 注入 PlcPoller（用于 pollFeedback 读管线）
+    /// @param poller PlcPoller 实例（生命周期由调用方管理）
+    void setPoller(std::unique_ptr<protocol::PlcPoller> poller) {
+        m_poller = std::move(poller);
+    }
+
+    /// @brief 注入 IModbusClient（用于 pollFeedback 读管线）
+    /// @param client Modbus 客户端指针（生命周期由调用方管理，非拥有）
+    void setModbusClient(protocol::IModbusClient* client) {
+        m_modbusClient = client;
+    }
+
     /// @brief 推进时间（仅在使用 FakeClock 时有效，测试用）
     void advanceTime(std::chrono::milliseconds ms);
 
@@ -192,6 +210,12 @@ private:
 
     /// 时钟抽象（默认 SteadyClock，测试可注入 FakeClock）
     std::unique_ptr<IClock> m_clock;
+
+    /// PlcPoller — PLC 读取管线（prepare → FC01/FC03 → assemble）
+    std::unique_ptr<protocol::PlcPoller> m_poller;
+
+    /// Modbus 客户端指针（非拥有，生命周期由外部管理）
+    protocol::IModbusClient* m_modbusClient = nullptr;
 };
 
 // =============================================================================
@@ -463,7 +487,7 @@ inline const protocol::RegisterInfo& ModbusSystemDriver::regFbLinkageState() con
     return reg::x_axis::feedback::LINKAGE_STATE;                        // M125
 }
 
-// ---------- ISystemDriver 接口 stub (阶段一不实现) ----------
+// ---------- ISystemDriver::send ----------
 
 inline CommunicationResult ModbusSystemDriver::send(const SystemCommand& cmd) {
     // 防御：未注入 PlcDevice
@@ -559,16 +583,136 @@ inline CommunicationResult ModbusSystemDriver::send(const SystemCommand& cmd) {
     }, cmd);
 }
 
+// ---------- ISystemDriver::pollFeedback ----------
+
 inline void ModbusSystemDriver::pollFeedback(SystemContext& ctx) {
     // TDD 阶段 5: 先处理到期的 EdgeTrigger OFF 脉冲，再读取反馈
     servicePendingEdgeTriggers();
 
-    // Sprint 1: 数据可信度门禁 — 不可信快照直接返回，不注入任何反馈
+    // ──────────────────────────────────────────────────────
+    // 防御: 缺少读取管线核心组件时跳过本帧
+    // ──────────────────────────────────────────────────────
+    if (!m_modbusClient || !m_poller) {
+        return;  // 尚未初始化 ModbusClient 或 PlcPoller
+    }
+
+    // ──────────────────────────────────────────────────────
+    // Phase 1: prepare — 从 RegisterRegistry 生成 FC 请求
+    // ──────────────────────────────────────────────────────
+    const auto req = m_poller->prepare();
+
+    // ──────────────────────────────────────────────────────
+    // Phase 2: FC01 — 批量读取 Coils
+    // ──────────────────────────────────────────────────────
+    std::vector<std::vector<uint8_t>>  coilResponses;
+    coilResponses.reserve(req.coilRequests.size());
+    bool allCoilsOk = true;
+
+    for (const auto& cr : req.coilRequests) {
+        std::vector<uint8_t> payload;
+        CommunicationResult result =
+            m_modbusClient->readCoils(cr.range.startAddress, cr.range.count, payload);
+        if (result.ok()) {
+            coilResponses.push_back(std::move(payload));
+        } else {
+            allCoilsOk = false;
+            coilResponses.push_back({});  // 空响应占位，assemble 会检测到长度不匹配
+        }
+    }
+
+    // ──────────────────────────────────────────────────────
+    // Phase 3: FC03 — 批量读取 Holding Registers
+    // ──────────────────────────────────────────────────────
+    std::vector<std::vector<uint16_t>> wordResponses;
+    wordResponses.reserve(req.wordRequests.size());
+    bool allWordsOk = true;
+
+    for (const auto& wr : req.wordRequests) {
+        std::vector<uint16_t> payload;
+        CommunicationResult result =
+            m_modbusClient->readHoldingRegisters(wr.range.startAddress, wr.range.count, payload);
+        if (result.ok()) {
+            wordResponses.push_back(std::move(payload));
+        } else {
+            allWordsOk = false;
+            wordResponses.push_back({});  // 空响应占位
+        }
+    }
+
+    // ──────────────────────────────────────────────────────
+    // Phase 4: assemble — 拼装 PlcSnapshot
+    // ──────────────────────────────────────────────────────
+    const auto now = m_clock->now();
+    const uint64_t timestamp = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()
+        ).count()
+    );
+
+    if (!allCoilsOk || !allWordsOk) {
+        // 任一次读取失败 → 产出不可信快照，但保留旧数据不变
+        auto untrusted = protocol::PlcPoller::untrusted(timestamp);
+        if (m_device) {
+            m_device->updateSnapshot(std::move(untrusted));
+        }
+        return;  // 不可信快照下不注入反馈（Sprint 1 可信度门禁）
+    }
+
+    auto snapshot = m_poller->assemble(coilResponses, wordResponses, timestamp);
+
+    // ──────────────────────────────────────────────────────
+    // Phase 5: updateSnapshot — 将快照绑定到 PlcDevice
+    // ──────────────────────────────────────────────────────
+    if (m_device) {
+        m_device->updateSnapshot(std::move(snapshot));
+    }
+
+    // ──────────────────────────────────────────────────────
+    // Sprint 1: 数据可信度门禁 — 不可信快照直接返回
+    // ──────────────────────────────────────────────────────
     if (m_device && !m_device->isStateTrusted()) {
         return;
     }
 
-    (void)ctx; // 后续 Sprint 将使用 ctx 进行轴/系统反馈注入
+    // ──────────────────────────────────────────────────────
+    // P1: 反馈解码与注入 — 遍历所有轴，解码PLC寄存器 →
+    //     deriveAxisState → Axis::applyPlcFeedback
+    // ──────────────────────────────────────────────────────
+
+    // 定义需要轮询的轴列表（含龙门 X1/X2，它们共用 X 的物理寄存器）
+    static constexpr AxisId kPolledAxisIds[] = {
+        AxisId::X, AxisId::X1, AxisId::X2,
+        AxisId::Y, AxisId::Z, AxisId::R,
+    };
+
+    for (AxisId id : kPolledAxisIds) {
+        // Step 1: 从 SystemContext 获取轴实体（遥测模式，绕过安全锁定）
+        Axis* axis = nullptr;
+        ContextRejection rejection;
+        if (!ctx.tryReadAxis(id, axis, rejection)) {
+            // 龙门语义拦截的轴（如解耦时的 X 逻辑轴、联动时的 X1/X2 物理轴）
+            // 静默跳过，反馈仅注入到当前有效的轴实体
+            continue;
+        }
+
+        // Step 2: 从 PlcDevice 快照中读取反馈寄存器
+        const int16_t stateRaw = m_device->readInt16(regFbState(id));
+        const int16_t alarmCode = m_device->readInt16(regFbAlarmCode(id));
+        const bool absMoving = m_device->readBool(regFbAbsMoving(id));
+        const bool relMoving = m_device->readBool(regFbRelMoving(id));
+        const bool jogging = m_device->readBool(regFbJogging(id));
+        const float absPos = m_device->readFloat(regFbAbsPos(id));
+        const float relPos = m_device->readFloat(regFbRelPos(id));
+
+        // Step 3: 多信号融合 → 推导统一的 AxisState
+        const AxisState derivedState = deriveAxisState(
+            stateRaw, alarmCode, absMoving, relMoving, jogging);
+
+        // Step 4: 注入到领域层 Axis 实体（精简版 PLC 反馈闭环）
+        axis->applyPlcFeedback(derivedState,
+                               static_cast<double>(absPos),
+                               static_cast<double>(relPos));
+    }
 }
 
 // =============================================================================
