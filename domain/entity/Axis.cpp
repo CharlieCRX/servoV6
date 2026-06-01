@@ -46,8 +46,11 @@ void Axis::applyPlcFeedback(AxisState state, double absPos, double relPos)
             + " -> " + std::string(axisStateName(state)));
     }
 
-    // --- 保存 PLC 推导状态（仅用于诊断）---
+    // --- 保存 PLC 推导状态 ---
     m_plcState = state;
+
+    // 关键修复：将 PLC 推导状态同步到 m_state，使 Modbus TCP 路径也能正确反映轴状态
+    m_state = state;
 
     // ═══════════════════════════════════════════════
     // 精简版反馈闭环（与 applyFeedback 保持一致的最小闭环逻辑）

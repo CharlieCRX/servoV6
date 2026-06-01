@@ -29,5 +29,4 @@ target_link_libraries(infrastructure
     PUBLIC
         asio
         Qt6::Core
-        ws2_32
 )
