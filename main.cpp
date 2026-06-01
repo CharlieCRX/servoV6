@@ -10,8 +10,14 @@
 #include "application/SystemManager.h"
 #include "domain/entity/AxisId.h"
 #include "domain/entity/ContextRejection.h"
-#include "infrastructure/FakePLC.h"
-#include "infrastructure/FakeAxisDriver.h"
+#include "infrastructure/plc/ModbusSystemDriver.h"
+#include "infrastructure/plc/protocol/AsioModbusTcpClient.h"
+#include "infrastructure/plc/protocol/PlcDevice.h"
+#include "infrastructure/plc/protocol/PlcPoller.h"
+#include "infrastructure/plc/protocol/RegisterRegistry.h"
+#include "infrastructure/plc/protocol/RegisterAddressAll.h"
+#include "infrastructure/plc/protocol/ProtocolProfile.h"
+#include "infrastructure/plc/protocol/RegisterMetadata.h"
 #include "presentation/viewmodel/AxisViewModelCore.h"
 #include "presentation/viewmodel/QtAxisViewModel.h"
 #include "presentation/viewmodel/EmergencyStopViewModel.h"
@@ -19,6 +25,7 @@
 #include "infrastructure/logger/Logger.h"
 #include <sstream>
 #include <iomanip>
+#include <memory>
 
 // 辅助：将单个轴的摘要格式化为紧凑字符串
 // 输出如 "Y: pos=+0041.4 Standstill"
@@ -71,10 +78,138 @@ int main(int argc, char *argv[])
     QQuickStyle::setStyle("Basic");
 
     // ============================
-    // 1. 硬件仿真层（每个分组独立的 FakePLC + FakeAxisDriver）
+    // 1. Modbus 通讯层（每个分组独立的 ModbusSystemDriver）
     // ============================
-    FakePLC plcA, plcB;
-    FakeAxisDriver driverA(plcA), driverB(plcB);
+
+    // 1a. 寄存器注册表（所有需要轮询的线圈和保持寄存器）
+    plc::protocol::RegisterRegistry registry;
+    {
+        using namespace plc::reg;
+
+        // ── 系统全局 ──
+        registry.add(system_global::command::ESTOP_TRIGGER);
+        registry.add(system_global::feedback::ESTOP_ACTIVE);
+        registry.add(system_global::feedback::GANTRY_ERROR_CODE);
+
+        // ══ X 轴 ══
+        for (auto reg : { x_axis::command::ENABLE_REQUEST, x_axis::command::LINKAGE_ENABLE,
+              x_axis::command::HOME_TRIGGER, x_axis::command::SET_REL_ZERO,
+              x_axis::command::CLEAR_REL_ZERO, x_axis::command::CLEAR_ABS_POS,
+              x_axis::command::ABS_MOVE_TRIGGER, x_axis::command::REL_MOVE_TRIGGER,
+              x_axis::command::X1_JOG_FORWARD, x_axis::command::X1_JOG_BACKWARD,
+              x_axis::command::X2_JOG_FORWARD, x_axis::command::X2_JOG_BACKWARD,
+              x_axis::command::ALARM_RESET,
+              x_axis::command::X1_ABS_MOVE_TRIGGER, x_axis::command::X2_ABS_MOVE_TRIGGER,
+              x_axis::command::X_ESTOP_TRIGGER,
+              x_axis::command::ABS_TARGET, x_axis::command::REL_TARGET,
+              x_axis::command::X1_ABS_TARGET, x_axis::command::X2_ABS_TARGET,
+              x_axis::command::JOG_SPEED, x_axis::command::MOVE_SPEED,
+              x_axis::command::TOLERANCE_LIMIT,
+              x_axis::command::SOFT_LIMIT_NEG, x_axis::command::SOFT_LIMIT_POS,
+              x_axis::feedback::MOVE_DONE, x_axis::feedback::ABS_MOVING,
+              x_axis::feedback::REL_MOVING, x_axis::feedback::JOGGING,
+              x_axis::feedback::TOLERANCE_FLAG, x_axis::feedback::TOLERANCE_TIMEOUT,
+              x_axis::feedback::LINKAGE_STATE, x_axis::feedback::SOFT_LIMIT_STATE,
+              x_axis::feedback::REL_POSITION_OLD, x_axis::feedback::ABS_POSITION_OLD,
+              x_axis::feedback::STATE, x_axis::feedback::ALARM_CODE,
+              x_axis::feedback::ABS_POSITION, x_axis::feedback::REL_POSITION,
+              x_axis::feedback::REL_ZERO_OFFSET,
+              x_axis::feedback::X1_SOFT_LIMIT_POS, x_axis::feedback::X1_SOFT_LIMIT_NEG,
+              x_axis::feedback::X2_SOFT_LIMIT_POS, x_axis::feedback::X2_SOFT_LIMIT_NEG,
+              x_axis::feedback::X1_CURRENT_POS, x_axis::feedback::X2_CURRENT_POS,
+              x_axis::feedback::REL_ZERO_RECORD }) { registry.add(reg); }
+
+        // ══ Y 轴 ══
+        for (auto reg : { y_axis::command::ENABLE_REQUEST, y_axis::command::HOME_TRIGGER,
+              y_axis::command::SET_REL_ZERO, y_axis::command::CLEAR_REL_ZERO,
+              y_axis::command::CLEAR_ABS_POS,
+              y_axis::command::ABS_MOVE_TRIGGER, y_axis::command::REL_MOVE_TRIGGER,
+              y_axis::command::JOG_FORWARD, y_axis::command::JOG_BACKWARD,
+              y_axis::command::ALARM_RESET,
+              y_axis::command::ABS_TARGET, y_axis::command::REL_TARGET,
+              y_axis::command::JOG_SPEED, y_axis::command::MOVE_SPEED,
+              y_axis::feedback::MOVE_DONE, y_axis::feedback::ABS_MOVING,
+              y_axis::feedback::REL_MOVING, y_axis::feedback::JOGGING,
+              y_axis::feedback::REL_POSITION_OLD, y_axis::feedback::ABS_POSITION_OLD,
+              y_axis::feedback::STATE, y_axis::feedback::ALARM_CODE,
+              y_axis::feedback::ABS_POSITION, y_axis::feedback::REL_POSITION,
+              y_axis::feedback::REL_ZERO_OFFSET,
+              y_axis::feedback::SOFT_LIMIT_POS, y_axis::feedback::SOFT_LIMIT_NEG,
+              y_axis::feedback::REL_ZERO_RECORD }) { registry.add(reg); }
+
+        // ══ Z 轴 ══
+        for (auto reg : { z_axis::command::ENABLE_REQUEST, z_axis::command::HOME_TRIGGER,
+              z_axis::command::SET_REL_ZERO, z_axis::command::CLEAR_REL_ZERO,
+              z_axis::command::CLEAR_ABS_POS,
+              z_axis::command::ABS_MOVE_TRIGGER, z_axis::command::REL_MOVE_TRIGGER,
+              z_axis::command::JOG_FORWARD, z_axis::command::JOG_BACKWARD,
+              z_axis::command::ALARM_RESET,
+              z_axis::command::ABS_TARGET, z_axis::command::REL_TARGET,
+              z_axis::command::JOG_SPEED, z_axis::command::MOVE_SPEED,
+              z_axis::feedback::MOVE_DONE, z_axis::feedback::ABS_MOVING,
+              z_axis::feedback::REL_MOVING, z_axis::feedback::JOGGING,
+              z_axis::feedback::REL_POSITION_OLD, z_axis::feedback::ABS_POSITION_OLD,
+              z_axis::feedback::STATE, z_axis::feedback::ALARM_CODE,
+              z_axis::feedback::ABS_POSITION, z_axis::feedback::REL_POSITION,
+              z_axis::feedback::REL_ZERO_OFFSET,
+              z_axis::feedback::SOFT_LIMIT_POS, z_axis::feedback::SOFT_LIMIT_NEG,
+              z_axis::feedback::REL_ZERO_RECORD }) { registry.add(reg); }
+
+        // ══ R 轴 ══
+        for (auto reg : { r_axis::command::ENABLE_REQUEST, r_axis::command::HOME_TRIGGER,
+              r_axis::command::SET_REL_ZERO, r_axis::command::CLEAR_REL_ZERO,
+              r_axis::command::CLEAR_ABS_POS,
+              r_axis::command::ABS_MOVE_TRIGGER, r_axis::command::REL_MOVE_TRIGGER,
+              r_axis::command::JOG_FORWARD, r_axis::command::JOG_BACKWARD,
+              r_axis::command::ALARM_RESET,
+              r_axis::command::ABS_TARGET, r_axis::command::REL_TARGET,
+              r_axis::command::JOG_SPEED, r_axis::command::MOVE_SPEED,
+              r_axis::feedback::MOVE_DONE, r_axis::feedback::ABS_MOVING,
+              r_axis::feedback::REL_MOVING, r_axis::feedback::JOGGING,
+              r_axis::feedback::REL_POSITION_OLD, r_axis::feedback::ABS_POSITION_OLD,
+              r_axis::feedback::STATE, r_axis::feedback::ALARM_CODE,
+              r_axis::feedback::ABS_POSITION, r_axis::feedback::REL_POSITION,
+              r_axis::feedback::ABS_ZERO_OFFSET,
+              r_axis::feedback::REL_ZERO_RECORD }) { registry.add(reg); }
+    }
+
+    // 1b. Modbus TCP 客户端配置（两个分组分别连接不同 PLC IP）
+    plc::protocol::AsioModbusTcpClient::Config cfgA, cfgB;
+    cfgA.host = "192.168.1.88";    // PLC A IP
+    cfgA.port = 502;
+    cfgA.unitId = 0x01;
+    cfgA.timeoutMs = 1000;
+    cfgB.host = "127.0.0.1";    // PLC B IP
+    cfgB.port = 502;
+    cfgB.unitId = 0x01;
+    cfgB.timeoutMs = 1000;
+
+    auto clientA = std::make_unique<plc::protocol::AsioModbusTcpClient>(cfgA);
+    auto clientB = std::make_unique<plc::protocol::AsioModbusTcpClient>(cfgB);
+    clientA->start();
+    clientB->start();
+    LOG_INFO(LogLayer::APP, "System", "Modbus TCP clients started");
+
+    // 1c. PlcPoller（每个分组共享同一个寄存器注册表）
+    auto pollerA = std::make_unique<plc::protocol::PlcPoller>(registry);
+    auto pollerB = std::make_unique<plc::protocol::PlcPoller>(registry);
+
+    // 1d. PlcDevice（寄存器读写门面）
+    auto deviceA = std::make_unique<plc::protocol::PlcDevice>(plc::protocol::INOVANCE_PROFILE);
+    auto deviceB = std::make_unique<plc::protocol::PlcDevice>(plc::protocol::INOVANCE_PROFILE);
+    deviceA->bindTransport(clientA.get());
+    deviceB->bindTransport(clientB.get());
+
+    // 1e. 组装 ModbusSystemDriver
+    plc::ModbusSystemDriver driverA, driverB;
+    driverA.setModbusClient(clientA.get());
+    driverA.setDevice(deviceA.get());
+    driverA.setPoller(std::move(pollerA));
+    // m_clock 默认使用 SteadyClock，无需额外设置
+
+    driverB.setModbusClient(clientB.get());
+    driverB.setDevice(deviceB.get());
+    driverB.setPoller(std::move(pollerB));
 
     // ============================
     // 2. 系统分组管理
@@ -110,27 +245,10 @@ int main(int argc, char *argv[])
     }
 
     // ============================
-    // 4. 初始化物理世界默认状态
+    // 4. 首次同步（将 PLC 当前状态注入 SystemContext）
     // ============================
-    // --- Group A (Machine_A): 6 轴初始状态 ---
-    constexpr double DEFAULT_JOG_VEL  = 20.0;
-    constexpr double DEFAULT_MOVE_VEL = 50.0;
-    constexpr double DEFAULT_LIMIT_POS = 1000.0;
-    constexpr double DEFAULT_LIMIT_NEG = -1000.0;
-    for (auto id : ALL_AXES) {
-        plcA.forceState(id, AxisState::Disabled);
-        plcA.setSimulatedJogVelocity(id, DEFAULT_JOG_VEL);
-        plcA.setSimulatedMoveVelocity(id, DEFAULT_MOVE_VEL);
-        plcA.setLimits(id, DEFAULT_LIMIT_POS, DEFAULT_LIMIT_NEG);
-    }
-    for (auto id : ALL_AXES) {
-        plcB.forceState(id, AxisState::Disabled);
-        plcB.setSimulatedJogVelocity(id, DEFAULT_JOG_VEL);
-        plcB.setSimulatedMoveVelocity(id, DEFAULT_MOVE_VEL);
-        plcB.setLimits(id, DEFAULT_LIMIT_POS, DEFAULT_LIMIT_NEG);
-    }
-
-    // 首次同步（将 plc 默认状态注入 SystemContext）
+    // 注意：使用真实 Modbus 通讯后，初始状态由 PLC 硬件决定，
+    // 不再通过代码"强制设置"（forceState / setSimulatedJogVelocity 等 Fake 专用接口已移除）。
     driverA.pollFeedback(*ctxA);
     driverB.pollFeedback(*ctxB);
 

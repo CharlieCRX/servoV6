@@ -189,6 +189,9 @@ private:
 
     /// @brief socket 操作互斥锁（串行化 socket 操作，防止并发写导致帧交织）
     mutable std::mutex              m_socketMutex;
+
+    /// @brief 模块名称（含 host:port 标识，用于日志区分多实例）
+    std::string                     m_moduleName;
 };
 
 } // namespace plc::protocol
