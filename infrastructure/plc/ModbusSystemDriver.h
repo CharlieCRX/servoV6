@@ -72,6 +72,11 @@ public:
     [[nodiscard]] const protocol::RegisterInfo& regFbRelMoving(AxisId id) const;
     [[nodiscard]] const protocol::RegisterInfo& regFbJogging(AxisId id) const;
 
+    // ⭐ 新增：全量反馈寄存器选择器（用于构筑 AxisFeedback）
+    [[nodiscard]] const protocol::RegisterInfo& regFbRelZeroRecord(AxisId id) const;
+    [[nodiscard]] const protocol::RegisterInfo& regFbSoftLimitPos(AxisId id) const;
+    [[nodiscard]] const protocol::RegisterInfo& regFbSoftLimitNeg(AxisId id) const;
+
     // =========================================================================
     // 寄存器选择器 —— 组级命令/反馈
     // =========================================================================
@@ -357,6 +362,44 @@ inline const protocol::RegisterInfo& ModbusSystemDriver::regFbJogging(AxisId id)
     return reg::x_axis::feedback::JOGGING;
 }
 
+// ⭐ 新增：全量反馈寄存器选择器
+
+inline const protocol::RegisterInfo& ModbusSystemDriver::regFbRelZeroRecord(AxisId id) const {
+    switch (id) {
+        case AxisId::X:  return reg::x_axis::feedback::REL_ZERO_RECORD;
+        case AxisId::Y:  return reg::y_axis::feedback::REL_ZERO_RECORD;
+        case AxisId::Z:  return reg::z_axis::feedback::REL_ZERO_RECORD;
+        case AxisId::R:  return reg::r_axis::feedback::REL_ZERO_RECORD;
+        case AxisId::X1: [[fallthrough]];
+        case AxisId::X2: return reg::x_axis::feedback::REL_ZERO_RECORD;
+    }
+    return reg::x_axis::feedback::REL_ZERO_RECORD;
+}
+
+inline const protocol::RegisterInfo& ModbusSystemDriver::regFbSoftLimitPos(AxisId id) const {
+    switch (id) {
+        case AxisId::X:  [[fallthrough]];
+        case AxisId::X1: [[fallthrough]];
+        case AxisId::X2: return reg::x_axis::feedback::X1_SOFT_LIMIT_POS;
+        case AxisId::Y:  return reg::y_axis::feedback::SOFT_LIMIT_POS;
+        case AxisId::Z:  return reg::z_axis::feedback::SOFT_LIMIT_POS;
+        case AxisId::R:  return reg::x_axis::feedback::X1_SOFT_LIMIT_POS; // R has no specific SOFT_LIMIT_POS in z_axis, fallthrough placeholder; per register table, use a reasonable default
+    }
+    return reg::x_axis::feedback::X1_SOFT_LIMIT_POS;
+}
+
+inline const protocol::RegisterInfo& ModbusSystemDriver::regFbSoftLimitNeg(AxisId id) const {
+    switch (id) {
+        case AxisId::X:  [[fallthrough]];
+        case AxisId::X1: [[fallthrough]];
+        case AxisId::X2: return reg::x_axis::feedback::X1_SOFT_LIMIT_NEG;
+        case AxisId::Y:  return reg::y_axis::feedback::SOFT_LIMIT_NEG;
+        case AxisId::Z:  return reg::z_axis::feedback::SOFT_LIMIT_NEG;
+        case AxisId::R:  return reg::x_axis::feedback::X1_SOFT_LIMIT_NEG; // R has no specific SOFT_LIMIT_NEG, use a fallthrough placeholder
+    }
+    return reg::x_axis::feedback::X1_SOFT_LIMIT_NEG;
+}
+
 // ---------- 组级命令/反馈 ----------
 
 inline const protocol::RegisterInfo& ModbusSystemDriver::regGantryCoupling() const {
@@ -528,6 +571,7 @@ inline void ModbusSystemDriver::pollFeedback(SystemContext& ctx) {
         ContextRejection rejection;
         if (!ctx.tryReadAxis(id, axis, rejection)) { continue; }
 
+        // ── 读取 PLC 反馈寄存器 ──
         const int16_t stateRaw = m_device->readInt16(regFbState(id));
         const int16_t alarmCode = m_device->readInt16(regFbAlarmCode(id));
         const bool absMoving = m_device->readBool(regFbAbsMoving(id));
@@ -535,13 +579,49 @@ inline void ModbusSystemDriver::pollFeedback(SystemContext& ctx) {
         const bool jogging = m_device->readBool(regFbJogging(id));
         const float absPos = m_device->readFloat(regFbAbsPos(id));
         const float relPos = m_device->readFloat(regFbRelPos(id));
+        const float relZeroRec = m_device->readFloat(regFbRelZeroRecord(id));
+        const float softLimitPos = m_device->readFloat(regFbSoftLimitPos(id));
+        const float softLimitNeg = m_device->readFloat(regFbSoftLimitNeg(id));
+        const float jogVel = m_device->readFloat(regCmdJogSpeed(id));
+        const float moveVel = m_device->readFloat(regCmdMoveSpeed(id));
+        const float absTarget = m_device->readFloat(regCmdAbsTarget(id));
+        const float relTarget = m_device->readFloat(regCmdRelTarget(id));
 
-        const AxisState derivedState = deriveAxisState(
+        // ── 推导轴状态 ──
+        AxisState derivedState = deriveAxisState(
             stateRaw, alarmCode, absMoving, relMoving, jogging);
 
-        axis->applyPlcFeedback(derivedState,
-                               static_cast<double>(absPos),
-                               static_cast<double>(relPos));
+        // ── alarmCode == 3 软限位判断 ──
+        // alarmCode 3 表示触发了正限位或负限位，需要根据 absPos 与 SOFT_LIMIT 做二次判断
+        bool posLimit = false;
+        bool negLimit = false;
+        if (alarmCode == 3) {
+            // 如果 absPos + 0.1 >= SOFT_LIMIT_POS → 超出正限位
+            if (static_cast<double>(absPos) + 0.1 >= static_cast<double>(softLimitPos)) {
+                posLimit = true;
+            }
+            // 如果 absPos - 0.1 <= SOFT_LIMIT_NEG → 超出负限位
+            if (static_cast<double>(absPos) - 0.1 <= static_cast<double>(softLimitNeg)) {
+                negLimit = true;
+            }
+        }
+
+        // ── 构筑 AxisFeedback ──
+        AxisFeedback fb;
+        fb.state = derivedState;
+        fb.absPos = static_cast<double>(absPos);
+        fb.relPos = static_cast<double>(relPos);
+        fb.relZeroAbsPos = static_cast<double>(relZeroRec);
+        fb.posLimit = posLimit;
+        fb.negLimit = negLimit;
+        fb.posLimitValue = static_cast<double>(softLimitPos);
+        fb.negLimitValue = static_cast<double>(softLimitNeg);
+        fb.getjogVelocity = static_cast<double>(jogVel);
+        fb.getMoveVelocity = static_cast<double>(moveVel);
+        fb.absMoveTarget = static_cast<double>(absTarget);
+        fb.relMoveTarget = static_cast<double>(relTarget);
+
+        axis->applyFeedback(fb);
     }
 
     // ==================================================================
