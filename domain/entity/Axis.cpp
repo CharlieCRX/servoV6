@@ -34,20 +34,20 @@ void Axis::applyPlcFeedback(AxisState state, double absPos, double relPos)
         + " abs=" + std::to_string(absPos)
         + " rel=" + std::to_string(relPos));
 
-    // --- 保存 PLC 推导状态（仅用于诊断）---
-    m_plcState = state;
-
     // --- 镜像 PLC 绝对/相对位置 ---
     m_current_abs_pos = absPos;
     m_current_rel_pos = relPos;
 
-    // --- 状态变更 DEBUG ---
-    AxisState prevState = m_state;
+    // --- 状态变更 DEBUG（基于 m_plcState 做去重，仅在状态真正变化时输出）---
+    AxisState prevState = m_plcState;
     if (prevState != state) {
         LOG_DEBUG(LogLayer::DOM, "Axis",
             "applyPlcFeedback: plcState " + std::string(axisStateName(prevState))
             + " -> " + std::string(axisStateName(state)));
     }
+
+    // --- 保存 PLC 推导状态（仅用于诊断）---
+    m_plcState = state;
 
     // ═══════════════════════════════════════════════
     // 精简版反馈闭环（与 applyFeedback 保持一致的最小闭环逻辑）
