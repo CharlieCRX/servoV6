@@ -16,6 +16,8 @@ QtAxisViewModel::QtAxisViewModel(AxisViewModelCore* core, QObject *parent)
         m_lastRelPos = m_core->relPos();
         m_lastJogVelocity  = m_core->jogVelocity();
         m_lastMoveVelocity = m_core->moveVelocity();
+        m_lastAbsTarget = m_core->absMoveTarget();
+        m_lastRelTarget = m_core->relMoveTarget();
     }
 }
 
@@ -205,6 +207,15 @@ QString QtAxisViewModel::moveStep() const {
     return m_core ? QString::fromStdString(m_core->moveStep()) : QString("Idle");
 }
 
+// ★ Target 反馈查询
+double QtAxisViewModel::absMoveTarget() const {
+    return m_core ? m_core->absMoveTarget() : 0.0;
+}
+
+double QtAxisViewModel::relMoveTarget() const {
+    return m_core ? m_core->relMoveTarget() : 0.0;
+}
+
 // =============================================================================
 // Tick：驱动 Core 状态机 + 节流信号发送（包含新增 property）
 // =============================================================================
@@ -294,6 +305,18 @@ void QtAxisViewModel::tick() {
     }
     if (emitErCnt) {
         emit errorCountChanged();
+    }
+
+    // ★ Target 反馈检测
+    {
+        double newAbsTarget = absMoveTarget();
+        double newRelTarget = relMoveTarget();
+        if (std::abs(m_lastAbsTarget - newAbsTarget) > EPSILON ||
+            std::abs(m_lastRelTarget - newRelTarget) > EPSILON) {
+            m_lastAbsTarget = newAbsTarget;
+            m_lastRelTarget = newRelTarget;
+            emit targetChanged();
+        }
     }
 
     // ★ Policy loading 状态检测

@@ -33,6 +33,10 @@ class QtAxisViewModel : public QObject {
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY loadingChanged)
     Q_PROPERTY(QString moveStep READ moveStep NOTIFY loadingChanged)
 
+    // ★ Target 反馈值（从 Axis applyFeedback 获取的 PLC 寄存器镜像）
+    Q_PROPERTY(double absMoveTarget READ absMoveTarget NOTIFY targetChanged)
+    Q_PROPERTY(double relMoveTarget READ relMoveTarget NOTIFY targetChanged)
+
 public:
     explicit QtAxisViewModel(AxisViewModelCore* core, QObject *parent = nullptr);
 
@@ -92,6 +96,10 @@ public:
     Q_INVOKABLE bool isLoading() const;
     Q_INVOKABLE QString moveStep() const;
 
+    // ★ Target 反馈查询
+    Q_INVOKABLE double absMoveTarget() const;
+    Q_INVOKABLE double relMoveTarget() const;
+
     // 辅助方法（供周期性摘要使用）
     Q_INVOKABLE QString fullName() const;
     Q_INVOKABLE double position() const;
@@ -110,6 +118,7 @@ signals:
     // ⭐ 新增 signal
     void errorCountChanged();
     void loadingChanged();
+    void targetChanged();
 
 private:
     AxisViewModelCore* m_core;
@@ -130,6 +139,10 @@ private:
     // ★ Policy 状态缓存
     bool      m_lastLoading   = false;
     QString   m_lastMoveStep;
+
+    // ★ Target 反馈缓存
+    double    m_lastAbsTarget = 0.0;
+    double    m_lastRelTarget = 0.0;
 
     const double EPSILON = 0.001;
 };

@@ -243,7 +243,7 @@ Rectangle {
                 Item { Layout.fillHeight: true }
             }
 
-            // --- B. 定位控制面板（★ v2 重新设计：独立按钮映射） ---
+            // --- B. 定位控制面板（★ v3 重新设计：反馈式目标显示 + ⚙️设置 + GO居中放大） ---
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 8 * Theme.scale
@@ -274,7 +274,7 @@ Rectangle {
                     }
                 }
 
-                // 绝对/相对 单选（紧凑，紧贴速度行）
+                // 绝对/相对 单选
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
                     spacing: 4 * Theme.scale
@@ -308,74 +308,57 @@ Rectangle {
                     }
                 }
 
-                // 上半弹簧
-                Item { Layout.fillHeight: true }
-
                 // ── ★ 绝对定位组 ──
                 ColumnLayout {
                     Layout.alignment: Qt.AlignHCenter
                     spacing: 6 * Theme.scale
                     visible: root.isAbsolute
 
-                    // 目标值输入
-                    TextField {
-                        id: absTargetInput
-                        Layout.alignment: Qt.AlignHCenter
-                        Layout.preferredWidth: 140 * Theme.scale
-                        text: "100.0"
-                        enabled: root.isReadyForSetTarget
-                        opacity: enabled ? 1.0 : 0.5
-                        font.pixelSize: Theme.fontLarge
-                        font.family: "Monospace"
-                        color: Theme.textMain
-                        horizontalAlignment: TextInput.AlignHCenter
-                        background: Rectangle {
-                            color: Theme.bgDark
-                            border.color: absTargetInput.activeFocus ? Theme.colorMoving : Theme.borderMain
-                            border.width: 2
-                            radius: 6 * Theme.scale
-                        }
-                        validator: DoubleValidator { bottom: -9999.9; top: 9999.9; decimals: 2 }
-                    }
+                    // 上半弹簧
+                    Item { Layout.fillHeight: true }
 
-                    // 按钮组：设置目标 + 触发移动
+                    // 反馈式目标显示 + ⚙️ 设置按钮
                     RowLayout {
                         Layout.alignment: Qt.AlignHCenter
                         spacing: 8 * Theme.scale
 
-                        // ★ 按钮 1：设置绝对目标
-                        IndustrialButton {
-                            text: root.isReadyForSetTarget ? "设置目标" : "不可用"
-                            isCircle: false
-                            buttonSize: 110 * Theme.scale
-                            enabled: root.isReadyForSetTarget
-                            baseColor: root.isReadyForSetTarget ? Theme.panelBg : Theme.colorDisabled
-                            onClicked: {
-                                if (!root.isReadyForSetTarget) return
-                                let target = parseFloat(absTargetInput.text)
-                                if (!isNaN(target) && viewModel) {
-                                    viewModel.setAbsTarget(target)
-                                }
-                            }
+                        Text {
+                            text: "目标: " + (viewModel ? viewModel.absMoveTarget.toFixed(1) : "0.0") + " mm"
+                            color: Theme.textMain
+                            font.pixelSize: Theme.fontNormal
+                            font.family: "Monospace"
                         }
 
-                        // ★ 按钮 2：触发绝对定位
                         IndustrialButton {
-                            text: root.isReadyForTrigger ? "绝对定位 GO" : (
-                                viewModel && viewModel.isLoading ? "运行中..." : "不可用"
-                            )
-                            isCircle: false
-                            buttonSize: 110 * Theme.scale
-                            enabled: root.isReadyForTrigger
-                            baseColor: root.isReadyForTrigger ? Theme.colorIdle : Theme.colorDisabled
-                            onClicked: {
-                                if (!root.isReadyForTrigger) return
-                                if (viewModel) {
-                                    viewModel.triggerAbsMove()
-                                }
+                            text: "⚙️"
+                            buttonSize: 30 * Theme.scale
+                            isCircle: true
+                            baseColor: Theme.panelBg
+                            enabled: root.isReadyForSetTarget
+                            onClicked: absTargetPopup.open()
+                        }
+                    }
+
+                    // ★ 触发绝对定位 GO（居中放大）
+                    IndustrialButton {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: root.isReadyForTrigger ? "绝对定位 GO" : (
+                            viewModel && viewModel.isLoading ? "运行中..." : "不可用"
+                        )
+                        isCircle: false
+                        buttonSize: 170 * Theme.scale
+                        enabled: root.isReadyForTrigger
+                        baseColor: root.isReadyForTrigger ? Theme.colorIdle : Theme.colorDisabled
+                        onClicked: {
+                            if (!root.isReadyForTrigger) return
+                            if (viewModel) {
+                                viewModel.triggerAbsMove()
                             }
                         }
                     }
+
+                    // 下半弹簧
+                    Item { Layout.fillHeight: true }
                 }
 
                 // ── ★ 相对定位组 ──
@@ -384,65 +367,51 @@ Rectangle {
                     spacing: 6 * Theme.scale
                     visible: !root.isAbsolute
 
-                    // 距离值输入
-                    TextField {
-                        id: relTargetInput
-                        Layout.alignment: Qt.AlignHCenter
-                        Layout.preferredWidth: 140 * Theme.scale
-                        text: "50.0"
-                        enabled: root.isReadyForSetTarget
-                        opacity: enabled ? 1.0 : 0.5
-                        font.pixelSize: Theme.fontLarge
-                        font.family: "Monospace"
-                        color: Theme.textMain
-                        horizontalAlignment: TextInput.AlignHCenter
-                        background: Rectangle {
-                            color: Theme.bgDark
-                            border.color: relTargetInput.activeFocus ? Theme.colorMoving : Theme.borderMain
-                            border.width: 2
-                            radius: 6 * Theme.scale
-                        }
-                        validator: DoubleValidator { bottom: -9999.9; top: 9999.9; decimals: 2 }
-                    }
+                    // 上半弹簧
+                    Item { Layout.fillHeight: true }
 
-                    // 按钮组：设置距离 + 触发移动
+                    // 反馈式目标显示 + ⚙️ 设置按钮
                     RowLayout {
                         Layout.alignment: Qt.AlignHCenter
                         spacing: 8 * Theme.scale
 
-                        // ★ 按钮 1：设置相对距离
-                        IndustrialButton {
-                            text: root.isReadyForSetTarget ? "设置距离" : "不可用"
-                            isCircle: false
-                            buttonSize: 110 * Theme.scale
-                            enabled: root.isReadyForSetTarget
-                            baseColor: root.isReadyForSetTarget ? Theme.panelBg : Theme.colorDisabled
-                            onClicked: {
-                                if (!root.isReadyForSetTarget) return
-                                let distance = parseFloat(relTargetInput.text)
-                                if (!isNaN(distance) && viewModel) {
-                                    viewModel.setRelTarget(distance)
-                                }
-                            }
+                        Text {
+                            text: "距离: " + (viewModel ? viewModel.relMoveTarget.toFixed(1) : "0.0") + " mm"
+                            color: Theme.textMain
+                            font.pixelSize: Theme.fontNormal
+                            font.family: "Monospace"
                         }
 
-                        // ★ 按钮 2：触发相对定位
                         IndustrialButton {
-                            text: root.isReadyForTrigger ? "相对定位 GO" : (
-                                viewModel && viewModel.isLoading ? "运行中..." : "不可用"
-                            )
-                            isCircle: false
-                            buttonSize: 110 * Theme.scale
-                            enabled: root.isReadyForTrigger
-                            baseColor: root.isReadyForTrigger ? Theme.colorIdle : Theme.colorDisabled
-                            onClicked: {
-                                if (!root.isReadyForTrigger) return
-                                if (viewModel) {
-                                    viewModel.triggerRelMove()
-                                }
+                            text: "⚙️"
+                            buttonSize: 30 * Theme.scale
+                            isCircle: true
+                            baseColor: Theme.panelBg
+                            enabled: root.isReadyForSetTarget
+                            onClicked: relTargetPopup.open()
+                        }
+                    }
+
+                    // ★ 触发相对定位 GO（居中放大）
+                    IndustrialButton {
+                        Layout.alignment: Qt.AlignHCenter
+                        text: root.isReadyForTrigger ? "相对定位 GO" : (
+                            viewModel && viewModel.isLoading ? "运行中..." : "不可用"
+                        )
+                        isCircle: false
+                        buttonSize: 170 * Theme.scale
+                        enabled: root.isReadyForTrigger
+                        baseColor: root.isReadyForTrigger ? Theme.colorIdle : Theme.colorDisabled
+                        onClicked: {
+                            if (!root.isReadyForTrigger) return
+                            if (viewModel) {
+                                viewModel.triggerRelMove()
                             }
                         }
                     }
+
+                    // 下半弹簧
+                    Item { Layout.fillHeight: true }
                 }
 
                 // ── ★ Loading 状态指示（可选，调试用）──
@@ -533,5 +502,19 @@ Rectangle {
         id: moveVelocityPopup
         viewModel: root.viewModel
         speedType: "move"
+    }
+
+    // 绝对定位目标设置弹窗
+    TargetSettingsPopup {
+        id: absTargetPopup
+        viewModel: root.viewModel
+        targetType: "abs"
+    }
+
+    // 相对定位目标设置弹窗
+    TargetSettingsPopup {
+        id: relTargetPopup
+        viewModel: root.viewModel
+        targetType: "rel"
     }
 }

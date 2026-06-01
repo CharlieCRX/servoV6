@@ -196,6 +196,20 @@ double AxisViewModelCore::negLimit() const
 // 2. 错误接口（列表收集模式）
 // =============================================================================
 
+double AxisViewModelCore::absMoveTarget() const
+{
+    auto* axis = tryReadAxis(m_manager, m_groupName, m_axisId);
+    if (!axis) return 0.0;
+    return axis->absMoveTarget();
+}
+
+double AxisViewModelCore::relMoveTarget() const
+{
+    auto* axis = tryReadAxis(m_manager, m_groupName, m_axisId);
+    if (!axis) return 0.0;
+    return axis->relMoveTarget();
+}
+
 bool AxisViewModelCore::hasError() const
 {
     return !m_errorHistory.empty();

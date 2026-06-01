@@ -72,6 +72,10 @@ public:
     bool isLoading() const;                // Policy 运行中返回 true
     std::string moveStep() const;          // 当前编排步骤的可读字符串（调试/日志用）
 
+    // ── ★ Target 反馈查询（从 Axis applyFeedback 中获取的 PLC 目标值）──
+    double absMoveTarget() const;          // 当前 PLC 绝对目标 (ABS_TARGET D 寄存器镜像)
+    double relMoveTarget() const;          // 当前 PLC 相对目标 (REL_TARGET D 寄存器镜像)
+
     // ── 零位操作 ──
     void zeroAbsolutePosition();
     void setRelativeZero();
