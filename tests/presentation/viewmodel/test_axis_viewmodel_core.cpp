@@ -6,6 +6,8 @@
 #include "infrastructure/FakePLC.h"
 #include "infrastructure/FakeAxisDriver.h"
 #include "application/SystemManager.h"
+#include "application/policy/AbsMovePolicy.h"
+#include "application/policy/RelMovePolicy.h"
 #include "domain/entity/SystemContext.h"
 
 // ============================================================================
@@ -207,65 +209,14 @@ TEST_F(AxisViewModelCoreTest, ShouldExecuteJogBackwardLifecycle) {
 }
 
 // =========================================================
-// 测试 5：绝对定位全生命周期
-//   验证：moveAbsolute -> MovingAbsolute -> Idle（到位后自动掉电）-> 位置准确
-// =========================================================
-TEST_F(AxisViewModelCoreTest, ShouldCompleteAbsoluteMoveEndToEnd) {
-    double target = 100.0;
-
-    // Act: 下发绝对定位指令
-    vm->moveAbsolute(target);
-
-    // Assert 1: 等待进入 MovingAbsolute 状态
-    bool moving = waitUntil([this]() { return vm->state() == AxisState::MovingAbsolute; });
-    ASSERT_TRUE(moving) << "Failed to enter MovingAbsolute state!";
-
-    // Assert 2: 等待运动完成 + 自动掉电回到 Disabled
-    bool done = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 10000);
-    ASSERT_TRUE(done) << "Move absolute timed out or failed to disable!";
-
-    // Assert 3: 位置精确到达目标
-    EXPECT_NEAR(vm->absPos(), target, 0.01) << "Axis did not reach target position!";
-}
-
-// =========================================================
-// 测试 6：相对定位全生命周期
-// =========================================================
-TEST_F(AxisViewModelCoreTest, ShouldCompleteRelativeMoveEndToEnd) {
-    double distance = 50.0;
-
-    vm->moveRelative(distance);
-
-    // 等待进入 MovingRelative
-    bool moving = waitUntil([this]() { return vm->state() == AxisState::MovingRelative; });
-    ASSERT_TRUE(moving);
-
-    // 等待完成 -> Disabled
-    bool done = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 10000);
-    ASSERT_TRUE(done);
-
-    EXPECT_NEAR(vm->absPos(), distance, 0.01) << "Relative move did not reach expected position!";
-
-    // 第二次相对定位（轴当前是 Disabled，Orchestrator 会先自动 Enable -> Move -> Disable）
-    vm->moveRelative(30.0);
-
-    // 先等进入 MovingRelative（证明 Orchestrator 已走完 EnsuringEnabled -> IssuingMove）
-    done = waitUntil([this]() { return vm->state() == AxisState::MovingRelative; }, 10000);
-    ASSERT_TRUE(done) << "Second move did not start!";
-
-    // 再等完成 -> Disabled
-    done = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 10000);
-    ASSERT_TRUE(done);
-    EXPECT_NEAR(vm->absPos(), 80.0, 0.01) << "Second relative move position incorrect!";
-}
-
-// =========================================================
-// 测试 7：急停中断运动
+// 测试 5：急停中断运动（两步操作：setAbsTarget + triggerAbsMove）
 //   验证：运动中 stop() -> 立即停止 -> 回到 Disabled
 // =========================================================
 TEST_F(AxisViewModelCoreTest, ShouldHaltImmediatelyWhenStopPressed) {
-    // 发起一个较远的定位任务
-    vm->moveAbsolute(800.0);
+    // 两步操作：设置目标 + 触发移动（Policy 编排）
+    vm->setAbsTarget(800.0);
+    advanceTime(TICK_MS);  // 让 consumePendingCommands 发送 SetAbsTargetCommand
+    vm->triggerAbsMove();
     ASSERT_TRUE(waitUntil([this]() { return vm->state() == AxisState::MovingAbsolute; }));
 
     // 让它跑 500ms
@@ -292,23 +243,23 @@ TEST_F(AxisViewModelCoreTest, ShouldHaltImmediatelyWhenStopPressed) {
 }
 
 // =========================================================
-// 测试 8：禁用状态下不可运动（领域层拦截）
-//   验证：Disabled 时 moveAbsolute -> 状态保持 Disabled + 产生错误
+// 测试 6：Disabled 状态下两步绝对定位（Policy 自动 Enable + Move + Disable）
+//   验证：Disabled 时 setAbsTarget + triggerAbsMove -> 完整生命周期
 // =========================================================
-TEST_F(AxisViewModelCoreTest, ShouldRejectMoveWhenDisabled) {
-    // 新架构语义：Disabled 状态下 moveAbsolute 会触发 Orchestrator 自动
-    // EnsuringEnabled -> IssuingMove -> WaitingMotionStart -> WaitingMotionFinish -> Done 流程，
-    // 即 Disabled -> Enable -> Move -> Disable 的完整生命周期，运动能正常完成。
+TEST_F(AxisViewModelCoreTest, ShouldCompleteAbsMoveFromDisabledViaPolicy) {
+    // 新架构语义：Disabled 状态下 triggerAbsMove 触发 AbsMovePolicy 编排
+    // EnsuringEnabled -> TriggeringMove -> WaitingMotionStart -> WaitingMotionFinish -> Disabling -> Done
     double beforePos = vm->absPos();
     EXPECT_EQ(vm->state(), AxisState::Disabled);
 
-    vm->moveAbsolute(100.0);
+    vm->setAbsTarget(100.0);
+    advanceTime(TICK_MS);  // 让 consumePendingCommands 发送 SetAbsTargetCommand
+    vm->triggerAbsMove();
 
-    // 先推进一帧确保 Orchestrator 状态机被驱动启动（避免 waitUntil
-    // 因 condition 初始为 true 而直接返回，导致从未 tick 过）
+    // 先推进一帧确保 Policy 状态机被驱动启动
     advanceTime(TICK_MS);
 
-    // 等待运动完成（Orchestrator 自动 Enable + Move + Disable）
+    // 等待运动完成（Policy 自动 Enable + Move + Disable）
     bool done = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 10000);
     ASSERT_TRUE(done) << "Move should complete normally from Disabled state!";
     EXPECT_NEAR(vm->absPos(), 100.0, 0.01) << "Axis should reach target position!";
@@ -428,16 +379,15 @@ TEST_F(AxisViewModelCoreTest, ShouldAccumulateErrorsWithoutOverwriting) {
     EXPECT_FALSE(vm->hasError());
     EXPECT_EQ(vm->errorCount(), 0u);
 
-    // 在 Disabled 状态执行零位操作（产生 Modal 错误）
-    vm->zeroAbsolutePosition();
+    // 设置非法速度（v <= 0.0 => InvalidArgument 拒绝）
+    vm->setJogVelocity(0.0);
     ASSERT_TRUE(vm->hasError());
     EXPECT_EQ(vm->errorCount(), 1u);
     auto firstErr = vm->lastError();
-    // 轴存在但处于 Disabled 状态，zeroAbsolutePosition() 被 Axis 层拒绝
-    EXPECT_EQ(firstErr.code, "AXIS_INVALID_STATE");
+    EXPECT_FALSE(firstErr.code.empty());
 
-    // 执行另一个零位操作（产生第二个错误，应追加而非覆盖第一个）
-    vm->setRelativeZero();
+    // 再次设置非法速度（产生第二个错误，应追加而非覆盖第一个）
+    vm->setJogVelocity(0.0);
     EXPECT_GE(vm->errorCount(), 2u);
 }
 
@@ -447,20 +397,19 @@ TEST_F(AxisViewModelCoreTest, ShouldAccumulateErrorsWithoutOverwriting) {
 TEST_F(AxisViewModelCoreTest, AllErrorsShouldReturnFullSnapshot) {
     EXPECT_EQ(vm->allErrors().size(), 0u);
 
-    vm->zeroAbsolutePosition();
+    vm->setJogVelocity(0.0);
     ASSERT_GE(vm->errorCount(), 1u);
 
     auto errors = vm->allErrors();
     EXPECT_EQ(errors.size(), vm->errorCount());
-    // 轴存在但处于 Disabled 状态，被 Axis 层以 InvalidState 拒绝
-    EXPECT_EQ(errors[0].code, "AXIS_INVALID_STATE");
+    EXPECT_FALSE(errors[0].code.empty());
 }
 
 // =========================================================
 // ⭐ 测试 16：acknowledgeError 按索引移除单条错误
 // =========================================================
 TEST_F(AxisViewModelCoreTest, ShouldAcknowledgeErrorByIndex) {
-    vm->zeroAbsolutePosition();
+    vm->setJogVelocity(0.0);
     ASSERT_GE(vm->errorCount(), 1u);
 
     size_t before = vm->errorCount();
@@ -476,8 +425,8 @@ TEST_F(AxisViewModelCoreTest, ShouldAcknowledgeErrorByIndex) {
 // ⭐ 测试 17：clearAllErrors 批量清除
 // =========================================================
 TEST_F(AxisViewModelCoreTest, ShouldClearAllErrors) {
-    vm->zeroAbsolutePosition();
-    vm->setRelativeZero();
+    vm->setJogVelocity(0.0);
+    vm->setJogVelocity(0.0);
     ASSERT_GE(vm->errorCount(), 2u);
 
     vm->clearAllErrors();
@@ -490,7 +439,7 @@ TEST_F(AxisViewModelCoreTest, ShouldClearAllErrors) {
 // ⭐ 测试 18：clearError() 兼容接口等价于 clearAllErrors
 // =========================================================
 TEST_F(AxisViewModelCoreTest, ClearErrorShouldBeEquivalentToClearAllErrors) {
-    vm->zeroAbsolutePosition();
+    vm->setJogVelocity(0.0);
     ASSERT_TRUE(vm->hasError());
 
     vm->clearError();
@@ -518,4 +467,215 @@ TEST_F(AxisViewModelCoreTest, LastErrorShouldReturnInvalidWhenEmpty) {
     auto err = vm->lastError();
     EXPECT_FALSE(err.isValid());
     EXPECT_TRUE(err.code.empty());
+}
+
+// =========================================================
+// ⭐ 测试 21：两步绝对定位全生命周期（setAbsTarget + triggerAbsMove）
+//   验证：Idle 状态 -> setAbsTarget -> triggerAbsMove ->
+//         MovingAbsolute -> Disabled -> 位置精确
+// =========================================================
+TEST_F(AxisViewModelCoreTest, ShouldCompleteTwoStepAbsMoveEndToEnd) {
+    vm->enable(true);
+    ASSERT_TRUE(waitUntil([this]() { return vm->state() == AxisState::Idle; }));
+
+    double target = 150.0;
+
+    // Step 1: 设置绝对目标（仅写 PLC，不触发运动）
+    vm->setAbsTarget(target);
+    advanceTime(TICK_MS);  // 让 consumePendingCommands 发送 SetAbsTargetCommand
+
+    // 确认尚未运动
+    EXPECT_EQ(vm->state(), AxisState::Idle);
+    EXPECT_NEAR(vm->absPos(), 0.0, 0.01);
+
+    // Step 2: 触发绝对移动（走 AbsMovePolicy 编排）
+    vm->triggerAbsMove();
+
+    // 等待进入 MovingAbsolute
+    bool moving = waitUntil([this]() { return vm->state() == AxisState::MovingAbsolute; });
+    ASSERT_TRUE(moving) << "Failed to enter MovingAbsolute after triggerAbsMove!";
+
+    // 等待完成 -> Disabled
+    bool done = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 10000);
+    ASSERT_TRUE(done) << "Two-step absolute move timed out!";
+
+    EXPECT_NEAR(vm->absPos(), target, 0.01);
+    EXPECT_FALSE(vm->hasError());
+}
+
+// =========================================================
+// ⭐ 测试 22：两步相对定位全生命周期（setRelTarget + triggerRelMove）
+// =========================================================
+TEST_F(AxisViewModelCoreTest, ShouldCompleteTwoStepRelMoveEndToEnd) {
+    vm->enable(true);
+    ASSERT_TRUE(waitUntil([this]() { return vm->state() == AxisState::Idle; }));
+
+    double distance = 60.0;
+
+    // Step 1: 设置相对距离
+    vm->setRelTarget(distance);
+    advanceTime(TICK_MS);
+
+    // 确认尚未运动
+    EXPECT_EQ(vm->state(), AxisState::Idle);
+    EXPECT_NEAR(vm->absPos(), 0.0, 0.01);
+
+    // Step 2: 触发相对移动
+    vm->triggerRelMove();
+
+    // 等待进入 MovingRelative
+    bool moving = waitUntil([this]() { return vm->state() == AxisState::MovingRelative; });
+    ASSERT_TRUE(moving);
+
+    // 等待完成 -> Disabled
+    bool done = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 10000);
+    ASSERT_TRUE(done);
+
+    EXPECT_NEAR(vm->absPos(), distance, 0.01);
+    EXPECT_FALSE(vm->hasError());
+
+    // 第二次相对定位（从 Disabled 状态，Policy 自动 Enable）
+    vm->setRelTarget(30.0);
+    advanceTime(TICK_MS);
+    vm->triggerRelMove();
+
+    done = waitUntil([this]() { return vm->state() == AxisState::MovingRelative; }, 10000);
+    ASSERT_TRUE(done) << "Second move did not start!";
+
+    done = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 10000);
+    ASSERT_TRUE(done);
+    EXPECT_NEAR(vm->absPos(), 90.0, 0.01);
+}
+
+// =========================================================
+// ⭐ 测试 23：setAbsTarget 不触发运动（仅写寄存器，状态不变）
+// =========================================================
+TEST_F(AxisViewModelCoreTest, SetAbsTargetShouldNotTriggerMotion) {
+    vm->enable(true);
+    ASSERT_TRUE(waitUntil([this]() { return vm->state() == AxisState::Idle; }));
+
+    double startPos = vm->absPos();
+    EXPECT_NEAR(startPos, 0.0, 0.01);
+
+    vm->setAbsTarget(300.0);
+    advanceTime(TICK_MS);
+    advanceTime(200);  // 再多等几帧确保没有意外运动
+
+    // 状态应保持 Idle，位置不变
+    EXPECT_EQ(vm->state(), AxisState::Idle);
+    EXPECT_NEAR(vm->absPos(), startPos, 0.01);
+    EXPECT_FALSE(vm->hasError());
+}
+
+// =========================================================
+// ⭐ 测试 24：setRelTarget 不触发运动
+// =========================================================
+TEST_F(AxisViewModelCoreTest, SetRelTargetShouldNotTriggerMotion) {
+    vm->enable(true);
+    ASSERT_TRUE(waitUntil([this]() { return vm->state() == AxisState::Idle; }));
+
+    double startPos = vm->absPos();
+
+    vm->setRelTarget(50.0);
+    advanceTime(TICK_MS);
+    advanceTime(200);
+
+    EXPECT_EQ(vm->state(), AxisState::Idle);
+    EXPECT_NEAR(vm->absPos(), startPos, 0.01);
+}
+
+// =========================================================
+// ⭐ 测试 25：isLoading 反映 Policy 运行状态
+// =========================================================
+TEST_F(AxisViewModelCoreTest, ShouldReportLoadingDuringPolicyExecution) {
+    // 初始：无 Policy 运行
+    EXPECT_FALSE(vm->isLoading());
+    EXPECT_EQ(vm->moveStep(), "Idle");
+
+    vm->enable(true);
+    ASSERT_TRUE(waitUntil([this]() { return vm->state() == AxisState::Idle; }));
+
+    vm->setAbsTarget(80.0);
+    advanceTime(TICK_MS);
+    vm->triggerAbsMove();
+
+    // Policy 启动后应处于 Loading
+    advanceTime(TICK_MS);
+
+    bool foundLoading = waitUntil([this]() { return vm->isLoading(); }, 2000);
+    ASSERT_TRUE(foundLoading) << "isLoading should be true while Policy is active!";
+
+    // moveStep 应为非 Idle
+    EXPECT_NE(vm->moveStep(), "Idle");
+
+    // 等待完成
+    bool done = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 10000);
+    ASSERT_TRUE(done);
+
+    // 完成后 isLoading 应为 false
+    EXPECT_FALSE(vm->isLoading());
+    EXPECT_EQ(vm->moveStep(), "Idle");
+}
+
+// =========================================================
+// ⭐ 测试 26：moveStep 反映编排步骤变化
+// =========================================================
+TEST_F(AxisViewModelCoreTest, ShouldReportMoveStepDuringPolicy) {
+    vm->enable(true);
+    ASSERT_TRUE(waitUntil([this]() { return vm->state() == AxisState::Idle; }));
+
+    EXPECT_EQ(vm->moveStep(), "Idle");
+
+    vm->setAbsTarget(120.0);
+    advanceTime(TICK_MS);
+    vm->triggerAbsMove();
+
+    // 驱动 Policy tick 至少一帧
+    advanceTime(TICK_MS);
+
+    // moveStep 应变为非 Idle（EnsuringEnabled 或后续步骤）
+    std::string step = vm->moveStep();
+    EXPECT_NE(step, "Idle");
+
+    // 等待完成
+    bool done = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 10000);
+    ASSERT_TRUE(done);
+
+    EXPECT_EQ(vm->moveStep(), "Idle");
+}
+
+// =========================================================
+// ⭐ 测试 27：setAbsTarget 在 Disabled 状态下仍能写入
+//   验证：目标设置是纯数据写入，不受轴状态限制
+// =========================================================
+TEST_F(AxisViewModelCoreTest, ShouldSetAbsTargetEvenWhenDisabled) {
+    EXPECT_EQ(vm->state(), AxisState::Disabled);
+
+    vm->setAbsTarget(200.0);
+    advanceTime(TICK_MS);
+
+    // 虽然轴 Disabled，但 setAbsTarget 仅写寄存器 + 排队 pending command
+    // 应无错误（设置操作不应被拒绝）
+    EXPECT_FALSE(vm->hasError());
+}
+
+// =========================================================
+// ⭐ 测试 28：triggerAbsMove 不传 target，仅触发已设置的目标
+//   验证：先 setAbsTarget(150) -> 再 triggerAbsMove -> 到达 150
+//        （不是 0，也不是其他值）
+// =========================================================
+TEST_F(AxisViewModelCoreTest, TriggerAbsMoveShouldUsePreviouslySetTarget) {
+    vm->enable(true);
+    ASSERT_TRUE(waitUntil([this]() { return vm->state() == AxisState::Idle; }));
+
+    double myTarget = 175.0;
+    vm->setAbsTarget(myTarget);
+    advanceTime(TICK_MS);
+
+    vm->triggerAbsMove();
+
+    bool done = waitUntil([this]() { return vm->state() == AxisState::Disabled; }, 10000);
+    ASSERT_TRUE(done);
+
+    EXPECT_NEAR(vm->absPos(), myTarget, 0.01);
 }

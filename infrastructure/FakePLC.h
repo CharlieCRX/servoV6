@@ -797,6 +797,103 @@ private:
         axis.feedback.getMoveVelocity = std::abs(cmd.velocity);
     }
 
+    void processCommand(AxisId id, const SetAbsTargetCommand& cmd) {
+        auto& axis = m_axes.at(id);
+
+        LOG_DEBUG(LogLayer::HAL, "PLC",
+            "process: axis=" + axisIdToString(id)
+            + " cmd=SetAbsTargetCommand(target=" + std::to_string(cmd.target) + ")"
+            + " state=" + std::to_string(static_cast<int>(axis.feedback.state)));
+
+        // 镜像 PLC ABS_TARGET D 寄存器
+        axis.feedback.absMoveTarget = cmd.target;
+    }
+
+    void processCommand(AxisId id, const TriggerAbsMoveCommand&) {
+        auto& axis = m_axes.at(id);
+
+        LOG_DEBUG(LogLayer::HAL, "PLC",
+            "process: axis=" + axisIdToString(id)
+            + " cmd=TriggerAbsMoveCommand"
+            + " state=" + std::to_string(static_cast<int>(axis.feedback.state))
+            + " target=" + std::to_string(axis.feedback.absMoveTarget));
+
+        // 急停激活时，忽略所有运动命令
+        if (m_emergencyStoppedReg) {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "TriggerAbsMove REJECTED: axis=" + axisIdToString(id)
+                + " EMERGENCY STOP ACTIVE");
+            return;
+        }
+
+        // 联动 ON 时，不允许 X1/X2 独立定位
+        if (m_gantryFeedback.isCoupled && (id == AxisId::X1 || id == AxisId::X2)) {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "TriggerAbsMove REJECTED: axis=" + axisIdToString(id)
+                + " GANTRY COUPLED");
+            return;
+        }
+
+        if (axis.feedback.state == AxisState::Idle) {
+            axis.feedback.state = AxisState::MovingAbsolute;
+            axis.target_pos = axis.feedback.absMoveTarget;
+        } else {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "TriggerAbsMove REJECTED: axis=" + axisIdToString(id)
+                + " state=" + std::to_string(static_cast<int>(axis.feedback.state))
+                + " (requires Idle)");
+        }
+    }
+
+    void processCommand(AxisId id, const SetRelTargetCommand& cmd) {
+        auto& axis = m_axes.at(id);
+
+        LOG_DEBUG(LogLayer::HAL, "PLC",
+            "process: axis=" + axisIdToString(id)
+            + " cmd=SetRelTargetCommand(distance=" + std::to_string(cmd.distance) + ")"
+            + " state=" + std::to_string(static_cast<int>(axis.feedback.state)));
+
+        // 镜像 PLC REL_TARGET D 寄存器
+        axis.feedback.relMoveTarget = cmd.distance;
+    }
+
+    void processCommand(AxisId id, const TriggerRelMoveCommand&) {
+        auto& axis = m_axes.at(id);
+
+        LOG_DEBUG(LogLayer::HAL, "PLC",
+            "process: axis=" + axisIdToString(id)
+            + " cmd=TriggerRelMoveCommand"
+            + " state=" + std::to_string(static_cast<int>(axis.feedback.state))
+            + " relTarget=" + std::to_string(axis.feedback.relMoveTarget)
+            + " absPos=" + std::to_string(axis.feedback.absPos));
+
+        // 急停激活时，忽略所有运动命令
+        if (m_emergencyStoppedReg) {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "TriggerRelMove REJECTED: axis=" + axisIdToString(id)
+                + " EMERGENCY STOP ACTIVE");
+            return;
+        }
+
+        // 联动 ON 时，不允许 X1/X2 独立定位
+        if (m_gantryFeedback.isCoupled && (id == AxisId::X1 || id == AxisId::X2)) {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "TriggerRelMove REJECTED: axis=" + axisIdToString(id)
+                + " GANTRY COUPLED");
+            return;
+        }
+
+        if (axis.feedback.state == AxisState::Idle) {
+            axis.feedback.state = AxisState::MovingRelative;
+            axis.target_pos = axis.feedback.absPos + axis.feedback.relMoveTarget;
+        } else {
+            LOG_WARN(LogLayer::HAL, "PLC",
+                "TriggerRelMove REJECTED: axis=" + axisIdToString(id)
+                + " state=" + std::to_string(static_cast<int>(axis.feedback.state))
+                + " (requires Idle)");
+        }
+    }
+
     void processCommand(AxisId id, const GantryCouplingCommand& cmd) {
         (void)id;
         LOG_DEBUG(LogLayer::HAL, "PLC",

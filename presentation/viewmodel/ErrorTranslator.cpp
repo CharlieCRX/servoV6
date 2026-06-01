@@ -186,6 +186,17 @@ ViewModelError translate(const UseCaseError& err) {
         }
 
         // =============================================
+        // Policy 策略层超时错误
+        // =============================================
+        else if constexpr (std::is_same_v<T, ErrTimeout>) {
+            return {"POLICY_TIMEOUT",
+                    "策略步 " + e.step + " 超时（" + std::to_string(e.timeoutSec) + "s）",
+                    "Policy step '" + e.step + "' timed out after "
+                        + std::to_string(e.timeoutSec) + " seconds",
+                    ErrorCategory::Modal};
+        }
+
+        // =============================================
         // 安全域急停层错误
         // =============================================
         else if constexpr (std::is_same_v<T, SafetyRejection>) {

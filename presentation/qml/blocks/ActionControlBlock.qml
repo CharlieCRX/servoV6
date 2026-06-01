@@ -42,16 +42,19 @@ Rectangle {
         return ""
     }
 
-    // 点动模式可用条件：非系统锁定 + viewModel 绑定 + 非龙门锁定
-    property bool jogEnabled: !systemLocked && viewModel !== null && !gantryOperationLocked
+    // 点动模式可用条件：非系统锁定 + viewModel 绑定
+    property bool jogEnabled: !systemLocked && viewModel !== null
 
-    // 定位模式就绪条件：
-    //   - 系统未锁定
-    //   - 无故障（避免在有未确认错误时下发新指令）
-    //   - 非运动中（state ≤ Idle，即 Disabled 或 Standstill）
-    //   - 非龙门操作锁定
-    //   单轴使用 policy 自动管理使能，不需要强制 isEnabled
-    property bool isReadyForPos: !systemLocked && !gantryOperationLocked && viewModel ? 
+    // ★ 定位模式下触发是否就绪：
+    //    - 系统未锁定
+    //    - 无故障
+    //    - 非运动中（state ≤ Idle）
+    //    - Policy 未运行中
+    property bool isReadyForTrigger: !systemLocked && viewModel ? 
+        (!viewModel.hasError && viewModel.state <= 2 && !viewModel.isLoading) : false
+
+    // ★ 设置目标是否就绪（同触发条件，但 loading 时仍可设置新目标覆盖旧目标）：
+    property bool isReadyForSetTarget: !systemLocked && viewModel ? 
         (!viewModel.hasError && viewModel.state <= 2) : false
 
         color: "transparent"
@@ -240,7 +243,7 @@ Rectangle {
                 Item { Layout.fillHeight: true }
             }
 
-            // --- B. 定位控制面板 ---
+            // --- B. 定位控制面板（★ v2 重新设计：独立按钮映射） ---
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 8 * Theme.scale
@@ -266,7 +269,7 @@ Rectangle {
                         buttonSize: 30 * Theme.scale
                         isCircle: true
                         baseColor: Theme.panelBg
-                        enabled: root.isReadyForPos
+                        enabled: root.isReadyForSetTarget
                         onClicked: moveVelocityPopup.open()
                     }
                 }
@@ -279,7 +282,7 @@ Rectangle {
                     RadioButton {
                         text: "绝对"
                         checked: root.isAbsolute
-                        enabled: root.isReadyForPos
+                        enabled: root.isReadyForSetTarget
                         opacity: enabled ? 1.0 : 0.5
                         onClicked: root.isAbsolute = true
                         contentItem: Text {
@@ -293,7 +296,7 @@ Rectangle {
                     RadioButton {
                         text: "相对"
                         checked: !root.isAbsolute
-                        enabled: root.isReadyForPos
+                        enabled: root.isReadyForSetTarget
                         opacity: enabled ? 1.0 : 0.5
                         onClicked: root.isAbsolute = false
                         contentItem: Text {
@@ -308,46 +311,148 @@ Rectangle {
                 // 上半弹簧
                 Item { Layout.fillHeight: true }
 
-                // 目标值输入
-                TextField {
-                    id: targetInput
+                // ── ★ 绝对定位组 ──
+                ColumnLayout {
                     Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: 140 * Theme.scale
-                    text: "100.0"
-                    enabled: root.isReadyForPos
-                    opacity: enabled ? 1.0 : 0.5
-                    font.pixelSize: Theme.fontLarge
-                    font.family: "Monospace"
-                    color: Theme.textMain
-                    horizontalAlignment: TextInput.AlignHCenter
-                    background: Rectangle {
-                        color: Theme.bgDark
-                        border.color: targetInput.activeFocus ? Theme.colorMoving : Theme.borderMain
-                        border.width: 2
-                        radius: 6 * Theme.scale
-                    }
-                    validator: DoubleValidator { bottom: -9999.9; top: 9999.9; decimals: 2 }
-                }
+                    spacing: 6 * Theme.scale
+                    visible: root.isAbsolute
 
-                // 执行按钮
-                IndustrialButton {
-                    text: root.isReadyForPos ? "执行 GO" : "运行中..."
-                    isCircle: false
-                    buttonSize: 140 * Theme.scale
-                    enabled: root.isReadyForPos
-                    baseColor: root.isReadyForPos ? Theme.colorIdle : Theme.colorDisabled
-                    Layout.alignment: Qt.AlignHCenter
-                    onClicked: {
-                        if (!root.isReadyForPos) return
-                        let target = parseFloat(targetInput.text)
-                        if (!isNaN(target) && viewModel) {
-                            if (root.isAbsolute) {
-                                viewModel.moveAbsolute(target)
-                            } else {
-                                viewModel.moveRelative(target)
+                    // 目标值输入
+                    TextField {
+                        id: absTargetInput
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: 140 * Theme.scale
+                        text: "100.0"
+                        enabled: root.isReadyForSetTarget
+                        opacity: enabled ? 1.0 : 0.5
+                        font.pixelSize: Theme.fontLarge
+                        font.family: "Monospace"
+                        color: Theme.textMain
+                        horizontalAlignment: TextInput.AlignHCenter
+                        background: Rectangle {
+                            color: Theme.bgDark
+                            border.color: absTargetInput.activeFocus ? Theme.colorMoving : Theme.borderMain
+                            border.width: 2
+                            radius: 6 * Theme.scale
+                        }
+                        validator: DoubleValidator { bottom: -9999.9; top: 9999.9; decimals: 2 }
+                    }
+
+                    // 按钮组：设置目标 + 触发移动
+                    RowLayout {
+                        Layout.alignment: Qt.AlignHCenter
+                        spacing: 8 * Theme.scale
+
+                        // ★ 按钮 1：设置绝对目标
+                        IndustrialButton {
+                            text: root.isReadyForSetTarget ? "设置目标" : "不可用"
+                            isCircle: false
+                            buttonSize: 110 * Theme.scale
+                            enabled: root.isReadyForSetTarget
+                            baseColor: root.isReadyForSetTarget ? Theme.panelBg : Theme.colorDisabled
+                            onClicked: {
+                                if (!root.isReadyForSetTarget) return
+                                let target = parseFloat(absTargetInput.text)
+                                if (!isNaN(target) && viewModel) {
+                                    viewModel.setAbsTarget(target)
+                                }
+                            }
+                        }
+
+                        // ★ 按钮 2：触发绝对定位
+                        IndustrialButton {
+                            text: root.isReadyForTrigger ? "绝对定位 GO" : (
+                                viewModel && viewModel.isLoading ? "运行中..." : "不可用"
+                            )
+                            isCircle: false
+                            buttonSize: 110 * Theme.scale
+                            enabled: root.isReadyForTrigger
+                            baseColor: root.isReadyForTrigger ? Theme.colorIdle : Theme.colorDisabled
+                            onClicked: {
+                                if (!root.isReadyForTrigger) return
+                                if (viewModel) {
+                                    viewModel.triggerAbsMove()
+                                }
                             }
                         }
                     }
+                }
+
+                // ── ★ 相对定位组 ──
+                ColumnLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    spacing: 6 * Theme.scale
+                    visible: !root.isAbsolute
+
+                    // 距离值输入
+                    TextField {
+                        id: relTargetInput
+                        Layout.alignment: Qt.AlignHCenter
+                        Layout.preferredWidth: 140 * Theme.scale
+                        text: "50.0"
+                        enabled: root.isReadyForSetTarget
+                        opacity: enabled ? 1.0 : 0.5
+                        font.pixelSize: Theme.fontLarge
+                        font.family: "Monospace"
+                        color: Theme.textMain
+                        horizontalAlignment: TextInput.AlignHCenter
+                        background: Rectangle {
+                            color: Theme.bgDark
+                            border.color: relTargetInput.activeFocus ? Theme.colorMoving : Theme.borderMain
+                            border.width: 2
+                            radius: 6 * Theme.scale
+                        }
+                        validator: DoubleValidator { bottom: -9999.9; top: 9999.9; decimals: 2 }
+                    }
+
+                    // 按钮组：设置距离 + 触发移动
+                    RowLayout {
+                        Layout.alignment: Qt.AlignHCenter
+                        spacing: 8 * Theme.scale
+
+                        // ★ 按钮 1：设置相对距离
+                        IndustrialButton {
+                            text: root.isReadyForSetTarget ? "设置距离" : "不可用"
+                            isCircle: false
+                            buttonSize: 110 * Theme.scale
+                            enabled: root.isReadyForSetTarget
+                            baseColor: root.isReadyForSetTarget ? Theme.panelBg : Theme.colorDisabled
+                            onClicked: {
+                                if (!root.isReadyForSetTarget) return
+                                let distance = parseFloat(relTargetInput.text)
+                                if (!isNaN(distance) && viewModel) {
+                                    viewModel.setRelTarget(distance)
+                                }
+                            }
+                        }
+
+                        // ★ 按钮 2：触发相对定位
+                        IndustrialButton {
+                            text: root.isReadyForTrigger ? "相对定位 GO" : (
+                                viewModel && viewModel.isLoading ? "运行中..." : "不可用"
+                            )
+                            isCircle: false
+                            buttonSize: 110 * Theme.scale
+                            enabled: root.isReadyForTrigger
+                            baseColor: root.isReadyForTrigger ? Theme.colorIdle : Theme.colorDisabled
+                            onClicked: {
+                                if (!root.isReadyForTrigger) return
+                                if (viewModel) {
+                                    viewModel.triggerRelMove()
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ── ★ Loading 状态指示（可选，调试用）──
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: viewModel ? viewModel.moveStep : ""
+                    visible: viewModel && viewModel.isLoading
+                    color: "gray"
+                    font.pixelSize: Theme.fontSmall
+                    font.family: "Monospace"
                 }
 
                 // 下半弹簧

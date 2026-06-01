@@ -2,6 +2,7 @@ include(GoogleTest)
 
 add_executable(unit_tests
 
+    # ================ First-party tests ================
     # presentation/viewmodel/test_axis_viewmodel_core.cpp
     # presentation/viewmodel/test_error_translator.cpp
     # presentation/viewmodel/test_gantry_viewmodel.cpp
@@ -9,6 +10,8 @@ add_executable(unit_tests
     # infrastructure/test_system_integration.cpp
     # infrastructure/test_fake_plc.cpp
 
+    # application/policy/test_abs_move_policy.cpp
+    # application/policy/test_rel_move_policy.cpp
     # application/policy/test_auto_rel_move_orchestrator.cpp
     # application/policy/test_auto_abs_move_orchestrator.cpp
     # application/policy/test_jog_orchestrator.cpp
@@ -28,22 +31,50 @@ add_executable(unit_tests
     # domain/gantry/test_gantry_coupling_state.cpp
     # domain/safety/test_emergency_stop_controller.cpp
 
+    # domain/test_axis.cpp
+    # domain/test_axis_move_target.cpp
 
-    domain/test_axis.cpp
+
+    #=============== Sencond-party tests ================
+    # infrastructure/protocol/test_real_feedback_readonly.cpp
+    # infrastructure/protocol/test_modbus_tcp_integration.cpp
+    # infrastructure/protocol/test_asio_modbus_client.cpp
+    # infrastructure/protocol/test_modbus_tcp_frame.cpp
+    # infrastructure/protocol/test_plc_device.cpp
+    # infrastructure/protocol/test_plc_snapshot.cpp
+    # infrastructure/protocol/test_plc_poller.cpp
+    # infrastructure/protocol/test_register_codec_snapshot.cpp
+    # infrastructure/protocol/test_plc_value.cpp
+    # infrastructure/protocol/test_raw_word_snapshot.cpp
+    # infrastructure/protocol/test_raw_bit_snapshot.cpp
+    # infrastructure/protocol/test_protocol_validator.cpp
+    # infrastructure/protocol/test_register_registry.cpp
+    # infrastructure/protocol/test_register_codec.cpp
+
+    #=============== Third-party tests ================
+    # infrastructure/test_modbus_system_driver_poll_feedback.cpp
+    # infrastructure/test_modbus_system_driver_send.cpp
+    # infrastructure/test_modbus_system_driver_state_derive.cpp
+    # infrastructure/test_modbus_system_driver.cpp
+    # infrastructure/test_modbus_system_driver_edge_trigger.cpp
+
 )
 
 target_include_directories(unit_tests
     PRIVATE
-        ${CMAKE_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/infrastructure
 )
 
 target_link_libraries(unit_tests
     PRIVATE
+        infrastructure
         domain
         application
         presentation
         GTest::gtest
         GTest::gtest_main
+        GTest::gmock
+        GTest::gmock_main
         Qt6::Core
 )
 

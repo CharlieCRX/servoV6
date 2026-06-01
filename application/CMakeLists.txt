@@ -9,6 +9,8 @@ add_library(application
     policy/AutoAbsMoveOrchestrator.h
     policy/AutoRelMoveOrchestrator.h
     policy/GantryOrchestrator.h
+    policy/AbsMovePolicy.h
+    policy/RelMovePolicy.h
 
     safety/EmergencyStopUseCase.h
     safety/ReleaseEmergencyStopUseCase.h
@@ -20,10 +22,10 @@ add_library(application
 target_include_directories(application
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}
 )
 
 target_link_libraries(application
     PUBLIC
         domain
+        infrastructure
 )

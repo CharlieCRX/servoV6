@@ -29,6 +29,10 @@ class QtAxisViewModel : public QObject {
     Q_PROPERTY(QString errorCategory READ errorCategory NOTIFY errorChanged)
     Q_PROPERTY(int errorCount READ errorCount NOTIFY errorCountChanged)
 
+    // ★ Policy 运行中状态 + 当前步骤（带 NOTIFY，QML 绑定可自动刷新）
+    Q_PROPERTY(bool isLoading READ isLoading NOTIFY loadingChanged)
+    Q_PROPERTY(QString moveStep READ moveStep NOTIFY loadingChanged)
+
 public:
     explicit QtAxisViewModel(AxisViewModelCore* core, QObject *parent = nullptr);
 
@@ -60,8 +64,11 @@ public:
     Q_INVOKABLE void jogNegativePressed();
     Q_INVOKABLE void jogNegativeReleased();
 
-    Q_INVOKABLE void moveAbsolute(double targetPos);
-    Q_INVOKABLE void moveRelative(double distance);
+    // ★ 独立按钮映射 — 两步操作 API
+    Q_INVOKABLE void setAbsTarget(double target);
+    Q_INVOKABLE void triggerAbsMove();
+    Q_INVOKABLE void setRelTarget(double distance);
+    Q_INVOKABLE void triggerRelMove();
 
     Q_INVOKABLE void setJogVelocity(double v);
     Q_INVOKABLE void setMoveVelocity(double v);
@@ -81,6 +88,10 @@ public:
     Q_INVOKABLE void acknowledgeError(int index);
     Q_INVOKABLE void acknowledgeAllErrors();
 
+    // ★ Policy 状态查询（QML 按钮 enabled / 动画控制）
+    Q_INVOKABLE bool isLoading() const;
+    Q_INVOKABLE QString moveStep() const;
+
     // 辅助方法（供周期性摘要使用）
     Q_INVOKABLE QString fullName() const;
     Q_INVOKABLE double position() const;
@@ -98,6 +109,7 @@ signals:
 
     // ⭐ 新增 signal
     void errorCountChanged();
+    void loadingChanged();
 
 private:
     AxisViewModelCore* m_core;
@@ -114,6 +126,10 @@ private:
     double    m_lastJogVelocity  = 0.0;
     double    m_lastMoveVelocity = 0.0;
     int       m_lastErrorCount   = 0;
+
+    // ★ Policy 状态缓存
+    bool      m_lastLoading   = false;
+    QString   m_lastMoveStep;
 
     const double EPSILON = 0.001;
 };

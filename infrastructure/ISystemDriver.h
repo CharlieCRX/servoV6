@@ -116,6 +116,24 @@ struct CommunicationResult {
     bool isProtocolIssue() const {
         return status == Status::ProtocolError;
     }
+
+    /// @brief 判断是否为已断连状态
+    [[nodiscard]]
+    bool isDisconnected() const {
+        return status == Status::Disconnected;
+    }
+
+    // ==================== 静态工厂方法 ====================
+
+    /// @brief 创建成功结果
+    [[nodiscard]] static CommunicationResult Sent() {
+        return CommunicationResult{Status::Sent, 0, ""};
+    }
+
+    /// @brief 创建未连接错误
+    [[nodiscard]] static CommunicationResult Disconnected() {
+        return CommunicationResult{Status::Disconnected, 0, "Device not connected"};
+    }
 };
 
 /**

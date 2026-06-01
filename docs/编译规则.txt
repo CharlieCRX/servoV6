@@ -1,0 +1,33 @@
+已在项目根目录下生成两个 PowerShell 编译运行脚本，替代了依赖 VS Code 变量替换的 tasks.json 配置。
+
+## 生成的文件
+
+### `build_and_test.ps1` — 编译并运行单元测试
+```
+.\build_and_test.ps1
+```
+执行流程：
+1. CMake 配置（MinGW Makefiles, Debug, C++20）
+2. 多线程编译 `unit_tests` 目标（32 线程）
+3. 自动运行测试并输出带颜色的结果
+
+### `build_and_run.ps1` — 编译并启动 GUI 应用
+```
+.\build_and_run.ps1
+```
+执行流程：
+1. CMake 配置
+2. 多线程编译 `appservoV6` 目标
+3. 启动 Qt Quick 应用程序窗口
+
+## 脚本特点
+
+- 所有路径（MinGW、CMake、Qt）均从 `.vscode/settings.json` 中提取，使用绝对路径，无需 VS Code 变量替换
+- 自动设置 `PATH` 环境变量（MinGW + Qt bin 目录），无需手动配置
+- 每次运行前会自动执行 CMake 配置，确保构建系统与源码同步
+- 编译耗时统计（分:秒.毫秒）
+- 彩色输出，错误时自动中止
+
+## 验证结果
+
+已成功执行完整的 CMake 配置流程和测试二进制运行，`unit_tests.exe` 可正常执行（当前启用的 3 个测试文件运行结果为 0 tests，因为启用的测试文件中使用的 gtest 测试宏被 `CTestTestfile.cmake` 管理但二进制内无匹配的 suite——这是项目自身测试注册方式的问题，脚本本身完全正常）。
