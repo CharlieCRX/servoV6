@@ -21,7 +21,7 @@ Popup {
     height: 280 * Theme.scale
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-    // 🌟 每次打开弹窗时，从底层读取最新目标值填充到输入框（只读显示）
+    // 🌟 每次打开弹窗时，从底层读取最新目标值（反馈值）填充到输入框
     onOpened: {
         if (viewModel) {
             if (targetType === "abs") {
@@ -58,9 +58,9 @@ Popup {
             Layout.alignment: Qt.AlignHCenter
         }
 
-        Item { Layout.fillHeight: true }
+        Item { Layout.fillHeight: true } // 弹簧
 
-        // 目标显示组（只读，值来自反馈）
+        // 目标输入组（可编辑，初始值来自反馈）
         RowLayout {
             Layout.alignment: Qt.AlignHCenter
             spacing: 15 * Theme.scale
@@ -76,24 +76,41 @@ Popup {
                 color: Theme.textMain
                 font.pixelSize: Theme.fontLarge
                 horizontalAlignment: TextInput.AlignHCenter
-                readOnly: true
                 background: Rectangle { color: Theme.bgDark; border.color: Theme.borderMain; radius: 4 }
+                validator: DoubleValidator { bottom: 0.1; top: 10000.0 }
             }
             Text { text: "mm"; color: Theme.textDim }
         }
 
-        Item { Layout.fillHeight: true }
+        Item { Layout.fillHeight: true } // 弹簧
 
-        // 底部按钮区（仅关闭）
+        // 底部按钮区
         RowLayout {
             Layout.fillWidth: true
             spacing: 20 * Theme.scale
 
             IndustrialButton {
                 Layout.fillWidth: true
-                text: "关 闭"
-                baseColor: Theme.colorIdle
+                text: "取 消"
+                baseColor: "transparent"
                 onClicked: root.close()
+            }
+
+            IndustrialButton {
+                Layout.fillWidth: true
+                text: "保 存"
+                baseColor: Theme.colorIdle
+                onClicked: {
+                    if (viewModel) {
+                        var value = parseFloat(targetInput.text)
+                        if (targetType === "abs") {
+                            viewModel.setAbsTarget(value)
+                        } else {
+                            viewModel.setRelTarget(value)
+                        }
+                    }
+                    root.close()
+                }
             }
         }
     }
