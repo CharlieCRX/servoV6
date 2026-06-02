@@ -87,7 +87,7 @@ std::string AxisViewModelCore::generateTraceId()
     static std::atomic<uint64_t> counter{0};
     auto now = std::chrono::steady_clock::now();
     auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
-        now.time_since_epoch()).count();
+        now.time_since_epoch()).count() % 1000000;
     return std::to_string(ns) + "_" + std::to_string(++counter);
 }
 

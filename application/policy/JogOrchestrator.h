@@ -9,6 +9,7 @@
 #include "infrastructure/logger/TraceScope.h"
 #include <variant>
 #include <string>
+#include <chrono>
 
 /**
  * @brief 点动运动编排器
@@ -49,6 +50,7 @@ public:
         : m_manager(manager)
         , m_groupName(groupName)
         , m_step(Step::Idle)
+        , m_enableTimeoutSeconds(3.0)   // ★ 使能超时：3 秒后未收到 Idle feedback 则判定失败
     {
     }
 
@@ -63,6 +65,10 @@ public:
         m_jogIssued = false;
         m_stopIssued = false;
         m_disableIssued = false;
+
+        // ★ 使能防重复 & 超时相关标志复位
+        m_enableSent     = false;
+        m_enableSentTime = std::chrono::steady_clock::time_point{};
 
         m_traceId = TraceScope::current().traceId;
 
@@ -145,22 +151,45 @@ public:
 
         case Step::EnsuringEnabled:
             if (axis->state() == AxisState::Disabled) {
-                LOG_DEBUG(LogLayer::APP, "JogOrch",
-                          "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -- sending Enable command");
-                // EnableUseCase 内部已做分组路由 + 领域幂等检查
-                auto err = EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, true);
-                if (!std::holds_alternative<std::monostate>(err)) {
-                    m_step = Step::Error;
-                    m_lastError = err;
-                    return;
+                if (!m_enableSent) {
+                    // ★ 防重复发送：使能仅发送一次
+                    LOG_DEBUG(LogLayer::APP, "JogOrch",
+                              "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -- sending Enable (first time)");
+                    auto err = EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, true);
+                    if (!std::holds_alternative<std::monostate>(err)) {
+                        LOG_ERROR(LogLayer::APP, "JogOrch",
+                                  "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -- EnableUseCase FAILED");
+                        m_step = Step::Error;
+                        m_lastError = err;
+                        break;
+                    }
+                    m_enableSent       = true;
+                    m_enableSentTime   = std::chrono::steady_clock::now();
+                    LOG_DEBUG(LogLayer::APP, "JogOrch",
+                              "[" + m_groupName + "][" + axisName(m_targetId) + "] Sent Enable, waiting for Idle feedback...");
+                } else {
+                    // ★ 超时检测：m_enableTimeoutSeconds 内未收到 Idle 则判定失败
+                    auto elapsed = std::chrono::duration<double>(
+                        std::chrono::steady_clock::now() - m_enableSentTime).count();
+                    if (elapsed > m_enableTimeoutSeconds) {
+                        LOG_ERROR(LogLayer::APP, "JogOrch",
+                                  "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -- TIMEOUT after "
+                                      + std::to_string(m_enableTimeoutSeconds)
+                                      + "s, still not Idle. Aborting.");
+                        m_step = Step::Error;
+                        m_lastError = ErrTimeout{"EnsuringEnabled", m_enableTimeoutSeconds};
+                        break;
+                    }
+                    LOG_TRACE(LogLayer::APP, "JogOrch",
+                              "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -- waiting for Idle feedback... (enable already sent, "
+                                  + std::to_string(elapsed) + "s elapsed)");
                 }
-                LOG_DEBUG(LogLayer::APP, "JogOrch",
-                          "[" + m_groupName + "][" + axisName(m_targetId) + "] Sent Enable");
                 break;
             }
             if (axis->state() == AxisState::Idle) {
                 LOG_DEBUG(LogLayer::APP, "JogOrch",
                           "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -> IssuingJog");
+                m_enableSent = false;   // ★ 清除标志，完成使能阶段
                 m_step = Step::IssuingJog;
                 break;
             }
@@ -353,6 +382,11 @@ private:
     bool m_jogIssued = false;
     bool m_stopIssued = false;
     bool m_disableIssued = false;
+
+    // ========== ★ 使能防重复发送 + 超时 ==========
+    bool m_enableSent = false;
+    std::chrono::steady_clock::time_point m_enableSentTime;
+    const double m_enableTimeoutSeconds;
 
     std::string m_traceId = "N/A";
 };
