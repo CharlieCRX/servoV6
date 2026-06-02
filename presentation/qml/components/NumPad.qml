@@ -195,12 +195,30 @@ Popup {
             border.color: Theme.colorIdle
             border.width: 1.5 * Theme.scale
 
-            Text {
+            Row {
                 anchors.centerIn: parent
-                text: internal.displayText
-                color: Theme.colorIdle
-                font.pixelSize: Theme.fontLarge
-                font.bold: true
+                spacing: 6 * Theme.scale
+
+                // 值：高亮醒目
+                Text {
+                    id: valueText
+                    text: root.inputText
+                    color: Theme.colorIdle
+                    font.pixelSize: Theme.fontLarge
+                    font.bold: true
+                    font.family: "Monospace"
+                }
+
+                // 单位：缩小、半透明、嵌入背景
+                Text {
+                    text: root.unit
+                    color: Theme.textDim
+                    font.pixelSize: Theme.fontSmall
+                    opacity: 0.7
+                    font.family: "Monospace"
+                    visible: root.unit !== ""
+                    anchors.verticalCenter: parent.verticalCenter
+                }
             }
         }
 
@@ -233,7 +251,7 @@ Popup {
             NumpadKey {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 52 * Theme.scale
-                keyText: allowNegative ? "+/−" : (allowDecimal ? "." : "")
+                keyText: allowNegative ? "+/-" : (allowDecimal ? "." : "")
                 keyColor: Theme.panelBg
                 textColor: Theme.textDim
                 visible: allowNegative || allowDecimal
@@ -265,9 +283,10 @@ Popup {
             NumpadKey {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 52 * Theme.scale
-                keyText: "⌫"
-                keyColor: "#2A3F5F"
+                keyText: "DEL"
+                keyColor: "#3A5A7C"
                 textColor: Theme.colorWarning
+                fontWeight: Font.Bold
                 onClicked: internal.backspace()
             }
         }

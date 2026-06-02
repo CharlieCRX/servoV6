@@ -195,8 +195,21 @@ Rectangle {
                     spacing: 8 * Theme.scale
 
                     Text {
-                        text: "点动速度: " + (viewModel ? viewModel.jogVelocity.toFixed(1) : "0.0") + " mm/s"
-                        color: Theme.textMain
+                        text: "点动速度:"
+                        color: Theme.textDim
+                        font.pixelSize: Theme.fontNormal
+                        font.family: "Monospace"
+                    }
+                    Text {
+                        text: viewModel ? viewModel.jogVelocity.toFixed(1) : "0.0"
+                        color: Theme.colorIdle
+                        font.pixelSize: Theme.fontNormal
+                        font.bold: true
+                        font.family: "Monospace"
+                    }
+                    Text {
+                        text: "mm/s"
+                        color: Theme.textDim
                         font.pixelSize: Theme.fontNormal
                         font.family: "Monospace"
                     }
@@ -207,7 +220,10 @@ Rectangle {
                         isCircle: true
                         baseColor: Theme.panelBg
                         enabled: root.jogEnabled
-                        onClicked: jogVelocityPopup.open()
+                        onClicked: {
+                            jogVelocityNumPad.inputText = viewModel ? viewModel.jogVelocity.toString() : "0.00"
+                            jogVelocityNumPad.open()
+                        }
                     }
                 }
 
@@ -258,8 +274,21 @@ Rectangle {
                     spacing: 8 * Theme.scale
 
                     Text {
-                        text: "定位速度: " + (viewModel ? viewModel.moveVelocity.toFixed(1) : "0.0") + " mm/s"
-                        color: Theme.textMain
+                        text: "定位速度:"
+                        color: Theme.textDim
+                        font.pixelSize: Theme.fontNormal
+                        font.family: "Monospace"
+                    }
+                    Text {
+                        text: viewModel ? viewModel.moveVelocity.toFixed(1) : "0.0"
+                        color: Theme.colorIdle
+                        font.pixelSize: Theme.fontNormal
+                        font.bold: true
+                        font.family: "Monospace"
+                    }
+                    Text {
+                        text: "mm/s"
+                        color: Theme.textDim
                         font.pixelSize: Theme.fontNormal
                         font.family: "Monospace"
                     }
@@ -270,7 +299,10 @@ Rectangle {
                         isCircle: true
                         baseColor: Theme.panelBg
                         enabled: root.isReadyForSetTarget
-                        onClicked: moveVelocityPopup.open()
+                        onClicked: {
+                            moveVelocityNumPad.inputText = viewModel ? viewModel.moveVelocity.toString() : "0.00"
+                            moveVelocityNumPad.open()
+                        }
                     }
                 }
 
@@ -323,8 +355,21 @@ Rectangle {
                         spacing: 8 * Theme.scale
 
                         Text {
-                            text: "目标: " + (viewModel ? viewModel.absMoveTarget.toFixed(1) : "0.0") + " mm"
-                            color: Theme.textMain
+                            text: "目标:"
+                            color: Theme.textDim
+                            font.pixelSize: Theme.fontNormal
+                            font.family: "Monospace"
+                        }
+                        Text {
+                            text: viewModel ? viewModel.absMoveTarget.toFixed(1) : "0.0"
+                            color: Theme.colorIdle
+                            font.pixelSize: Theme.fontNormal
+                            font.bold: true
+                            font.family: "Monospace"
+                        }
+                        Text {
+                            text: "mm"
+                            color: Theme.textDim
                             font.pixelSize: Theme.fontNormal
                             font.family: "Monospace"
                         }
@@ -335,7 +380,10 @@ Rectangle {
                             isCircle: true
                             baseColor: Theme.panelBg
                             enabled: root.isReadyForSetTarget
-                            onClicked: absTargetPopup.open()
+                            onClicked: {
+                                absTargetNumPad.inputText = viewModel ? viewModel.absMoveTarget.toFixed(2) : "0.00"
+                                absTargetNumPad.open()
+                            }
                         }
                     }
 
@@ -376,8 +424,21 @@ Rectangle {
                         spacing: 8 * Theme.scale
 
                         Text {
-                            text: "距离: " + (viewModel ? viewModel.relMoveTarget.toFixed(1) : "0.0") + " mm"
-                            color: Theme.textMain
+                            text: "距离:"
+                            color: Theme.textDim
+                            font.pixelSize: Theme.fontNormal
+                            font.family: "Monospace"
+                        }
+                        Text {
+                            text: viewModel ? viewModel.relMoveTarget.toFixed(1) : "0.0"
+                            color: Theme.colorIdle
+                            font.pixelSize: Theme.fontNormal
+                            font.bold: true
+                            font.family: "Monospace"
+                        }
+                        Text {
+                            text: "mm"
+                            color: Theme.textDim
                             font.pixelSize: Theme.fontNormal
                             font.family: "Monospace"
                         }
@@ -388,7 +449,10 @@ Rectangle {
                             isCircle: true
                             baseColor: Theme.panelBg
                             enabled: root.isReadyForSetTarget
-                            onClicked: relTargetPopup.open()
+                            onClicked: {
+                                relTargetNumPad.inputText = viewModel ? viewModel.relMoveTarget.toFixed(2) : "0.00"
+                                relTargetNumPad.open()
+                            }
                         }
                     }
 
@@ -490,31 +554,71 @@ Rectangle {
         }
     }
 
-    // Jog 模式下使用的点动速度弹窗
-    VelocitySettingsPopup {
-        id: jogVelocityPopup
-        viewModel: root.viewModel
-        speedType: "jog"
+    // 点动速度数字键盘（直接弹出，无二级嵌套）
+    NumPad {
+        id: jogVelocityNumPad
+        title: "点动速度"
+        unit: "mm/s"
+        allowNegative: false
+        allowDecimal: true
+        maxValue: 1000.0
+        maxDecimals: 2
+        inputText: "0.00"
+        onConfirmed: (value) => {
+            if (root.viewModel) {
+                root.viewModel.setJogVelocity(parseFloat(value))
+            }
+        }
     }
 
-    // POS 模式下使用的定位速度弹窗
-    VelocitySettingsPopup {
-        id: moveVelocityPopup
-        viewModel: root.viewModel
-        speedType: "move"
+    // 定位速度数字键盘（直接弹出，无二级嵌套）
+    NumPad {
+        id: moveVelocityNumPad
+        title: "定位速度"
+        unit: "mm/s"
+        allowNegative: false
+        allowDecimal: true
+        maxValue: 1000.0
+        maxDecimals: 2
+        inputText: "0.00"
+        onConfirmed: (value) => {
+            if (root.viewModel) {
+                root.viewModel.setMoveVelocity(parseFloat(value))
+            }
+        }
     }
 
-    // 绝对定位目标设置弹窗
-    TargetSettingsPopup {
-        id: absTargetPopup
-        viewModel: root.viewModel
-        targetType: "abs"
+    // 绝对定位目标数字键盘（允许负数，直接弹出）
+    NumPad {
+        id: absTargetNumPad
+        title: "绝对目标"
+        unit: "mm"
+        allowNegative: true
+        allowDecimal: true
+        maxValue: 10000.0
+        maxDecimals: 2
+        inputText: "0.00"
+        onConfirmed: (value) => {
+            if (root.viewModel) {
+                root.viewModel.setAbsTarget(parseFloat(value))
+            }
+        }
     }
 
-    // 相对定位目标设置弹窗
-    TargetSettingsPopup {
-        id: relTargetPopup
-        viewModel: root.viewModel
-        targetType: "rel"
+    // 相对定位目标数字键盘（允许负数，直接弹出）
+    NumPad {
+        id: relTargetNumPad
+        title: "相对距离"
+        unit: "mm"
+        allowNegative: true
+        allowDecimal: true
+        maxValue: 10000.0
+        maxDecimals: 2
+        inputText: "0.00"
+        onConfirmed: (value) => {
+            if (root.viewModel) {
+                root.viewModel.setRelTarget(parseFloat(value))
+            }
+        }
     }
 }
