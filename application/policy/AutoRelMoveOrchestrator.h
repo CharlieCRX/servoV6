@@ -109,10 +109,15 @@ public:
 
         // 全局最高优先级：硬件/状态错误拦截
         if (axis->state() == AxisState::Error) {
-            LOG_ERROR(LogLayer::APP, "RelOrch",
-                      "[" + m_groupName + "][" + axisName(m_targetId) + "] Axis Error state -- aborting");
-            m_step = Step::Error;
-            m_lastError = axis->lastRejection();
+            if (m_step != Step::Error) {  // ★ 首次检测到 Error，执行完整的错误处理流程
+                LOG_ERROR(LogLayer::APP, "RelOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] Axis Error state -- aborting, sending Disable");
+                m_step = Step::Error;
+                m_lastError = axis->lastRejection();
+                // ★ 执行停止使能处理（关闭电机供电）
+                EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, false);
+            }
+            // 已处于 Error 状态，静默返回，避免逐帧重复日志和重复操作
             return;
         }
 

@@ -128,11 +128,21 @@ void AxisViewModelCore::collectOrchError(Orch& orch, const std::string& source) 
     if (orch.hasError()) {
         auto vmError = translate(orch.lastError());
         if (vmError.isValid()) {
-            m_errorHistory.push_back({
-                .error = vmError,
-                .timestamp = std::chrono::steady_clock::now(),
-                .source = source
-            });
+            // ★ 检查是否有相同的 source 错误已经存在，避免逐帧重复错误
+            bool alreadyExists = false;
+            for (const auto& entry : m_errorHistory) {
+                if (entry.source == source && entry.error.code == vmError.code) {
+                    alreadyExists = true;
+                    break;
+                }
+            }
+            if (!alreadyExists) {
+                m_errorHistory.push_back({
+                    .error = vmError,
+                    .timestamp = std::chrono::steady_clock::now(),
+                    .source = source
+                });
+            }
         }
     }
 }
