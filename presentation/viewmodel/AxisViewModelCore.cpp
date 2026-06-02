@@ -723,7 +723,8 @@ void AxisViewModelCore::tick()
         if (s != AxisState::Error && s != AxisState::Unknown) {
             if (!m_errorHistory.empty()) {
                 auto& last = m_errorHistory.back();
-                if (last.source == "AbsPolicy" || last.source == "RelPolicy") {
+            if (last.source == "AbsPolicy" || last.source == "RelPolicy"
+                || last.source == "JogOrch" || last.source == "AbsOrch" || last.source == "RelOrch") {
                     LOG_INFO(LogLayer::UI, "AxisVM",
                         logPrefix() + " auto-clearing Policy error ("
                             + last.error.code + "), axis state="
