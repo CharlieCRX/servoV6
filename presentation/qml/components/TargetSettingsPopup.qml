@@ -12,27 +12,34 @@ Popup {
     // ⭐ 目标类型选择："abs" = 绝对目标, "rel" = 相对距离
     property string targetType: "abs"
 
+    // ⭐ 正负号：true = +, false = -
+    property bool signPositive: true
+
     // 弹窗基本属性
     modal: true
     dim: true
     anchors.centerIn: Overlay.overlay
 
     width: 380 * Theme.scale
-    height: 280 * Theme.scale
+    height: 320 * Theme.scale
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
     // 🌟 每次打开弹窗时，从底层读取最新目标值（反馈值）填充到输入框
     onOpened: {
         if (viewModel) {
+            var currentValue = 0.0
             if (targetType === "abs") {
                 popupTitle.text = "⚙️ 绝对目标设置"
                 targetLabel.text = "绝对目标 (Abs):"
-                targetInput.text = viewModel.absMoveTarget.toFixed(2)
+                currentValue = viewModel.absMoveTarget
             } else {
                 popupTitle.text = "⚙️ 相对距离设置"
                 targetLabel.text = "相对距离 (Rel):"
-                targetInput.text = viewModel.relMoveTarget.toFixed(2)
+                currentValue = viewModel.relMoveTarget
             }
+            // 根据当前值自动设置正负号和输入框
+            signPositive = (currentValue >= 0.0)
+            targetInput.text = Math.abs(currentValue).toFixed(2)
         }
     }
 
@@ -58,7 +65,61 @@ Popup {
             Layout.alignment: Qt.AlignHCenter
         }
 
-        Item { Layout.fillHeight: true } // 弹簧
+        // ⭐ 正负号切换
+        RowLayout {
+            Layout.alignment: Qt.AlignHCenter
+            spacing: 4 * Theme.scale
+
+            Text {
+                text: "方向:"
+                color: Theme.textDim
+                font.pixelSize: Theme.fontNormal
+            }
+
+            Rectangle {
+                Layout.preferredWidth: 50 * Theme.scale
+                Layout.preferredHeight: 32 * Theme.scale
+                radius: 6 * Theme.scale
+                color: root.signPositive ? Theme.colorIdle : Theme.panelBg
+                border.color: Theme.borderMain
+                border.width: 1
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "+"
+                    color: root.signPositive ? "#FFFFFF" : Theme.textMain
+                    font.pixelSize: Theme.fontLarge
+                    font.bold: true
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: root.signPositive = true
+                }
+            }
+
+            Rectangle {
+                Layout.preferredWidth: 50 * Theme.scale
+                Layout.preferredHeight: 32 * Theme.scale
+                radius: 6 * Theme.scale
+                color: !root.signPositive ? Theme.colorIdle : Theme.panelBg
+                border.color: Theme.borderMain
+                border.width: 1
+
+                Text {
+                    anchors.centerIn: parent
+                    text: "−"
+                    color: !root.signPositive ? "#FFFFFF" : Theme.textMain
+                    font.pixelSize: Theme.fontLarge
+                    font.bold: true
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: root.signPositive = false
+                }
+            }
+        }
 
         // 目标输入组（可编辑，初始值来自反馈）
         RowLayout {
@@ -77,7 +138,7 @@ Popup {
                 font.pixelSize: Theme.fontLarge
                 horizontalAlignment: TextInput.AlignHCenter
                 background: Rectangle { color: Theme.bgDark; border.color: Theme.borderMain; radius: 4 }
-                validator: DoubleValidator { bottom: 0.1; top: 10000.0 }
+                validator: DoubleValidator { bottom: 0.0; top: 10000.0; decimals: 2 }
             }
             Text { text: "mm"; color: Theme.textDim }
         }
@@ -102,7 +163,8 @@ Popup {
                 baseColor: Theme.colorIdle
                 onClicked: {
                     if (viewModel) {
-                        var value = parseFloat(targetInput.text)
+                        var absValue = Math.abs(parseFloat(targetInput.text))
+                        var value = root.signPositive ? absValue : -absValue
                         if (targetType === "abs") {
                             viewModel.setAbsTarget(value)
                         } else {
