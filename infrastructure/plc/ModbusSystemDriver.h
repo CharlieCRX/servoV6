@@ -697,6 +697,13 @@ inline void ModbusSystemDriver::pollFeedback(SystemContext& ctx) {
         const float absTarget = m_device->readFloat(regCmdAbsTarget(id));
         const float relTarget = m_device->readFloat(regCmdRelTarget(id));
 
+        if (alarmCode != 0) {
+            std::ostringstream alarmOss;
+            alarmOss << "pollFeedback: " << axisIdToString(id)
+                     << " alarmCode=" << alarmCode;
+            LOG_WARN(LogLayer::HAL, "ModbusSystemDriver", alarmOss.str());
+        }
+
         // ── 推导轴状态 ──
         AxisState derivedState = deriveAxisState(
             stateRaw, alarmCode, absMoving, relMoving, jogging);
@@ -706,6 +713,12 @@ inline void ModbusSystemDriver::pollFeedback(SystemContext& ctx) {
         bool posLimit = false;
         bool negLimit = false;
         if (alarmCode == 3) {
+            std::ostringstream limitOss;
+            limitOss << "pollFeedback: " << axisIdToString(id)
+                     << " soft limit alarm detected"
+                     << " | absPos=" << absPos
+                     << " | softLimitPos=" << softLimitPos
+                     << " | softLimitNeg=" << softLimitNeg;
             // 如果 absPos + 0.1 >= SOFT_LIMIT_POS → 超出正限位
             if (static_cast<double>(absPos) + 0.1 >= static_cast<double>(softLimitPos)) {
                 posLimit = true;
@@ -714,6 +727,9 @@ inline void ModbusSystemDriver::pollFeedback(SystemContext& ctx) {
             if (static_cast<double>(absPos) - 0.1 <= static_cast<double>(softLimitNeg)) {
                 negLimit = true;
             }
+            limitOss << " | posLimit=" << (posLimit ? "true" : "false")
+                     << " | negLimit=" << (negLimit ? "true" : "false");
+            LOG_WARN(LogLayer::HAL, "ModbusSystemDriver", limitOss.str());
         }
 
         // ── 构筑 AxisFeedback ──
