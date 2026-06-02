@@ -8,6 +8,7 @@
 #include "infrastructure/utils/IClock.h"
 #include "infrastructure/utils/overloaded.h"
 #include "infrastructure/plc/AxisStateDeriver.h"
+#include "infrastructure/logger/Logger.h"
 #include "domain/entity/AxisId.h"
 #include "domain/entity/ContextRejection.h"
 #include "domain/entity/SystemContext.h"
@@ -17,6 +18,7 @@
 #include <algorithm>
 #include <memory>
 #include <chrono>
+#include <sstream>
 
 namespace plc {
 
@@ -426,77 +428,185 @@ inline const protocol::RegisterInfo& ModbusSystemDriver::regFbLinkageState() con
 
 inline CommunicationResult ModbusSystemDriver::send(const SystemCommand& cmd) {
     if (!m_device) {
+        LOG_WARN(LogLayer::HAL, "ModbusSystemDriver", "send: No PlcDevice bound (disconnected)");
         return CommunicationResult::Disconnected();
     }
 
+    auto logAndResult = [](const std::string& msg, CommunicationResult result) {
+        if (result.ok()) {
+            LOG_INFO(LogLayer::HAL, "ModbusSystemDriver", msg + " -> OK");
+        } else {
+            std::ostringstream oss;
+            oss << msg << " -> FAILED: status=" << static_cast<int>(result.status)
+                << " diag=" << result.diagnostic;
+            LOG_ERROR(LogLayer::HAL, "ModbusSystemDriver", oss.str());
+        }
+        return result;
+    };
+
     return std::visit(overloaded{
-        [this](const AxisCommandWithId& ac) -> CommunicationResult {
+        [this, &logAndResult](const AxisCommandWithId& ac) -> CommunicationResult {
             const auto id = ac.id;
+            const char* axisName = axisIdToString(id);
+
             return std::visit(overloaded{
                 [](std::monostate) -> CommunicationResult {
+                    LOG_INFO(LogLayer::HAL, "ModbusSystemDriver", "send: monostate (no-op) -> OK");
                     return CommunicationResult::Sent();
                 },
-                [this, id](const JogCommand& j) -> CommunicationResult {
-                    if (j.dir == Direction::Forward) {
-                        return m_device->writeBool(regCmdJogFwd(id), j.active);
-                    } else {
-                        return m_device->writeBool(regCmdJogBwd(id), j.active);
+                [this, id, axisName, &logAndResult](const JogCommand& j) -> CommunicationResult {
+                    const char* dirStr = (j.dir == Direction::Forward) ? "Fwd" : "Bwd";
+                    const auto& reg = (j.dir == Direction::Forward)
+                        ? regCmdJogFwd(id) : regCmdJogBwd(id);
+                    std::ostringstream oss;
+                    oss << "send: Jog " << axisName << " " << dirStr
+                        << " active=" << (j.active ? "true" : "false")
+                        << " -> reg[" << reg.address << "] " << reg.description;
+                    return logAndResult(oss.str(),
+                        m_device->writeBool(reg, j.active));
+                },
+                [this, id, axisName, &logAndResult](const StopCommand&) -> CommunicationResult {
+                    const auto& regFwd = regCmdJogFwd(id);
+                    const auto& regBwd = regCmdJogBwd(id);
+                    std::ostringstream oss;
+                    oss << "send: Stop " << axisName
+                        << " -> reg[" << regFwd.address << "] off, reg[" << regBwd.address << "] off";
+                    auto r1 = m_device->writeBool(regFwd, false);
+                    if (!r1.ok()) {
+                        LOG_ERROR(LogLayer::HAL, "ModbusSystemDriver",
+                            oss.str() + " -> FAILED on JogFwd off: status="
+                            + std::to_string(static_cast<int>(r1.status)) + " diag=" + r1.diagnostic);
+                        return r1;
                     }
-                },
-                [this, id](const StopCommand&) -> CommunicationResult {
-                    auto r1 = m_device->writeBool(regCmdJogFwd(id), false);
-                    auto r2 = m_device->writeBool(regCmdJogBwd(id), false);
-                    if (!r1.ok()) return r1;
-                    if (!r2.ok()) return r2;
+                    auto r2 = m_device->writeBool(regBwd, false);
+                    if (!r2.ok()) {
+                        LOG_ERROR(LogLayer::HAL, "ModbusSystemDriver",
+                            oss.str() + " -> FAILED on JogBwd off: status="
+                            + std::to_string(static_cast<int>(r2.status)) + " diag=" + r2.diagnostic);
+                        return r2;
+                    }
+                    LOG_INFO(LogLayer::HAL, "ModbusSystemDriver", oss.str() + " -> OK");
                     return CommunicationResult::Sent();
                 },
-                [this, id](const EnableCommand& e) -> CommunicationResult {
-                    return m_device->writeBool(regCmdEnable(id), e.active);
+                [this, id, axisName, &logAndResult](const EnableCommand& e) -> CommunicationResult {
+                    const auto& reg = regCmdEnable(id);
+                    std::ostringstream oss;
+                    oss << "send: Enable " << axisName
+                        << " active=" << (e.active ? "true" : "false")
+                        << " -> reg[" << reg.address << "] " << reg.description;
+                    return logAndResult(oss.str(),
+                        m_device->writeBool(reg, e.active));
                 },
-                [this, id](const SetJogVelocityCommand& v) -> CommunicationResult {
-                    return m_device->writeFloat(regCmdJogSpeed(id),
-                                                static_cast<float>(v.velocity));
+                [this, id, axisName, &logAndResult](const SetJogVelocityCommand& v) -> CommunicationResult {
+                    const auto& reg = regCmdJogSpeed(id);
+                    std::ostringstream oss;
+                    oss << "send: SetJogVelocity " << axisName
+                        << " velocity=" << v.velocity
+                        << " -> reg[" << reg.address << "] " << reg.description;
+                    return logAndResult(oss.str(),
+                        m_device->writeFloat(reg, static_cast<float>(v.velocity)));
                 },
-                [this, id](const SetMoveVelocityCommand& v) -> CommunicationResult {
-                    return m_device->writeFloat(regCmdMoveSpeed(id),
-                                                static_cast<float>(v.velocity));
+                [this, id, axisName, &logAndResult](const SetMoveVelocityCommand& v) -> CommunicationResult {
+                    const auto& reg = regCmdMoveSpeed(id);
+                    std::ostringstream oss;
+                    oss << "send: SetMoveVelocity " << axisName
+                        << " velocity=" << v.velocity
+                        << " -> reg[" << reg.address << "] " << reg.description;
+                    return logAndResult(oss.str(),
+                        m_device->writeFloat(reg, static_cast<float>(v.velocity)));
                 },
-                [this, id](const SetAbsTargetCommand& t) -> CommunicationResult {
-                    return m_device->writeFloat(regCmdAbsTarget(id),
-                                                static_cast<float>(t.target));
+                [this, id, axisName, &logAndResult](const SetAbsTargetCommand& t) -> CommunicationResult {
+                    const auto& reg = regCmdAbsTarget(id);
+                    std::ostringstream oss;
+                    oss << "send: SetAbsTarget " << axisName
+                        << " target=" << t.target
+                        << " -> reg[" << reg.address << "] " << reg.description;
+                    return logAndResult(oss.str(),
+                        m_device->writeFloat(reg, static_cast<float>(t.target)));
                 },
-                [this, id](const SetRelTargetCommand& t) -> CommunicationResult {
-                    return m_device->writeFloat(regCmdRelTarget(id),
-                                                static_cast<float>(t.distance));
+                [this, id, axisName, &logAndResult](const SetRelTargetCommand& t) -> CommunicationResult {
+                    const auto& reg = regCmdRelTarget(id);
+                    std::ostringstream oss;
+                    oss << "send: SetRelTarget " << axisName
+                        << " distance=" << t.distance
+                        << " -> reg[" << reg.address << "] " << reg.description;
+                    return logAndResult(oss.str(),
+                        m_device->writeFloat(reg, static_cast<float>(t.distance)));
                 },
-                [this, id](const TriggerAbsMoveCommand&) -> CommunicationResult {
-                    return sendEdgeTrigger(regCmdAbsTrigger(id));
+                [this, id, axisName, &logAndResult](const TriggerAbsMoveCommand&) -> CommunicationResult {
+                    const auto& reg = regCmdAbsTrigger(id);
+                    std::ostringstream oss;
+                    oss << "send: TriggerAbsMove " << axisName
+                        << " -> reg[" << reg.address << "] " << reg.description
+                        << " (edge trigger)";
+                    return logAndResult(oss.str(), sendEdgeTrigger(reg));
                 },
-                [this, id](const TriggerRelMoveCommand&) -> CommunicationResult {
-                    return sendEdgeTrigger(regCmdRelTrigger(id));
+                [this, id, axisName, &logAndResult](const TriggerRelMoveCommand&) -> CommunicationResult {
+                    const auto& reg = regCmdRelTrigger(id);
+                    std::ostringstream oss;
+                    oss << "send: TriggerRelMove " << axisName
+                        << " -> reg[" << reg.address << "] " << reg.description
+                        << " (edge trigger)";
+                    return logAndResult(oss.str(), sendEdgeTrigger(reg));
                 },
-                [this, id](const ZeroAbsoluteCommand&) -> CommunicationResult {
-                    return sendEdgeTrigger(regCmdClearAbsPos(id));
+                [this, id, axisName, &logAndResult](const ZeroAbsoluteCommand&) -> CommunicationResult {
+                    const auto& reg = regCmdClearAbsPos(id);
+                    std::ostringstream oss;
+                    oss << "send: ZeroAbsolute " << axisName
+                        << " -> reg[" << reg.address << "] " << reg.description
+                        << " (edge trigger)";
+                    return logAndResult(oss.str(), sendEdgeTrigger(reg));
                 },
-                [this, id](const SetRelativeZeroCommand&) -> CommunicationResult {
-                    return sendEdgeTrigger(regCmdSetRelZero(id));
+                [this, id, axisName, &logAndResult](const SetRelativeZeroCommand&) -> CommunicationResult {
+                    const auto& reg = regCmdSetRelZero(id);
+                    std::ostringstream oss;
+                    oss << "send: SetRelativeZero " << axisName
+                        << " -> reg[" << reg.address << "] " << reg.description
+                        << " (edge trigger)";
+                    return logAndResult(oss.str(), sendEdgeTrigger(reg));
                 },
-                [this, id](const ClearRelativeZeroCommand&) -> CommunicationResult {
-                    return sendEdgeTrigger(regCmdClearRelZero(id));
+                [this, id, axisName, &logAndResult](const ClearRelativeZeroCommand&) -> CommunicationResult {
+                    const auto& reg = regCmdClearRelZero(id);
+                    std::ostringstream oss;
+                    oss << "send: ClearRelativeZero " << axisName
+                        << " -> reg[" << reg.address << "] " << reg.description
+                        << " (edge trigger)";
+                    return logAndResult(oss.str(), sendEdgeTrigger(reg));
                 },
                 [](const MoveCommand&) -> CommunicationResult {
+                    LOG_INFO(LogLayer::HAL, "ModbusSystemDriver",
+                        "send: MoveCommand (legacy combined, no-op at HAL) -> OK");
                     return CommunicationResult::Sent();
                 }
             }, ac.cmd);
         },
-        [this](const GantryCouplingCommand& g) -> CommunicationResult {
-            return m_device->writeBool(regGantryCoupling(), g.enableCoupling);
+        [this, &logAndResult](const GantryCouplingCommand& g) -> CommunicationResult {
+            const auto& reg = regGantryCoupling();
+            std::ostringstream oss;
+            oss << "send: GantryCoupling"
+                << " enableCoupling=" << (g.enableCoupling ? "true" : "false")
+                << " -> reg[" << reg.address << "] " << reg.description;
+            return logAndResult(oss.str(),
+                m_device->writeBool(reg, g.enableCoupling));
         },
-        [this](const GantryPowerCommand& g) -> CommunicationResult {
-            return m_device->writeBool(regCmdEnable(AxisId::X), g.enable);
+        [this, &logAndResult](const GantryPowerCommand& g) -> CommunicationResult {
+            const auto& reg = regCmdEnable(AxisId::X);
+            std::ostringstream oss;
+            oss << "send: GantryPower"
+                << " enable=" << (g.enable ? "true" : "false")
+                << " -> reg[" << reg.address << "] " << reg.description
+                << " (via X axis enable)";
+            return logAndResult(oss.str(),
+                m_device->writeBool(reg, g.enable));
         },
-        [this](const EmergencyStopCommand& e) -> CommunicationResult {
-            return m_device->writeBool(regEmergencyStopTrigger(), e.active);
+        [this, &logAndResult](const EmergencyStopCommand& e) -> CommunicationResult {
+            const auto& reg = regEmergencyStopTrigger();
+            std::ostringstream oss;
+            oss << "send: EmergencyStop"
+                << " active=" << (e.active ? "true" : "false")
+                << " -> reg[" << reg.address << "] " << reg.description;
+            return logAndResult(oss.str(),
+                m_device->writeBool(reg, e.active));
         }
     }, cmd);
 }
