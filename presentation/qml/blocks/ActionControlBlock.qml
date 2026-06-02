@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import servoV6
+
 Rectangle {
     id: root
     property var viewModel: null
@@ -15,24 +16,19 @@ Rectangle {
     property bool isAbsolute: true 
 
     // ── 系统锁定 = 安全锁定 + 轴本身不可用 ──
-    // 安全锁定：NotSynchronized / EmergencyStopping / EmergencyStopped / ReleasingEmergencyStop
-    // 轴本身不可用：未绑定 viewModel
     property bool systemLocked: {
         if (emergencyViewModel && emergencyViewModel.isSystemLocked) return true
         return false
     }
 
     // ── 龙门操作锁定 ──
-    // 规则1：选中 X（逻辑龙门轴）但龙门未耦合 → 禁止操作（需先耦合）
-    // 规则2：选中 X1/X2（物理轴）但龙门已耦合 → 禁止操作（物理轴受龙门控制）
     readonly property bool gantryOperationLocked: {
         if (!gantryViewModel) return false
-        if (currentAxis === "X" && !gantryViewModel.isCoupled) return true   // 逻辑轴未耦合
-        if ((currentAxis === "X1" || currentAxis === "X2") && gantryViewModel.isCoupled) return true  // 物理轴受龙门控制
+        if (currentAxis === "X" && !gantryViewModel.isCoupled) return true
+        if ((currentAxis === "X1" || currentAxis === "X2") && gantryViewModel.isCoupled) return true
         return false
     }
 
-    // ── 龙门锁定提示文本 ──
     readonly property string gantryLockReason: {
         if (!gantryOperationLocked) return ""
         if (currentAxis === "X" && gantryViewModel && !gantryViewModel.isCoupled)
@@ -42,20 +38,15 @@ Rectangle {
         return ""
     }
 
-    // 点动模式可用条件：非系统锁定 + viewModel 绑定
     property bool jogEnabled: !systemLocked && viewModel !== null
 
-    // ★ 定位模式下触发是否就绪：
-    //    - 系统未锁定
-    //    - 无故障
-    //    - 非运动中（state ≤ Idle）
-    //    - Policy 未运行中
+    // ★ 定位模式下触发是否就绪：仅 Modal 错误阻断操作
     property bool isReadyForTrigger: !systemLocked && viewModel ? 
-        (!viewModel.hasError && viewModel.state <= 2 && !viewModel.isLoading) : false
+        (!viewModel.hasBlockingError && viewModel.state <= 2 && !viewModel.isLoading) : false
 
-    // ★ 设置目标是否就绪（同触发条件，但 loading 时仍可设置新目标覆盖旧目标）：
+    // ★ 设置目标是否就绪：仅 Modal 错误阻断操作
     property bool isReadyForSetTarget: !systemLocked && viewModel ? 
-        (!viewModel.hasError && viewModel.state <= 2) : false
+        (!viewModel.hasBlockingError && viewModel.state <= 2) : false
 
         color: "transparent"
 
@@ -64,7 +55,7 @@ Rectangle {
         spacing: 6 * Theme.scale
 
         // ==========================================
-        // 0. 紧急急停状态横幅（危险状态时显示）
+        // 0. 紧急急停状态横幅
         // ==========================================
         Rectangle {
             Layout.fillWidth: true
@@ -97,7 +88,7 @@ Rectangle {
         }
 
         // ==========================================
-        // 0.5 龙门操作锁定横幅（非急停但龙门锁定操作时显示）
+        // 0.5 龙门操作锁定横幅
         // ==========================================
         Rectangle {
             Layout.fillWidth: true
@@ -186,10 +177,8 @@ Rectangle {
                 spacing: 8 * Theme.scale
                 visible: root.currentMode === 0
 
-                // 顶部留空
                 Item { Layout.preferredHeight: 4 * Theme.scale }
 
-                // 点动速度设定
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
                     spacing: 8 * Theme.scale
@@ -227,10 +216,8 @@ Rectangle {
                     }
                 }
 
-                // 上半弹簧
                 Item { Layout.fillHeight: true }
 
-                // JOG+ 按钮
                 IndustrialButton {
                     text: "JOG +"
                     isCircle: false
@@ -241,10 +228,8 @@ Rectangle {
                     onReleased: if(viewModel && root.jogEnabled) viewModel.jogPositiveReleased()
                 }
 
-                // JOG+ / JOG- 间隙
                 Item { Layout.preferredHeight: 8 * Theme.scale }
 
-                // JOG- 按钮
                 IndustrialButton {
                     text: "JOG -"
                     isCircle: false
@@ -255,20 +240,17 @@ Rectangle {
                     onReleased: if(viewModel && root.jogEnabled) viewModel.jogNegativeReleased()
                 }
 
-                // 下半弹簧
                 Item { Layout.fillHeight: true }
             }
 
-            // --- B. 定位控制面板（★ v3 重新设计：反馈式目标显示 + ⚙️设置 + GO居中放大） ---
+            // --- B. 定位控制面板 ---
             ColumnLayout {
                 anchors.fill: parent
                 spacing: 8 * Theme.scale
                 visible: root.currentMode === 1
 
-                // 顶部留空
                 Item { Layout.preferredHeight: 4 * Theme.scale }
 
-                // 定位速度设定
                 RowLayout {
                     Layout.alignment: Qt.AlignHCenter
                     spacing: 8 * Theme.scale
@@ -346,10 +328,8 @@ Rectangle {
                     spacing: 6 * Theme.scale
                     visible: root.isAbsolute
 
-                    // 上半弹簧
                     Item { Layout.fillHeight: true }
 
-                    // 反馈式目标显示 + ⚙️ 设置按钮
                     RowLayout {
                         Layout.alignment: Qt.AlignHCenter
                         spacing: 8 * Theme.scale
@@ -387,7 +367,6 @@ Rectangle {
                         }
                     }
 
-                    // ★ 触发绝对定位 GO（居中放大）
                     IndustrialButton {
                         Layout.alignment: Qt.AlignHCenter
                         text: root.isReadyForTrigger ? "绝对定位 GO" : (
@@ -405,7 +384,6 @@ Rectangle {
                         }
                     }
 
-                    // 下半弹簧
                     Item { Layout.fillHeight: true }
                 }
 
@@ -415,10 +393,8 @@ Rectangle {
                     spacing: 6 * Theme.scale
                     visible: !root.isAbsolute
 
-                    // 上半弹簧
                     Item { Layout.fillHeight: true }
 
-                    // 反馈式目标显示 + ⚙️ 设置按钮
                     RowLayout {
                         Layout.alignment: Qt.AlignHCenter
                         spacing: 8 * Theme.scale
@@ -456,7 +432,6 @@ Rectangle {
                         }
                     }
 
-                    // ★ 触发相对定位 GO（居中放大）
                     IndustrialButton {
                         Layout.alignment: Qt.AlignHCenter
                         text: root.isReadyForTrigger ? "相对定位 GO" : (
@@ -474,11 +449,9 @@ Rectangle {
                         }
                     }
 
-                    // 下半弹簧
                     Item { Layout.fillHeight: true }
                 }
 
-                // ── ★ Loading 状态指示（可选，调试用）──
                 Text {
                     Layout.alignment: Qt.AlignHCenter
                     text: viewModel ? viewModel.moveStep : ""
@@ -488,7 +461,6 @@ Rectangle {
                     font.family: "Monospace"
                 }
 
-                // 下半弹簧
                 Item { Layout.fillHeight: true }
             }
         }
@@ -502,23 +474,20 @@ Rectangle {
             buttonSize: 150 * Theme.scale
             Layout.alignment: Qt.AlignHCenter
 
-            // ── 文字由急停状态决定 ──
             text: {
                 if (!emergencyViewModel) return "急 停"
                 if (emergencyViewModel.isNotSynchronized)    return "急 停"
                 if (emergencyViewModel.isEmergencyStopped)   return "解除急停"
-                if (emergencyViewModel.isTransitioning)      return emergencyViewModel.safetyStateText  // "急停处理中..." / "急停解除中..."
+                if (emergencyViewModel.isTransitioning)      return emergencyViewModel.safetyStateText
                 return "急 停"
             }
 
-            // ── 颜色由急停状态决定 ──
-            // 工业惯例：急停按钮红色 #D32F2F，解除按钮橙红色 #FF5252
             baseColor: {
                 if (!emergencyViewModel) return Theme.colorError
                 if (emergencyViewModel.isNotSynchronized)    return Theme.colorDisabled
-                if (emergencyViewModel.isEmergencyStopped)   return "#FF5252"   // 橙红色 -- 表示急停锁定中，点击解除
+                if (emergencyViewModel.isEmergencyStopped)   return "#FF5252"
                 if (emergencyViewModel.isTransitioning)      return Theme.colorDisabled
-                return Theme.colorError  // Running -- 正常红色
+                return Theme.colorError
             }
 
             activeColor: {
@@ -527,26 +496,20 @@ Rectangle {
                 return "#FF8A80"
             }
 
-            // ── 可点击性 ──
-            // Running -> 可以按急停
-            // EmergencyStopped -> 可以解除急停
-            // 其他过渡态 -> 不可点击
             enabled: {
                 if (!emergencyViewModel) return false
                 if (emergencyViewModel.isNotSynchronized)    return false
                 if (emergencyViewModel.isTransitioning)      return false
-                return true  // Running 或 EmergencyStopped
+                return true
             }
 
             onClicked: {
                 if (!emergencyViewModel) return
 
                 if (emergencyViewModel.isEmergencyStopped) {
-                    // 当前已急停 -> 执行解除操作
                     console.log("EmergencyStopButton: 解除急停 -> releaseEmergencyStop()")
                     emergencyViewModel.releaseEmergencyStop()
                 } else {
-                    // 当前 Running -> 执行急停操作
                     console.log("EmergencyStopButton: 触发急停 -> triggerEmergencyStop()")
                     emergencyViewModel.triggerEmergencyStop()
                 }
@@ -554,7 +517,7 @@ Rectangle {
         }
     }
 
-    // 点动速度数字键盘（直接弹出，无二级嵌套）
+    // ── 点动速度数字键盘 ──
     NumPad {
         id: jogVelocityNumPad
         title: "点动速度"
@@ -571,7 +534,7 @@ Rectangle {
         }
     }
 
-    // 定位速度数字键盘（直接弹出，无二级嵌套）
+    // ── 定位速度数字键盘 ──
     NumPad {
         id: moveVelocityNumPad
         title: "定位速度"
@@ -588,7 +551,7 @@ Rectangle {
         }
     }
 
-    // 绝对定位目标数字键盘（允许负数，直接弹出）
+    // ── 绝对定位目标数字键盘 ──
     NumPad {
         id: absTargetNumPad
         title: "绝对目标"
@@ -600,12 +563,18 @@ Rectangle {
         inputText: "0.00"
         onConfirmed: (value) => {
             if (root.viewModel) {
-                root.viewModel.setAbsTarget(parseFloat(value))
+                var ok = root.viewModel.setAbsTarget(parseFloat(value))
+                if (!ok) {
+                    // ★ 设置被后端拒绝（如超限位），弹出错误提示
+                    var errMsg = root.viewModel.errorMessage || "设置失败"
+                    absTargetErrorDialog.errorText = errMsg
+                    absTargetErrorDialog.open()
+                }
             }
         }
     }
 
-    // 相对定位目标数字键盘（允许负数，直接弹出）
+    // ── 相对定位目标数字键盘 ──
     NumPad {
         id: relTargetNumPad
         title: "相对距离"
@@ -617,7 +586,93 @@ Rectangle {
         inputText: "0.00"
         onConfirmed: (value) => {
             if (root.viewModel) {
-                root.viewModel.setRelTarget(parseFloat(value))
+                var ok = root.viewModel.setRelTarget(parseFloat(value))
+                if (!ok) {
+                    // ★ 设置被后端拒绝（如超限位），弹出错误提示
+                    var errMsg = root.viewModel.errorMessage || "设置失败"
+                    relTargetErrorDialog.errorText = errMsg
+                    relTargetErrorDialog.open()
+                }
+            }
+        }
+    }
+
+    // ── ★ 错误提示弹窗（绝对目标 NumPad 被后端拒绝时弹出）──
+    Dialog {
+        id: absTargetErrorDialog
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: 340 * Theme.scale
+        height: 220 * Theme.scale
+        title: "⚠️ 绝对目标设置失败"
+
+        property string errorText: ""
+
+        background: Rectangle {
+            color: Theme.panelBg
+            radius: 10 * Theme.scale
+            border.color: Theme.borderMain
+            border.width: 2 * Theme.scale
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 20 * Theme.scale
+            spacing: 15 * Theme.scale
+
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: absTargetErrorDialog.errorText
+                color: Theme.textMain
+                font.pixelSize: Theme.fontNormal
+            }
+
+            IndustrialButton {
+                Layout.alignment: Qt.AlignHCenter
+                text: "关 闭"
+                baseColor: Theme.colorIdle
+                onClicked: absTargetErrorDialog.close()
+            }
+        }
+    }
+
+    // ── ★ 错误提示弹窗（相对目标 NumPad 被后端拒绝时弹出）──
+    Dialog {
+        id: relTargetErrorDialog
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: 340 * Theme.scale
+        height: 220 * Theme.scale
+        title: "⚠️ 相对目标设置失败"
+
+        property string errorText: ""
+
+        background: Rectangle {
+            color: Theme.panelBg
+            radius: 10 * Theme.scale
+            border.color: Theme.borderMain
+            border.width: 2 * Theme.scale
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 20 * Theme.scale
+            spacing: 15 * Theme.scale
+
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: relTargetErrorDialog.errorText
+                color: Theme.textMain
+                font.pixelSize: Theme.fontNormal
+            }
+
+            IndustrialButton {
+                Layout.alignment: Qt.AlignHCenter
+                text: "关 闭"
+                baseColor: Theme.colorIdle
+                onClicked: relTargetErrorDialog.close()
             }
         }
     }

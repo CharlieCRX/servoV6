@@ -178,10 +178,18 @@ Popup {
                     if (viewModel) {
                         var absValue = Math.abs(parseFloat(numPad.inputText))
                         var value = root.signPositive ? absValue : -absValue
+                        var ok = false
                         if (targetType === "abs") {
-                            viewModel.setAbsTarget(value)
+                            ok = viewModel.setAbsTarget(value)
                         } else {
-                            viewModel.setRelTarget(value)
+                            ok = viewModel.setRelTarget(value)
+                        }
+                        if (!ok) {
+                            // ★ 设置被后端拒绝（如超限位），弹出错误提示，弹窗不关闭
+                            var errMsg = viewModel.errorMessage || "设置失败"
+                            errorDialog.errorText = errMsg
+                            errorDialog.open()
+                            return
                         }
                     }
                     root.close()
@@ -200,5 +208,45 @@ Popup {
         maxValue: 10000.0
         maxDecimals: 2
         inputText: "0.00"
+    }
+
+    // ── ★ 错误提示弹窗（Modal 错误时弹出，告知用户具体错误信息）──
+    Dialog {
+        id: errorDialog
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: 340 * Theme.scale
+        height: 220 * Theme.scale
+        title: "⚠️ 设置失败"
+
+        property string errorText: ""
+
+        background: Rectangle {
+            color: Theme.panelBg
+            radius: 10 * Theme.scale
+            border.color: Theme.borderMain
+            border.width: 2 * Theme.scale
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 20 * Theme.scale
+            spacing: 15 * Theme.scale
+
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: errorDialog.errorText
+                color: Theme.textMain
+                font.pixelSize: Theme.fontNormal
+            }
+
+            IndustrialButton {
+                Layout.alignment: Qt.AlignHCenter
+                text: "关 闭"
+                baseColor: Theme.colorIdle
+                onClicked: errorDialog.close()
+            }
+        }
     }
 }

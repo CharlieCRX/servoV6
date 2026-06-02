@@ -35,6 +35,10 @@ double QtAxisViewModel::moveVelocity() const { return m_core ? m_core->moveVeloc
 
 bool QtAxisViewModel::hasError() const { return m_core ? m_core->hasError() : false; }
 
+bool QtAxisViewModel::hasBlockingError() const {
+    return m_core ? m_core->hasBlockingError() : false;
+}
+
 QString QtAxisViewModel::errorCode() const {
     if (!m_core || !m_core->hasError()) return {};
     return QString::fromStdString(m_core->lastError().code);
@@ -114,16 +118,18 @@ void QtAxisViewModel::jogNegativeReleased() {
 
 // ★ 独立按钮映射 — 两步操作 API
 
-void QtAxisViewModel::setAbsTarget(double target) {
-    if (m_core) m_core->setAbsTarget(target);
+bool QtAxisViewModel::setAbsTarget(double target) {
+    if (m_core) return m_core->setAbsTarget(target);
+    return false;
 }
 
 void QtAxisViewModel::triggerAbsMove() {
     if (m_core) m_core->triggerAbsMove();
 }
 
-void QtAxisViewModel::setRelTarget(double distance) {
-    if (m_core) m_core->setRelTarget(distance);
+bool QtAxisViewModel::setRelTarget(double distance) {
+    if (m_core) return m_core->setRelTarget(distance);
+    return false;
 }
 
 void QtAxisViewModel::triggerRelMove() {

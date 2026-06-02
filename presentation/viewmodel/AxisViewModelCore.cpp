@@ -215,6 +215,16 @@ bool AxisViewModelCore::hasError() const
     return !m_errorHistory.empty();
 }
 
+bool AxisViewModelCore::hasBlockingError() const
+{
+    for (const auto& entry : m_errorHistory) {
+        if (entry.error.category == ErrorCategory::Modal) {
+            return true;
+        }
+    }
+    return false;
+}
+
 ViewModelError AxisViewModelCore::lastError() const
 {
     if (m_errorHistory.empty()) {
@@ -416,7 +426,7 @@ void AxisViewModelCore::setMoveVelocity(double v)
 
 // ── ★ 独立按钮映射：绝对/相对定位两步操作 ──
 
-void AxisViewModelCore::setAbsTarget(double target)
+bool AxisViewModelCore::setAbsTarget(double target)
 {
     TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
     LOG_INFO(LogLayer::UI, "AxisVM",
@@ -431,7 +441,7 @@ void AxisViewModelCore::setAbsTarget(double target)
             ErrorCategory::Modal
         };
         pushError(error, "SetAbsTarget");
-        return;
+        return false;
     }
 
     if (!axis->setAbsTarget(target)) {
@@ -439,9 +449,11 @@ void AxisViewModelCore::setAbsTarget(double target)
         pushError(vmError, "SetAbsTarget");
         LOG_WARN(LogLayer::UI, "AxisVM",
             logPrefix() + " setAbsTarget rejected: " + vmError.code);
+        return false;
     } else {
         LOG_DEBUG(LogLayer::UI, "AxisVM",
             logPrefix() + " setAbsTarget accepted, pending command queued");
+        return true;
     }
 }
 
@@ -461,7 +473,7 @@ void AxisViewModelCore::triggerAbsMove()
     }
 }
 
-void AxisViewModelCore::setRelTarget(double distance)
+bool AxisViewModelCore::setRelTarget(double distance)
 {
     TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
     LOG_INFO(LogLayer::UI, "AxisVM",
@@ -476,7 +488,7 @@ void AxisViewModelCore::setRelTarget(double distance)
             ErrorCategory::Modal
         };
         pushError(error, "SetRelTarget");
-        return;
+        return false;
     }
 
     if (!axis->setRelTarget(distance)) {
@@ -484,9 +496,11 @@ void AxisViewModelCore::setRelTarget(double distance)
         pushError(vmError, "SetRelTarget");
         LOG_WARN(LogLayer::UI, "AxisVM",
             logPrefix() + " setRelTarget rejected: " + vmError.code);
+        return false;
     } else {
         LOG_DEBUG(LogLayer::UI, "AxisVM",
             logPrefix() + " setRelTarget accepted, pending command queued");
+        return true;
     }
 }
 

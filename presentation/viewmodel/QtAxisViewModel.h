@@ -20,6 +20,7 @@ class QtAxisViewModel : public QObject {
 
     // 错误接口
     Q_PROPERTY(bool hasError READ hasError NOTIFY errorChanged)
+    Q_PROPERTY(bool hasBlockingError READ hasBlockingError NOTIFY errorChanged)   // ★ 仅 Modal 错误阻断操作
     Q_PROPERTY(QString errorCode READ errorCode NOTIFY errorChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorChanged)
 
@@ -49,6 +50,7 @@ public:
     double jogVelocity() const;
     double moveVelocity() const;
     bool hasError() const;
+    bool hasBlockingError() const;                  // ★ 仅 Modal 错误阻断操作
     QString errorCode() const;
     QString errorMessage() const;
 
@@ -69,9 +71,9 @@ public:
     Q_INVOKABLE void jogNegativeReleased();
 
     // ★ 独立按钮映射 — 两步操作 API
-    Q_INVOKABLE void setAbsTarget(double target);
+    Q_INVOKABLE bool setAbsTarget(double target);
     Q_INVOKABLE void triggerAbsMove();
-    Q_INVOKABLE void setRelTarget(double distance);
+    Q_INVOKABLE bool setRelTarget(double distance);
     Q_INVOKABLE void triggerRelMove();
 
     Q_INVOKABLE void setJogVelocity(double v);

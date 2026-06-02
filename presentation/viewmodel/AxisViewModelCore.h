@@ -46,6 +46,7 @@ public:
 
     // ── 错误接口 ──
     bool hasError() const;
+    bool hasBlockingError() const;       // ★ 仅 Modal 类错误才阻断操作
     ViewModelError lastError() const;
     size_t errorCount() const;
     std::vector<ViewModelError> allErrors() const;
@@ -63,9 +64,9 @@ public:
     void setMoveVelocity(double v);
 
     // ── ★ 独立按钮映射：绝对/相对定位两步操作 ──
-    void setAbsTarget(double target);      // 设置绝对移动目标（仅写 PLC，不触发运动）
+    bool setAbsTarget(double target);      // 设置绝对移动目标（仅写 PLC，不触发运动）
     void triggerAbsMove();                 // 触发绝对移动（走 AbsMovePolicy 编排）
-    void setRelTarget(double distance);    // 设置相对移动距离（仅写 PLC，不触发运动）
+    bool setRelTarget(double distance);    // 设置相对移动距离（仅写 PLC，不触发运动）
     void triggerRelMove();                 // 触发相对移动（走 RelMovePolicy 编排）
 
     // ── ★ Loading 状态查询（供 QML 显示加载指示器）──
