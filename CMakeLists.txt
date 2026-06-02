@@ -92,6 +92,7 @@ qt_add_qml_module(appservoV6
         presentation/qml/components/AxisItemDelegate.qml
         presentation/qml/components/VelocitySettingsPopup.qml
         presentation/qml/components/TargetSettingsPopup.qml
+        presentation/qml/components/NumPad.qml
         presentation/qml/blocks/AxisSelectorBlock.qml
         presentation/qml/blocks/TelemetryBlock.qml
         presentation/qml/blocks/ActionControlBlock.qml

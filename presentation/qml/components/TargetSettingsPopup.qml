@@ -39,7 +39,7 @@ Popup {
             }
             // 根据当前值自动设置正负号和输入框
             signPositive = (currentValue >= 0.0)
-            targetInput.text = Math.abs(currentValue).toFixed(2)
+            numPad.inputText = Math.abs(currentValue).toFixed(2)
         }
     }
 
@@ -121,7 +121,7 @@ Popup {
             }
         }
 
-        // 目标输入组（可编辑，初始值来自反馈）
+        // 目标输入组（伪输入框：点击弹出 NumPad，彻底阻止安卓系统键盘）
         RowLayout {
             Layout.alignment: Qt.AlignHCenter
             spacing: 15 * Theme.scale
@@ -131,14 +131,27 @@ Popup {
                 color: Theme.textDim
                 font.pixelSize: Theme.fontNormal
             }
-            TextField {
-                id: targetInput
+            // 伪输入框：Rectangle + Text + MouseArea
+            Rectangle {
+                id: targetInputBox
                 Layout.preferredWidth: 120 * Theme.scale
-                color: Theme.textMain
-                font.pixelSize: Theme.fontLarge
-                horizontalAlignment: TextInput.AlignHCenter
-                background: Rectangle { color: Theme.bgDark; border.color: Theme.borderMain; radius: 4 }
-                validator: DoubleValidator { bottom: 0.0; top: 10000.0; decimals: 2 }
+                Layout.preferredHeight: 40 * Theme.scale
+                radius: 4 * Theme.scale
+                color: Theme.bgDark
+                border.color: Theme.borderMain
+                border.width: 1.5 * Theme.scale
+
+                Text {
+                    anchors.centerIn: parent
+                    text: numPad.inputText
+                    color: Theme.textMain
+                    font.pixelSize: Theme.fontLarge
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: numPad.open()
+                }
             }
             Text { text: "mm"; color: Theme.textDim }
         }
@@ -163,7 +176,7 @@ Popup {
                 baseColor: Theme.colorIdle
                 onClicked: {
                     if (viewModel) {
-                        var absValue = Math.abs(parseFloat(targetInput.text))
+                        var absValue = Math.abs(parseFloat(numPad.inputText))
                         var value = root.signPositive ? absValue : -absValue
                         if (targetType === "abs") {
                             viewModel.setAbsTarget(value)
@@ -175,5 +188,17 @@ Popup {
                 }
             }
         }
+    }
+
+    // ── NumPad 自定义数字键盘 ──
+    NumPad {
+        id: numPad
+        title: targetType === "abs" ? "绝对目标" : "相对距离"
+        unit: "mm"
+        allowNegative: false   // 正负号由外部按钮控制
+        allowDecimal: true
+        maxValue: 10000.0
+        maxDecimals: 2
+        inputText: "0.00"
     }
 }

@@ -26,11 +26,11 @@ Popup {
         if (viewModel) {
             if (speedType === "jog") {
                 popupTitle.text = "⚙️ 点动速度设置"
-                speedInput.text = viewModel.jogVelocity.toString()
+                numPad.inputText = viewModel.jogVelocity.toString()
                 speedLabel.text = "点动速度 (Jog):"
             } else {
                 popupTitle.text = "⚙️ 定位速度设置"
-                speedInput.text = viewModel.moveVelocity.toString()
+                numPad.inputText = viewModel.moveVelocity.toString()
                 speedLabel.text = "定位速度 (Pos):"
             }
         }
@@ -60,7 +60,7 @@ Popup {
 
         Item { Layout.fillHeight: true } // 弹簧
 
-        // 速度输入组
+        // 速度输入组（伪输入框：点击弹出 NumPad，彻底阻止安卓系统键盘）
         RowLayout {
             Layout.alignment: Qt.AlignHCenter
             spacing: 15 * Theme.scale
@@ -70,14 +70,27 @@ Popup {
                 color: Theme.textDim
                 font.pixelSize: Theme.fontNormal
             }
-            TextField {
-                id: speedInput
+            // 伪输入框：Rectangle + Text + MouseArea
+            Rectangle {
+                id: speedInputBox
                 Layout.preferredWidth: 120 * Theme.scale
-                color: Theme.textMain
-                font.pixelSize: Theme.fontLarge
-                horizontalAlignment: TextInput.AlignHCenter
-                background: Rectangle { color: Theme.bgDark; border.color: Theme.borderMain; radius: 4 }
-                validator: DoubleValidator { bottom: 0.1; top: 1000.0 }
+                Layout.preferredHeight: 40 * Theme.scale
+                radius: 4 * Theme.scale
+                color: Theme.bgDark
+                border.color: Theme.borderMain
+                border.width: 1.5 * Theme.scale
+
+                Text {
+                    anchors.centerIn: parent
+                    text: numPad.inputText
+                    color: Theme.textMain
+                    font.pixelSize: Theme.fontLarge
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: numPad.open()
+                }
             }
             Text { text: "mm/s"; color: Theme.textDim }
         }
@@ -104,7 +117,7 @@ Popup {
                 baseColor: Theme.colorIdle
                 onClicked: {
                     if (viewModel) {
-                        var value = parseFloat(speedInput.text)
+                        var value = parseFloat(numPad.inputText)
                         if (speedType === "jog") {
                             viewModel.setJogVelocity(value)
                         } else {
@@ -115,5 +128,17 @@ Popup {
                 }
             }
         }
+    }
+
+    // ── NumPad 自定义数字键盘 ──
+    NumPad {
+        id: numPad
+        title: speedType === "jog" ? "点动速度" : "定位速度"
+        unit: "mm/s"
+        allowNegative: false
+        allowDecimal: true
+        maxValue: 1000.0
+        maxDecimals: 2
+        inputText: "0.00"
     }
 }
