@@ -56,6 +56,7 @@ public:
     enum class Step {
         Initial,
         EnsuringEnabled,     // 使能
+        PostEnableDelay,     // 使能完成后等待硬件稳定（抱闸释放、磁场建立）
         TriggeringMove,      // 触发 REL_MOVE_TRIGGER（★ 无 SettingTarget）
         WaitingMotionStart,  // 等待运动开始
         WaitingMotionFinish, // 等待运动完成（只看轴状态：Moving→等待, Idle→完成，不判定位置）
@@ -68,7 +69,8 @@ public:
         : m_manager(manager)
         , m_groupName(groupName)
         , m_step(Step::Initial)
-        , m_enableTimeoutSeconds(2.0)   // ★ 使能超时：2 秒后未收到 Idle feedback 则判定失败
+        , m_enableTimeoutSeconds(2.0)       // ★ 使能超时：2 秒后未收到 Idle feedback 则判定失败
+        , m_postEnableDelaySeconds(0.4)     // ★ 使能后等待 400ms，给抱闸释放和磁场建立留出时间
     {}
 
     // ========== 入口 ==========
@@ -87,6 +89,9 @@ public:
         // ★ 使能防重复 & 超时相关标志复位
         m_enableSent       = false;
         m_enableSentTime   = std::chrono::steady_clock::time_point{};
+
+        // ★ 使能后延时相关标志复位
+        m_idleReachedTime = std::chrono::steady_clock::time_point{};
 
         m_traceId = TraceScope::current().traceId;
 
@@ -192,15 +197,40 @@ public:
             if (axis->state() == AxisState::Idle) {
                 LOG_DEBUG(LogLayer::APP, "RelPolicy",
                           "[" + m_groupName + "][" + axisName(m_targetId)
-                              + "] EnsuringEnabled -> TriggeringMove  ★ 直接触发，不写距离");
+                              + "] EnsuringEnabled -> PostEnableDelay (waiting for hardware to stabilize)");
                 m_enableSent = false;   // ★ 清除标志，完成使能阶段
-                m_step = Step::TriggeringMove;
+                m_idleReachedTime = std::chrono::steady_clock::now();
+                m_step = Step::PostEnableDelay;
                 break;
             }
             break;
 
         // ============================================================
-        // Step 2：TriggeringMove —— 触发 REL_MOVE_TRIGGER（★ 无 SettingTarget）
+        // Step 2：PostEnableDelay —— 等待硬件稳定（抱闸释放、磁场建立）后再触发运动
+        // ============================================================
+        case Step::PostEnableDelay: {
+            auto elapsed = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - m_idleReachedTime).count();
+            if (elapsed >= m_postEnableDelaySeconds) {
+                LOG_DEBUG(LogLayer::APP, "RelPolicy",
+                          "[" + m_groupName + "][" + axisName(m_targetId)
+                              + "] PostEnableDelay -> TriggeringMove (stabilized after "
+                              + std::to_string(elapsed * 1000) + "ms)");
+                m_step = Step::TriggeringMove;
+            }
+            if (axis->state() != AxisState::Idle) {
+                LOG_ERROR(LogLayer::APP, "RelPolicy",
+                          "[" + m_groupName + "][" + axisName(m_targetId)
+                              + "] Axis state changed during PostEnableDelay -- state="
+                              + std::string(axisStateName(axis->state())) + ", aborting");
+                m_step = Step::Error;
+                m_lastError = axis->lastRejection();
+            }
+            break;
+        }
+
+        // ============================================================
+        // Step 3：TriggeringMove —— 触发 REL_MOVE_TRIGGER（★ 无 SettingTarget）
         // ============================================================
         case Step::TriggeringMove:
             if (m_moveTriggered) break;
@@ -230,7 +260,7 @@ public:
             break;
 
         // ============================================================
-        // Step 3：WaitingMotionStart —— 等待运动开始
+        // Step 4：WaitingMotionStart —— 等待运动开始
         // ============================================================
         case Step::WaitingMotionStart:
             if (!m_motionObserved) {
@@ -246,7 +276,7 @@ public:
             break;
 
         // ============================================================
-        // Step 4：WaitingMotionFinish —— 等待运动完成
+        // Step 5：WaitingMotionFinish —— 等待运动完成
         // ★ 使用轴状态判定而非 isMoveCompleted()：
         //   - MovingAbsolute / MovingRelative → 仍在运动中，继续等待
         //   - Idle → 运动完成，推进到 Disabling
@@ -270,7 +300,7 @@ public:
             break;
 
         // ============================================================
-        // Step 5：Disabling —— 关闭使能
+        // Step 6：Disabling —— 关闭使能
         // ============================================================
         case Step::Disabling:
             {
@@ -329,6 +359,10 @@ private:
     bool m_enableSent = false;
     std::chrono::steady_clock::time_point m_enableSentTime;
     const double m_enableTimeoutSeconds;
+
+    // ========== ★ 使能后硬件稳定延迟（防爆冲）==========
+    const double m_postEnableDelaySeconds;
+    std::chrono::steady_clock::time_point m_idleReachedTime;
 
     std::string m_traceId = "N/A";
 };

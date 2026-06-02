@@ -33,6 +33,7 @@ public:
     enum class Step {
         Idle,
         EnsuringEnabled,   // 下发使能
+        PostEnableDelay,   // 使能完成后等待硬件稳定（抱闸释放、磁场建立）
         IssuingJog,        // 下发点动指令
         Jogging,           // 点动运行中
         IssuingStop,       // 下发停止指令
@@ -50,7 +51,8 @@ public:
         : m_manager(manager)
         , m_groupName(groupName)
         , m_step(Step::Idle)
-        , m_enableTimeoutSeconds(3.0)   // ★ 使能超时：3 秒后未收到 Idle feedback 则判定失败
+        , m_enableTimeoutSeconds(3.0)       // ★ 使能超时：3 秒后未收到 Idle feedback 则判定失败
+        , m_postEnableDelaySeconds(0.4)     // ★ 使能后等待 400ms，给抱闸释放和磁场建立留出时间
     {
     }
 
@@ -70,6 +72,9 @@ public:
         m_enableSent     = false;
         m_enableSentTime = std::chrono::steady_clock::time_point{};
 
+        // ★ 使能后延时相关标志复位
+        m_idleReachedTime = std::chrono::steady_clock::time_point{};
+
         m_traceId = TraceScope::current().traceId;
 
         LOG_INFO(LogLayer::APP, "JogOrch",
@@ -88,6 +93,7 @@ public:
         }
 
         if (m_step == Step::EnsuringEnabled ||
+            m_step == Step::PostEnableDelay ||
             m_step == Step::IssuingJog ||
             m_step == Step::Jogging) {
             LOG_INFO(LogLayer::APP, "JogOrch",
@@ -188,9 +194,10 @@ public:
             }
             if (axis->state() == AxisState::Idle) {
                 LOG_DEBUG(LogLayer::APP, "JogOrch",
-                          "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -> IssuingJog");
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -> PostEnableDelay (waiting for hardware to stabilize)");
                 m_enableSent = false;   // ★ 清除标志，完成使能阶段
-                m_step = Step::IssuingJog;
+                m_idleReachedTime = std::chrono::steady_clock::now();
+                m_step = Step::PostEnableDelay;
                 break;
             }
             // 其他状态（Unknown/Moving...）：保持等待
@@ -198,6 +205,30 @@ public:
                       "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringEnabled -- waiting, axis state="
                           + std::string(axisStateName(axis->state())));
             break;
+
+        // ============================================================
+        // PostEnableDelay：等待硬件稳定（抱闸释放、磁场建立）后再下发点动
+        // ============================================================
+
+        case Step::PostEnableDelay: {
+            auto elapsed = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - m_idleReachedTime).count();
+            if (elapsed >= m_postEnableDelaySeconds) {
+                LOG_DEBUG(LogLayer::APP, "JogOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] PostEnableDelay -> IssuingJog (stabilized after "
+                              + std::to_string(elapsed * 1000) + "ms)");
+                m_step = Step::IssuingJog;
+            }
+            // 轴状态异常回退检测：延迟期间轴脱离 Idle 则报错
+            if (axis->state() != AxisState::Idle) {
+                LOG_ERROR(LogLayer::APP, "JogOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] Axis state changed during PostEnableDelay -- state="
+                              + std::string(axisStateName(axis->state())) + ", aborting");
+                m_step = Step::Error;
+                m_lastError = axis->lastRejection();
+            }
+            break;
+        }
 
         // ============================================================
         // IssuingJog：下发点动指令 -> Jogging
@@ -387,6 +418,10 @@ private:
     bool m_enableSent = false;
     std::chrono::steady_clock::time_point m_enableSentTime;
     const double m_enableTimeoutSeconds;
+
+    // ========== ★ 使能后硬件稳定延迟（防爆冲）==========
+    const double m_postEnableDelaySeconds;
+    std::chrono::steady_clock::time_point m_idleReachedTime;
 
     std::string m_traceId = "N/A";
 };
