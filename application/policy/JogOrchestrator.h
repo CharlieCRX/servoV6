@@ -38,7 +38,8 @@ public:
         Jogging,           // 点动运行中
         IssuingStop,       // 下发停止指令
         WaitingForIdle,    // 等待轴停稳
-        EnsuringDisabled,  // 下发掉电
+        EnsuringDisabled,  // 下发掉电（正常流程结束）
+        ErrorDisabling,    // ★ 错误恢复掉电（有状态展示，最多 2 次重试，3s 超时）
         Done,
         Error
     };
@@ -74,6 +75,11 @@ public:
 
         // ★ 使能后延时相关标志复位
         m_idleReachedTime = std::chrono::steady_clock::time_point{};
+
+        // ★ Error 掉电重试相关标志复位
+        m_errorDisableSent      = false;
+        m_errorDisableRetryCount = 0;
+        m_errorDisableSentTime  = std::chrono::steady_clock::time_point{};
 
         m_traceId = TraceScope::current().traceId;
 
@@ -139,17 +145,22 @@ public:
         }
 
         // 全局最高优先级：硬件/状态错误拦截
+        // ★ 仅在编排器处于活跃流程中时才触发 ErrorDisabling；
+        //    空闲(Idle)、已完成(Done)、已终止(Error)状态下不干预。
         if (axis->state() == AxisState::Error) {
-            if (m_step != Step::Error) {  // ★ 首次检测到 Error，执行完整的错误处理流程
+            if (m_step != Step::Idle && m_step != Step::Done
+                && m_step != Step::ErrorDisabling && m_step != Step::Error) {
                 LOG_ERROR(LogLayer::APP, "JogOrch",
-                          "[" + m_groupName + "][" + axisName(m_targetId) + "] Axis Error state -- aborting, sending Disable");
-                m_step = Step::Error;
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] Axis Error state detected -- entering ErrorDisabling");
+                m_step = Step::ErrorDisabling;
                 m_lastError = axis->lastRejection();
-                // ★ 执行停止使能处理（关闭电机供电）
-                EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, false);
+
+                // ★ 复位掉电重试计数器
+                m_errorDisableSent      = false;
+                m_errorDisableRetryCount = 0;
+                m_errorDisableSentTime  = std::chrono::steady_clock::time_point{};
             }
-            // 已处于 Error 状态，静默返回，避免逐帧重复日志和重复操作
-            return;
+            // 继续向下走 switch，由 ErrorDisabling case 处理（或 Error 终态静默）
         }
 
         switch (m_step) {
@@ -337,7 +348,7 @@ public:
             break;
 
         // ============================================================
-        // EnsuringDisabled：掉电 -> Done
+        // EnsuringDisabled：掉电 -> Done（正常流程）
         // ============================================================
 
         case Step::EnsuringDisabled:
@@ -362,6 +373,75 @@ public:
                               + std::string(axisStateName(axis->state())));
             }
             break;
+
+        // ============================================================
+        // ErrorDisabling：错误恢复掉电（带重试）
+        //   1. 发送一次写使能 false，记录日志
+        //   2. 等待轴状态变为 Disabled
+        //   3. 若 3s 后仍未 Disabled，重发一次（最多重试 2 次）
+        //   4. 两次均超时后进入 Error 终态
+        // ============================================================
+
+        case Step::ErrorDisabling: {
+            // ---- 检查轴是否已恢复为 Disabled ----
+            if (axis->state() == AxisState::Disabled) {
+                LOG_INFO(LogLayer::APP, "JogOrch",
+                         "[" + m_groupName + "][" + axisName(m_targetId) + "] ErrorDisabling -- axis is now Disabled, transitioning to Error");
+                m_step = Step::Error;
+                break;
+            }
+
+            // ---- 判断当前轮次的发送与超时 ----
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration<double>(now - m_errorDisableSentTime).count();
+
+            if (!m_errorDisableSent) {
+                // 首次发送 / 新一轮重试发送
+                LOG_INFO(LogLayer::APP, "JogOrch",
+                         "[" + m_groupName + "][" + axisName(m_targetId) + "] ErrorDisabling -- sending Disable (attempt "
+                             + std::to_string(m_errorDisableRetryCount + 1) + "/" + std::to_string(kMaxErrorDisableRetries) + ")");
+                auto err = EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, false);
+                if (!std::holds_alternative<std::monostate>(err)) {
+                    LOG_ERROR(LogLayer::APP, "JogOrch",
+                              "[" + m_groupName + "][" + axisName(m_targetId) + "] ErrorDisabling -- EnableUseCase FAILED, retry later");
+                    // EnableUseCase 失败也计入一次重试，不直接放弃
+                }
+                m_errorDisableSent     = true;
+                m_errorDisableSentTime = now;
+                m_errorDisableRetryCount++;
+                LOG_DEBUG(LogLayer::APP, "JogOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] ErrorDisabling -- waiting for Disabled feedback...");
+                break;
+            }
+
+            // 已发送，等待超时检测
+            if (elapsed > kErrorDisableTimeoutSeconds) {
+                // 本轮超时，检查是否还有重试额度
+                if (m_errorDisableRetryCount < kMaxErrorDisableRetries) {
+                    LOG_WARN(LogLayer::APP, "JogOrch",
+                             "[" + m_groupName + "][" + axisName(m_targetId) + "] ErrorDisabling -- TIMEOUT after "
+                                 + std::to_string(kErrorDisableTimeoutSeconds)
+                                 + "s (attempt " + std::to_string(m_errorDisableRetryCount)
+                                 + "/" + std::to_string(kMaxErrorDisableRetries) + "), retrying...");
+                    // 复位发送标志，下一 tick 重新发送
+                    m_errorDisableSent = false;
+                } else {
+                    LOG_ERROR(LogLayer::APP, "JogOrch",
+                              "[" + m_groupName + "][" + axisName(m_targetId) + "] ErrorDisabling -- FAILED after "
+                                  + std::to_string(kMaxErrorDisableRetries)
+                                  + " attempts, entering Error terminal state");
+                    m_step = Step::Error;
+                }
+                break;
+            }
+
+            // 等待中
+            LOG_DEBUG(LogLayer::APP, "JogOrch",
+                      "[" + m_groupName + "][" + axisName(m_targetId) + "] ErrorDisabling -- waiting for Disabled, attempt "
+                          + std::to_string(m_errorDisableRetryCount) + "/" + std::to_string(kMaxErrorDisableRetries)
+                          + ", " + std::to_string(elapsed) + "s elapsed");
+            break;
+        }
 
         case Step::Done:
         case Step::Error:
@@ -427,6 +507,13 @@ private:
     // ========== ★ 使能后硬件稳定延迟（防爆冲）==========
     const double m_postEnableDelaySeconds;
     std::chrono::steady_clock::time_point m_idleReachedTime;
+
+    // ========== ★ Error 掉电重试 ==========
+    bool m_errorDisableSent = false;
+    int  m_errorDisableRetryCount = 0;
+    static constexpr int kMaxErrorDisableRetries = 2;           // 最多发 2 次写使能 false
+    static constexpr double kErrorDisableTimeoutSeconds = 3.0;  // 每次等待 3s
+    std::chrono::steady_clock::time_point m_errorDisableSentTime;
 
     std::string m_traceId = "N/A";
 };

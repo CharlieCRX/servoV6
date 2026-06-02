@@ -275,6 +275,14 @@ void AxisViewModelCore::clearError()
 void AxisViewModelCore::pushError(const ViewModelError& error, const std::string& source)
 {
     if (!error.isValid()) return;
+
+    // ★ 去重：同一 source + code 只入队一次，避免逐帧重复推送
+    for (const auto& entry : m_errorHistory) {
+        if (entry.source == source && entry.error.code == error.code) {
+            return;  // already logged
+        }
+    }
+
     m_errorHistory.push_back({
         .error = error,
         .timestamp = std::chrono::steady_clock::now(),
@@ -684,7 +692,13 @@ void AxisViewModelCore::tick()
     consumePendingCommands();
 
     // Step 2: 驱动 Policy tick（移动触发编排）
-    if (m_absPolicy && !m_absPolicy->isDone() && !m_absPolicy->hasError()) {
+    // ★ 跳过处于 Initial/Done 步骤的 Policy。
+    // ★ Error 步骤不能跳过：首次 tick 的 Error 检入守卫设置 m_step=Error
+    //    后直接 return，case Step::Error 中的 Disable 清理逻辑尚未执行。
+    //    必须在后续 tick 中继续驱动，让 case Step::Error 有机会发送 Disable。
+    if (m_absPolicy
+        && m_absPolicy->currentStep() != AbsMovePolicy::Step::Initial
+        && m_absPolicy->currentStep() != AbsMovePolicy::Step::Done) {
         m_absPolicy->tick();
         if (m_absPolicy->hasError()) {
             auto vmError = translate(m_absPolicy->lastError());
@@ -692,7 +706,9 @@ void AxisViewModelCore::tick()
         }
     }
 
-    if (m_relPolicy && !m_relPolicy->isDone() && !m_relPolicy->hasError()) {
+    if (m_relPolicy
+        && m_relPolicy->currentStep() != RelMovePolicy::Step::Initial
+        && m_relPolicy->currentStep() != RelMovePolicy::Step::Done) {
         m_relPolicy->tick();
         if (m_relPolicy->hasError()) {
             auto vmError = translate(m_relPolicy->lastError());
@@ -700,15 +716,47 @@ void AxisViewModelCore::tick()
         }
     }
 
-    // Step 3: 驱动旧编排器 tick（向后兼容）
-    m_jogOrch->tick();
-    m_absOrch->tick();
-    m_relOrch->tick();
+    // Error 自动恢复：当轴已从 Error 状态恢复（例如 Disable 后变为 Disabled/Idle），
+    // 自动清除视图层的 Error 历史，使 hasBlockingError() 恢复正常，解锁 UI 按钮。
+    {
+        auto s = state();
+        if (s != AxisState::Error && s != AxisState::Unknown) {
+            if (!m_errorHistory.empty()) {
+                auto& last = m_errorHistory.back();
+                if (last.source == "AbsPolicy" || last.source == "RelPolicy") {
+                    LOG_INFO(LogLayer::UI, "AxisVM",
+                        logPrefix() + " auto-clearing Policy error ("
+                            + last.error.code + "), axis state="
+                            + std::to_string(static_cast<int>(s)));
+                    m_errorHistory.clear();
+                }
+            }
+        }
+    }
 
-    // Step 4: 收集旧编排器错误
-    collectOrchError(*m_jogOrch, "JogOrch");
-    collectOrchError(*m_absOrch, "AbsOrch");
-    collectOrchError(*m_relOrch, "RelOrch");
+    // Step 3: 驱动旧编排器 tick（向后兼容）
+    // ★ 仅在编排器处于活跃流程中时才 tick，避免空闲编排器
+    //    在 Error 轴状态下重复发送 Disable 等指令。
+    if (m_jogOrch->currentStep() != JogOrchestrator::Step::Idle
+        && m_jogOrch->currentStep() != JogOrchestrator::Step::Done
+        && m_jogOrch->currentStep() != JogOrchestrator::Step::Error) {
+        m_jogOrch->tick();
+        collectOrchError(*m_jogOrch, "JogOrch");
+    }
+
+    if (m_absOrch->currentStep() != AutoAbsMoveOrchestrator::Step::Initial
+        && m_absOrch->currentStep() != AutoAbsMoveOrchestrator::Step::Done
+        && m_absOrch->currentStep() != AutoAbsMoveOrchestrator::Step::Error) {
+        m_absOrch->tick();
+        collectOrchError(*m_absOrch, "AbsOrch");
+    }
+
+    if (m_relOrch->currentStep() != AutoRelMoveOrchestrator::Step::Initial
+        && m_relOrch->currentStep() != AutoRelMoveOrchestrator::Step::Done
+        && m_relOrch->currentStep() != AutoRelMoveOrchestrator::Step::Error) {
+        m_relOrch->tick();
+        collectOrchError(*m_relOrch, "RelOrch");
+    }
 
     // Step 5: 日志摘要
     LOG_TRACE_EVERY_N(100, LogLayer::UI, "AxisVM",

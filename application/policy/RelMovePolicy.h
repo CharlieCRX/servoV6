@@ -85,6 +85,7 @@ public:
 
         m_moveTriggered = false;
         m_motionObserved = false;
+        m_errorDisableSent = false;
 
         // ★ 使能防重复 & 超时相关标志复位
         m_enableSent       = false;
@@ -135,13 +136,19 @@ public:
             return;
         }
 
-        if (axis->state() == AxisState::Error) {
-            LOG_ERROR(LogLayer::APP, "RelPolicy",
-                      "[" + m_groupName + "][" + axisName(m_targetId)
-                          + "] Axis Error state -- aborting");
-            m_step = Step::Error;
-            m_lastError = axis->lastRejection();
-            return;
+        // ★ Error 检入守卫：仅在 Policy 已启动（非 Initial/Done/Error 终态）时，
+        //    才检测轴的 Error 状态并终止流程。避免未启动的 Policy 因其他轴的
+        //    Error 而产生误报日志。
+        if (m_step != Step::Initial && m_step != Step::Done && m_step != Step::Error) {
+            if (axis->state() == AxisState::Error) {
+                LOG_ERROR(LogLayer::APP, "RelPolicy",
+                          "[" + m_groupName + "][" + axisName(m_targetId)
+                              + "] Axis Error state -- aborting (current step="
+                              + stepName(m_step) + ")");
+                m_step = Step::Error;
+                m_lastError = axis->lastRejection();
+                return;
+            }
         }
 
         double pos = axis->currentAbsolutePosition();
@@ -316,8 +323,30 @@ public:
             }
             break;
 
-        case Step::Done:
+        // ============================================================
+        // Step 7：Error —— 检测到错误，确保电机禁用（仅发一次）
+        // ============================================================
         case Step::Error:
+            if (!m_errorDisableSent) {
+                m_errorDisableSent = true;
+                LOG_INFO(LogLayer::APP, "RelPolicy",
+                          "[" + m_groupName + "][" + axisName(m_targetId)
+                              + "] Error -- sending Disable to protect motor");
+                EnableUseCase{}.execute(
+                    m_manager, m_groupName, m_targetId, false);
+            }
+            // ★ Disable 已确认，轴恢复正常 → 退出 Error 进入 Done
+            //    避免 Policy 永远卡在 Error，导致每帧 hasError()→pushError 死循环
+            if (axis->state() != AxisState::Error) {
+                LOG_INFO(LogLayer::APP, "RelPolicy",
+                          "[" + m_groupName + "][" + axisName(m_targetId)
+                              + "] Error -> Done (axis recovered, state="
+                              + std::string(axisStateName(axis->state())) + ")");
+                m_step = Step::Done;
+            }
+            break;
+
+        case Step::Done:
         default:
             break;
         }
@@ -329,6 +358,21 @@ public:
     bool isDone() const { return m_step == Step::Done; }
     bool hasError() const { return m_step == Step::Error; }
     UseCaseError lastError() const { return m_lastError; }
+
+    static std::string stepName(Step s) {
+        switch (s) {
+            case Step::Initial:           return "Initial";
+            case Step::EnsuringEnabled:    return "EnsuringEnabled";
+            case Step::PostEnableDelay:    return "PostEnableDelay";
+            case Step::TriggeringMove:     return "TriggeringMove";
+            case Step::WaitingMotionStart: return "WaitingMotionStart";
+            case Step::WaitingMotionFinish:return "WaitingMotionFinish";
+            case Step::Disabling:          return "Disabling";
+            case Step::Done:              return "Done";
+            case Step::Error:             return "Error";
+        }
+        return "?";
+    }
 
 private:
     static std::string axisName(AxisId id) {
@@ -363,6 +407,8 @@ private:
     // ========== ★ 使能后硬件稳定延迟（防爆冲）==========
     const double m_postEnableDelaySeconds;
     std::chrono::steady_clock::time_point m_idleReachedTime;
+
+    bool m_errorDisableSent = false;
 
     std::string m_traceId = "N/A";
 };
