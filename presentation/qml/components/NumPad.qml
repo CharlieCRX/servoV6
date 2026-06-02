@@ -29,6 +29,15 @@ Popup {
     padding: 18 * Theme.scale
     closePolicy: Popup.CloseOnEscape
 
+    // ── 原生半透明遮罩（通过 Overlay.modal 定制，Qt 内置机制）──
+    Overlay.modal: Rectangle {
+        color: '#b4000000'
+
+        Behavior on opacity {
+            NumberAnimation { duration: 150 }
+        }
+    }
+
     onOpened: {
         _initialText = inputText
         if (inputText === "" || inputText === "-") {
