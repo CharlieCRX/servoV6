@@ -30,9 +30,9 @@ Rectangle {
     // ── X 轴（逻辑龙门）的状态文字 ──
     readonly property string gantryStatusText: {
         if (!gantryViewModel || currentAxisName !== "X") return ""
-        if (isCouplingTransition) return "耦合中..."
-        if (isCoupled) return "耦合 · 控制中"
-        return "已解耦"
+        if (isCouplingTransition) return "启用中..."
+        if (isCoupled) return "已启用"
+        return "未启用"
     }
 
     // ── X 轴状态指示灯颜色 ──

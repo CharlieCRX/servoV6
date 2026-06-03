@@ -24,10 +24,16 @@ Rectangle {
         if (!gantryViewModel) return false
         return gantryViewModel.isCoupled || false
     }
+    readonly property bool gantryEnabled: {
+        if (!gantryViewModel) return false
+        return gantryViewModel.isEnabled || false
+    }
     readonly property bool gantryCoupling: {
         if (!gantryViewModel) return false
         return gantryViewModel.isOrchestratorBusy || false
     }
+    // 龙门是否已启用（使能 ON + 联动 ON）
+    readonly property bool gantryActivated: root.gantryEnabled && root.gantryCoupled
 
     // 分组切换信号
     signal groupChanged(string newGroup)
@@ -174,28 +180,29 @@ Rectangle {
 
                 Text {
                     text: {
-                        if (root.gantryCoupling) return "耦合中..."
+                        if (root.gantryCoupling) return "启用中..."
+                        if (root.gantryActivated) return "已启用"
                         if (root.gantryCoupled) return "龙门已耦合"
-                        return "龙门已解耦"
+                        return "未启用"
                     }
-                    color: root.gantryCoupled ? Theme.colorIdle : Theme.textDim
+                    color: root.gantryActivated ? Theme.colorIdle : Theme.textDim
                     font.pixelSize: Theme.fontSmall
                     font.bold: true
                     Layout.fillWidth: true
                 }
 
-                // 右侧：耦合 / 解耦按钮
+                // 右侧：启用 / 停用按钮
                 IndustrialButton {
-                    text: root.gantryCoupled ? "解耦" : "耦合"
+                    text: root.gantryActivated ? "停用" : "启用"
                     buttonSize: 60 * Theme.scale
-                    baseColor: root.locked ? Theme.colorDisabled : (root.gantryCoupled ? "#5D4037" : "#2E7D32")
+                    baseColor: root.locked ? Theme.colorDisabled : (root.gantryActivated ? "#5D4037" : "#2E7D32")
                     enabled: !root.locked && !root.gantryCoupling
                     opacity: enabled ? 1.0 : 0.4
-                    border.color: root.gantryCoupled ? "#795548" : "#4CAF50"
+                    border.color: root.gantryActivated ? "#795548" : "#4CAF50"
                     border.width: 1
                     onClicked: {
                         if (!root.gantryViewModel) return
-                        if (root.gantryCoupled) {
+                        if (root.gantryActivated) {
                             root.gantryViewModel.stopCouplingAndDisable()
                         } else {
                             root.gantryViewModel.startCoupling()
@@ -218,11 +225,26 @@ Rectangle {
                     width: 10 * Theme.scale
                     height: 10 * Theme.scale
                     radius: width / 2
-                    color: viewModel && viewModel.isEnabled ? Theme.colorIdle : Theme.colorDisabled
+                    color: {
+                        if (root.selectedAxis === "X") {
+                            return root.gantryEnabled ? Theme.colorIdle : Theme.colorDisabled
+                        }
+                        return viewModel && viewModel.isEnabled ? Theme.colorIdle : Theme.colorDisabled
+                    }
                 }
                 Text {
-                    text: viewModel && viewModel.isEnabled ? "已使能" : "未使能"
-                    color: viewModel && viewModel.isEnabled ? Theme.colorIdle : Theme.textDim
+                    text: {
+                        if (root.selectedAxis === "X") {
+                            return root.gantryEnabled ? "已使能" : "未使能"
+                        }
+                        return viewModel && viewModel.isEnabled ? "已使能" : "未使能"
+                    }
+                    color: {
+                        if (root.selectedAxis === "X") {
+                            return root.gantryEnabled ? Theme.colorIdle : Theme.textDim
+                        }
+                        return viewModel && viewModel.isEnabled ? Theme.colorIdle : Theme.textDim
+                    }
                     font.pixelSize: Theme.fontSmall
                 }
             }

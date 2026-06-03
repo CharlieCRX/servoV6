@@ -22,30 +22,38 @@ Rectangle {
     }
 
     // ── 龙门操作锁定 ──
+    // 启用前（使能 OFF + 联动 OFF）屏蔽右侧所有操作
+    // 启用后（使能 ON + 联动 ON）解除右侧所有操作
+    readonly property bool gantryActivated: {
+        if (!gantryViewModel) return true  // 非龙门轴默认允许
+        if (currentAxis !== "X") return true  // 非 X 轴不限制
+        return gantryViewModel.isEnabled && gantryViewModel.isCoupled
+    }
+
     readonly property bool gantryOperationLocked: {
         if (!gantryViewModel) return false
-        if (currentAxis === "X" && !gantryViewModel.isCoupled) return true
+        if (currentAxis === "X" && !gantryActivated) return true
         if ((currentAxis === "X1" || currentAxis === "X2") && gantryViewModel.isCoupled) return true
         return false
     }
 
     readonly property string gantryLockReason: {
         if (!gantryOperationLocked) return ""
-        if (currentAxis === "X" && gantryViewModel && !gantryViewModel.isCoupled)
-            return "龙门未耦合"
+        if (currentAxis === "X" && gantryViewModel && !gantryActivated)
+            return "X 轴未启用（请先启用）"
         if ((currentAxis === "X1" || currentAxis === "X2") && gantryViewModel && gantryViewModel.isCoupled)
             return "受龙门控制"
         return ""
     }
 
-    property bool jogEnabled: !systemLocked && viewModel !== null
+    property bool jogEnabled: !systemLocked && !gantryOperationLocked && viewModel !== null
 
     // ★ 定位模式下触发是否就绪：仅 Modal 错误阻断操作
-    property bool isReadyForTrigger: !systemLocked && viewModel ? 
+    property bool isReadyForTrigger: !systemLocked && !gantryOperationLocked && viewModel ? 
         (!viewModel.hasBlockingError && viewModel.state <= 2 && !viewModel.isLoading) : false
 
     // ★ 设置目标是否就绪：仅 Modal 错误阻断操作
-    property bool isReadyForSetTarget: !systemLocked && viewModel ? 
+    property bool isReadyForSetTarget: !systemLocked && !gantryOperationLocked && viewModel ? 
         (!viewModel.hasBlockingError && viewModel.state <= 2) : false
 
         color: "transparent"
