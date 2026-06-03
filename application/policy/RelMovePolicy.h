@@ -251,8 +251,11 @@ public:
                     LOG_ERROR(LogLayer::APP, "RelPolicy",
                               "[" + m_groupName + "][" + axisName(m_targetId)
                                   + "] TriggerRelMove rejected");
-                    EnableUseCase{}.execute(
-                        m_manager, m_groupName, m_targetId, false);
+                    // X 轴触发失败不写使能关闭（X 轴保持使能态，由外部 Jog 流程管理）
+                    if (m_targetId != AxisId::X) {
+                        EnableUseCase{}.execute(
+                            m_manager, m_groupName, m_targetId, false);
+                    }
                     m_step = Step::Error;
                     m_lastError = err;
                     break;
@@ -311,6 +314,17 @@ public:
         // ============================================================
         case Step::Disabling:
             {
+                // X 轴执行完毕后不写使能关闭（X 轴保持使能态，由外部 Jog 流程管理）
+                if (m_targetId == AxisId::X) {
+                    LOG_INFO(LogLayer::APP, "RelPolicy",
+                              "[" + m_groupName + "][" + axisName(m_targetId)
+                                  + "] X-axis RelMove complete, skipping disable and transitioning to Done");
+                    LOG_SUMMARY(LogLayer::APP, "RelPolicy",
+                                "[" + m_groupName + "][" + axisName(m_targetId)
+                                    + "] triggerRelMove -> SUCCESS (X-axis, enable kept ON)");
+                    m_step = Step::Done;
+                    break;
+                }
                 LOG_DEBUG(LogLayer::APP, "RelPolicy",
                           "[" + m_groupName + "][" + axisName(m_targetId)
                               + "] Disabling -- sending Disable");
@@ -329,11 +343,18 @@ public:
         case Step::Error:
             if (!m_errorDisableSent) {
                 m_errorDisableSent = true;
-                LOG_INFO(LogLayer::APP, "RelPolicy",
-                          "[" + m_groupName + "][" + axisName(m_targetId)
-                              + "] Error -- sending Disable to protect motor");
-                EnableUseCase{}.execute(
-                    m_manager, m_groupName, m_targetId, false);
+                // X 轴错误时不写使能关闭（X 轴保持使能态，由外部 Jog 流程管理）
+                if (m_targetId != AxisId::X) {
+                    LOG_INFO(LogLayer::APP, "RelPolicy",
+                              "[" + m_groupName + "][" + axisName(m_targetId)
+                                  + "] Error -- sending Disable to protect motor");
+                    EnableUseCase{}.execute(
+                        m_manager, m_groupName, m_targetId, false);
+                } else {
+                    LOG_INFO(LogLayer::APP, "RelPolicy",
+                              "[" + m_groupName + "][" + axisName(m_targetId)
+                                  + "] Error -- X-axis, skipping disable (enable kept ON)");
+                }
             }
             // ★ Disable 已确认，轴恢复正常 → 退出 Error 进入 Done
             //    避免 Policy 永远卡在 Error，导致每帧 hasError()→pushError 死循环
