@@ -284,19 +284,20 @@ Rectangle {
 
             Item { Layout.fillWidth: true }
 
-            IndustrialButton {
-                text: "⚡ 清零"
-                buttonSize: 70 * Theme.scale
-                baseColor: root.locked ? Theme.colorDisabled : Theme.panelBg
-                enabled: !root.locked
-                opacity: enabled ? 1.0 : 0.4
-                border.color: Theme.borderMain
-                border.width: 1
-                Layout.alignment: Qt.AlignRight
-                onClicked: {
-                    if (viewModel) viewModel.zeroAbsolutePosition()
-                }
-            }
+            // ⚡ 清零按钮暂时禁用：绝对位置清除零点操作存在问题，待修复后恢复
+            // IndustrialButton {
+            //     text: "⚡ 清零"
+            //     buttonSize: 70 * Theme.scale
+            //     baseColor: root.locked ? Theme.colorDisabled : Theme.panelBg
+            //     enabled: !root.locked
+            //     opacity: enabled ? 1.0 : 0.4
+            //     border.color: Theme.borderMain
+            //     border.width: 1
+            //     Layout.alignment: Qt.AlignRight
+            //     onClicked: {
+            //         if (viewModel) viewModel.zeroAbsolutePosition()
+            //     }
+            // }
         }
 
         // ===== 4. 相对位置行：靠左标签+数值 + 右侧设零按钮 =====
