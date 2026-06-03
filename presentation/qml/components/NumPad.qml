@@ -19,20 +19,18 @@ Popup {
     signal confirmed(string value)
 
     // ── 内部状态 ──
-    // 在 popup 打开时保存初始值，以便取消时恢复
     property string _initialText: ""
 
     anchors.centerIn: Overlay.overlay
     modal: true
     dim: true
-    width: 340 * Theme.scale
+    width: 410 * Theme.scale
     padding: 18 * Theme.scale
     closePolicy: Popup.CloseOnEscape
 
-    // ── 原生半透明遮罩（通过 Overlay.modal 定制，Qt 内置机制）──
+    // ── 原生半透明遮罩 ──
     Overlay.modal: Rectangle {
         color: '#b4000000'
-
         Behavior on opacity {
             NumberAnimation { duration: 150 }
         }
@@ -44,7 +42,6 @@ Popup {
             internal._buildDisplay()
             return
         }
-        // 规范化初始显示
         var val = parseFloat(inputText)
         if (isNaN(val)) {
             inputText = "0"
@@ -69,7 +66,17 @@ Popup {
         property string displayText: ""
 
         function _buildDisplay() {
-            displayText = inputText
+            // 正号显示：allowNegative 为 true 且值非负时显示 + 号
+            if (allowNegative && inputText.length > 0 && inputText.charAt(0) !== '-') {
+                var val = parseFloat(inputText)
+                if (!isNaN(val) && val >= 0) {
+                    displayText = "+" + inputText
+                } else {
+                    displayText = inputText
+                }
+            } else {
+                displayText = inputText
+            }
             if (unit !== "") {
                 displayText += " " + unit
             }
@@ -77,9 +84,7 @@ Popup {
 
         function _formatValue(val) {
             var fixed = val.toFixed(maxDecimals)
-            // 去掉尾部无意义的零，但保留至少一位小数（如果有小数部分）
             if (fixed.indexOf('.') !== -1) {
-                // 去掉尾部零
                 while (fixed.charAt(fixed.length - 1) === '0' && fixed.charAt(fixed.length - 2) !== '.') {
                     fixed = fixed.substring(0, fixed.length - 1)
                 }
@@ -98,20 +103,34 @@ Popup {
         }
 
         function appendDigit(digit) {
-            // "0" 特殊处理：如果当前是"0"，替换它
-            if (inputText === "0") {
+            if (inputText === "" || inputText === "0") {
                 inputText = String(digit)
             } else if (inputText === "-0") {
                 inputText = "-" + String(digit)
             } else {
-                // 检查是否超过最大值（粗略检查）
                 var candidate = inputText + String(digit)
                 var val = parseFloat(candidate)
                 if (!isNaN(val) && val > maxValue) {
-                    return // 超过最大值，不允许输入
+                    return
                 }
                 inputText = candidate
             }
+            _buildDisplay()
+        }
+
+        function appendDoubleZero() {
+            if (inputText === "0" || inputText === "") {
+                return  // "00" 在首位置无意义，仍是 0
+            }
+            if (inputText === "-0") {
+                return
+            }
+            var candidate = inputText + "00"
+            var val = parseFloat(candidate)
+            if (!isNaN(val) && val > maxValue) {
+                return
+            }
+            inputText = candidate
             _buildDisplay()
         }
 
@@ -126,6 +145,19 @@ Popup {
             _buildDisplay()
         }
 
+        // 设置为正数：去掉负号
+        function applyPositiveSign() {
+            if (!allowNegative) return
+            if (inputText.charAt(0) === '-') {
+                inputText = inputText.substring(1)
+            }
+            if (inputText === "" || inputText === "-") {
+                inputText = "0"
+            }
+            _buildDisplay()
+        }
+
+        // 切换正负号（- 按钮）
         function toggleSign() {
             if (!allowNegative) return
             if (inputText.charAt(0) === '-') {
@@ -141,10 +173,9 @@ Popup {
 
         function backspace() {
             if (inputText.length <= 1) {
-                inputText = "0"
+                inputText = ""
             } else {
                 inputText = inputText.substring(0, inputText.length - 1)
-                // 如果删到只剩负号
                 if (inputText === "-") {
                     inputText = "0"
                 }
@@ -153,21 +184,20 @@ Popup {
         }
 
         function clearAll() {
-            inputText = "0"
+            inputText = ""
             _buildDisplay()
         }
 
         function handleConfirm() {
             var val = parseFloat(inputText)
             if (isNaN(val)) {
-                inputText = _initialText  // 恢复
+                inputText = _initialText
                 _buildDisplay()
                 return
             }
             if (val > maxValue) {
                 val = maxValue
             }
-            // 限制小数位数
             val = parseFloat(val.toFixed(maxDecimals))
             inputText = internal._formatValue(val)
             _buildDisplay()
@@ -195,8 +225,9 @@ Popup {
             Layout.alignment: Qt.AlignHCenter
         }
 
-        // ── 预览显示区 ──
+        // ── 预览显示区（含光标）──
         Rectangle {
+            id: displayArea
             Layout.fillWidth: true
             Layout.preferredHeight: 50 * Theme.scale
             radius: 8 * Theme.scale
@@ -206,9 +237,8 @@ Popup {
 
             Row {
                 anchors.centerIn: parent
-                spacing: 6 * Theme.scale
+                spacing: 0
 
-                // 值：高亮醒目
                 Text {
                     id: valueText
                     text: root.inputText
@@ -218,7 +248,25 @@ Popup {
                     font.family: "Monospace"
                 }
 
-                // 单位：缩小、半透明、嵌入背景
+                // 闪烁光标
+                Rectangle {
+                    id: cursor
+                    width: 2 * Theme.scale
+                    height: valueText.contentHeight * 0.85
+                    color: Theme.colorIdle
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: true
+
+                    Timer {
+                        id: cursorTimer
+                        interval: 530
+                        running: root.visible
+                        repeat: true
+                        onTriggered: cursor.visible = !cursor.visible
+                    }
+                }
+
+                // 单位
                 Text {
                     text: root.unit
                     color: Theme.textDim
@@ -227,58 +275,85 @@ Popup {
                     font.family: "Monospace"
                     visible: root.unit !== ""
                     anchors.verticalCenter: parent.verticalCenter
+                    leftPadding: 4 * Theme.scale
                 }
             }
         }
 
-        // ── 按钮键盘区 ──
+        // ── 4 列按钮键盘区 ──
         GridLayout {
             Layout.fillWidth: true
-            columns: 3
+            columns: 4
             rowSpacing: 8 * Theme.scale
             columnSpacing: 8 * Theme.scale
 
-            // 第一行: 1, 2, 3
+            // 第一行: 1, 2, 3, AC
             Repeater {
                 model: [1, 2, 3]
                 delegate: numKeyDelegate
             }
 
-            // 第二行: 4, 5, 6
+            NumpadKey {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 52 * Theme.scale
+                keyText: "AC"
+                keyColor: "#5C3A3A"
+                textColor: Theme.colorFault
+                fontWeight: Font.Bold
+                onClicked: internal.clearAll()
+            }
+
+            // 第二行: 4, 5, 6, DEL
             Repeater {
                 model: [4, 5, 6]
                 delegate: numKeyDelegate
             }
 
-            // 第三行: 7, 8, 9
+            NumpadKey {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 52 * Theme.scale
+                keyText: "DEL"
+                keyColor: "#3A5A7C"
+                textColor: Theme.colorWarning
+                fontWeight: Font.Bold
+                onClicked: internal.backspace()
+            }
+
+            // 第三行: 7, 8, 9, +
             Repeater {
                 model: [7, 8, 9]
                 delegate: numKeyDelegate
             }
 
-            // 第四行: 小数点(或正负号) , 0, 退格
             NumpadKey {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 52 * Theme.scale
-                keyText: allowNegative ? "+/-" : (allowDecimal ? "." : "")
-                keyColor: Theme.panelBg
-                textColor: Theme.textDim
-                visible: allowNegative || allowDecimal
-                enabled: allowNegative || allowDecimal
-                onClicked: {
-                    if (allowNegative) {
-                        internal.toggleSign()
-                    } else if (allowDecimal) {
-                        internal.appendDecimal()
-                    }
-                }
+                keyText: "+"
+                keyColor: allowNegative ? Theme.panelBg : "#2a2a2a"
+                textColor: allowNegative ? Theme.textMain : "#444444"
+                visible: true
+                enabled: allowNegative
+                onClicked: internal.applyPositiveSign()
             }
 
-            // 如果既不允许负号也不允许小数点，放一个占位
-            Item {
+            // 第四行: 小数点, 00, 0, -
+            NumpadKey {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 52 * Theme.scale
-                visible: !allowNegative && !allowDecimal
+                keyText: "."
+                keyColor: allowDecimal ? Theme.panelBg : "#2a2a2a"
+                textColor: allowDecimal ? Theme.textDim : "#444444"
+                visible: true
+                enabled: allowDecimal
+                onClicked: internal.appendDecimal()
+            }
+
+            NumpadKey {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 52 * Theme.scale
+                keyText: "00"
+                keyColor: Theme.panelBg
+                onClicked: internal.appendDoubleZero()
             }
 
             NumpadKey {
@@ -292,11 +367,12 @@ Popup {
             NumpadKey {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 52 * Theme.scale
-                keyText: "DEL"
-                keyColor: "#3A5A7C"
-                textColor: Theme.colorWarning
-                fontWeight: Font.Bold
-                onClicked: internal.backspace()
+                keyText: "-"
+                keyColor: allowNegative ? Theme.panelBg : "#2a2a2a"
+                textColor: allowNegative ? Theme.textDim : "#444444"
+                visible: true
+                enabled: allowNegative
+                onClicked: internal.toggleSign()
             }
         }
 
