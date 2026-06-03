@@ -114,7 +114,8 @@ TEST_F(GantryOrchestratorTest, error_when_state_conflict_during_coupling_request
     EXPECT_EQ(std::get<GantryRejection>(orchestrator->lastError()), GantryRejection::StateConflict);
 }
 
-// 4. 等待联动中 PLC 返回位置超差错误 -> Error
+// 4. 等待联动中 PLC 返回位置超差错误 -> 清理流程（解耦 → 掉电 → Error）
+//    验证：联动失败后，编排器自动执行清理（解耦 + 掉电），最终进入 Error 并保留原始错误。
 TEST_F(GantryOrchestratorTest, error_when_plc_reports_position_error)
 {
     // Given: 电机已使能
@@ -124,12 +125,39 @@ TEST_F(GantryOrchestratorTest, error_when_plc_reports_position_error)
     orchestrator->tick(); // -> Coupling
     orchestrator->tick(); // -> WaitingCoupled
 
-    gantryCoupling->applyFeedback({ .isCoupled = false, .errorCode = 1 }); // PositionToleranceExceeded
+    // PLC 拒绝联动：PositionToleranceExceeded
+    gantryCoupling->applyFeedback({ .isCoupled = false, .errorCode = 1 });
     orchestrator->tick();
-
-    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Error);
+    // 应进入清理流程：WaitingCoupled -> Decoupling（非直接 Error）
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Decoupling);
+    // 错误已保存但尚未进入 Error 终态
+    EXPECT_FALSE(orchestrator->hasError());
     EXPECT_TRUE(std::holds_alternative<GantryRejection>(orchestrator->lastError()));
     EXPECT_EQ(std::get<GantryRejection>(orchestrator->lastError()), GantryRejection::PositionToleranceExceeded);
+
+    // Step 1: Decoupling -> WaitingDecoupled
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingDecoupled);
+
+    // Step 2: PLC 确认解耦完成 -> Disabling
+    gantryCoupling->applyFeedback({ .isCoupled = false, .errorCode = 0 });
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Disabling);
+
+    // Step 3: Disabling -> WaitingDisabled
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::WaitingDisabled);
+
+    // Step 4: PLC 确认掉电完成 -> Error（清理完成，上报原始联动错误）
+    gantryPower->applyFeedback({ .enable = false });
+    orchestrator->tick();
+    EXPECT_EQ(orchestrator->currentStep(), GantryOrchestrator::Step::Error);
+    EXPECT_TRUE(orchestrator->hasError());
+    // 错误的原始错误信息保留
+    EXPECT_TRUE(std::holds_alternative<GantryRejection>(orchestrator->lastError()));
+    EXPECT_EQ(std::get<GantryRejection>(orchestrator->lastError()), GantryRejection::PositionToleranceExceeded);
+    // 电机已被关闭
+    EXPECT_FALSE(gantryPower->isEnabled());
 }
 
 // 5. 完整解耦流程：Done -> Decoupling -> WaitingDecoupled -> Done
@@ -230,6 +258,7 @@ TEST_F(GantryOrchestratorTest, tick_after_done_is_idempotent)
 }
 
 // 9. Error 态多次 tick 保持 Error（幂等）
+//    需要先完成清理流程到达 Error
 TEST_F(GantryOrchestratorTest, tick_after_error_is_idempotent)
 {
     gantryPower->applyFeedback({ .enable = true });
@@ -238,8 +267,19 @@ TEST_F(GantryOrchestratorTest, tick_after_error_is_idempotent)
     orchestrator->tick(); // -> Coupling
     orchestrator->tick(); // -> WaitingCoupled
 
+    // PLC 拒绝联动 -> 进入清理流程
     gantryCoupling->applyFeedback({ .isCoupled = false, .errorCode = 1 }); // PositionToleranceExceeded
-    orchestrator->tick(); // -> Error
+    orchestrator->tick(); // WaitingCoupled -> Decoupling
+    orchestrator->tick(); // Decoupling -> WaitingDecoupled
+
+    // PLC 确认解耦完成
+    gantryCoupling->applyFeedback({ .isCoupled = false, .errorCode = 0 });
+    orchestrator->tick(); // WaitingDecoupled -> Disabling
+    orchestrator->tick(); // Disabling -> WaitingDisabled
+
+    // PLC 确认掉电完成
+    gantryPower->applyFeedback({ .enable = false });
+    orchestrator->tick(); // WaitingDisabled -> Error
 
     orchestrator->tick(); // 再次 tick
 

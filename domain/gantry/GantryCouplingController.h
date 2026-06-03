@@ -53,10 +53,11 @@ public:
 
         if (active) {
             // --- 联动请求 ---
-            // 幂等：已联动或联动请求进行中，视为成功但不产生新命令
-            if (m_state.isCoupled() || m_state.isCouplingRequested()) {
-                return GantryRejection::None;
-            }
+            // 幂等：已联动或联动请求进行中，视为成功但不产生新命令 
+            // TODO:需要确认两个问题：1.状态是否为联动；2.是否设置了联动ON
+            // if (m_state.isCoupled() || m_state.isCouplingRequested()) {
+            //     return GantryRejection::None;
+            // }
             // 冲突：解耦请求进行中，不允许反向操作
             if (m_state.isDecouplingRequested()) {
                 return GantryRejection::StateConflict;
@@ -69,9 +70,9 @@ public:
         } else {
             // --- 解耦请求 ---
             // 幂等：已解耦或解耦请求进行中，视为成功但不产生新命令
-            if (!m_state.isCoupled() && !m_state.isCouplingRequested()) {
-                return GantryRejection::None;
-            }
+            // if (!m_state.isCoupled() && !m_state.isCouplingRequested()) {
+            //     return GantryRejection::None;
+            // }
             // 冲突：联动请求进行中，不允许反向操作
             if (m_state.isCouplingRequested()) {
                 return GantryRejection::StateConflict;

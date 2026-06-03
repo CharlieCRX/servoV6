@@ -117,7 +117,7 @@ Rectangle {
 
                 // --- X 轴（逻辑龙门轴） ---
                 AxisItemDelegate {
-                    name: "X 轴 (龙门逻辑)"
+                    name: "X 轴 (前后)"
                     isActive: root.currentAxisName === "X"
                     statusText: {
                         if (root.currentAxisName === "X") {
@@ -138,35 +138,35 @@ Rectangle {
 
                 Item { height: 10 * Theme.scale } // 分隔线
 
-                // --- X1 轴（物理龙门轴1） ---
-                AxisItemDelegate {
-                    name: "X1 轴 (物理)"
-                    isActive: root.currentAxisName === "X1"
-                    statusText: isActive ? "控制中" : "待机"
-                    // 物理轴在龙门耦合时需要标记为"受龙门控制"
-                    subLabel: (!root.gantryViewModel || root.gantryViewModel.isCoupled) ? "↳ 龙门" : ""
-                    enabled: !root.locked
-                    opacity: enabled ? 1.0 : 0.4
-                    onClicked: {
-                        // 仅当龙门已解耦或该轴独立可用时允许切换
-                        root.currentAxisName = "X1"
-                        root.axisChanged("X1")
-                    }
-                }
+                // // --- X1 轴（物理龙门轴1） ---
+                // AxisItemDelegate {
+                //     name: "X1 轴 (物理)"
+                //     isActive: root.currentAxisName === "X1"
+                //     statusText: isActive ? "控制中" : "待机"
+                //     // 物理轴在龙门耦合时需要标记为"受龙门控制"
+                //     subLabel: (!root.gantryViewModel || root.gantryViewModel.isCoupled) ? "↳ 龙门" : ""
+                //     enabled: !root.locked
+                //     opacity: enabled ? 1.0 : 0.4
+                //     onClicked: {
+                //         // 仅当龙门已解耦或该轴独立可用时允许切换
+                //         root.currentAxisName = "X1"
+                //         root.axisChanged("X1")
+                //     }
+                // }
 
-                // --- X2 轴（物理龙门轴2） ---
-                AxisItemDelegate {
-                    name: "X2 轴 (物理)"
-                    isActive: root.currentAxisName === "X2"
-                    statusText: isActive ? "控制中" : "待机"
-                    subLabel: (!root.gantryViewModel || root.gantryViewModel.isCoupled) ? "↳ 龙门" : ""
-                    enabled: !root.locked
-                    opacity: enabled ? 1.0 : 0.4
-                    onClicked: {
-                        root.currentAxisName = "X2"
-                        root.axisChanged("X2")
-                    }
-                }
+                // // --- X2 轴（物理龙门轴2） ---
+                // AxisItemDelegate {
+                //     name: "X2 轴 (物理)"
+                //     isActive: root.currentAxisName === "X2"
+                //     statusText: isActive ? "控制中" : "待机"
+                //     subLabel: (!root.gantryViewModel || root.gantryViewModel.isCoupled) ? "↳ 龙门" : ""
+                //     enabled: !root.locked
+                //     opacity: enabled ? 1.0 : 0.4
+                //     onClicked: {
+                //         root.currentAxisName = "X2"
+                //         root.axisChanged("X2")
+                //     }
+                // }
             } // end inner ColumnLayout
         } // end ScrollView
     } // end outer ColumnLayout

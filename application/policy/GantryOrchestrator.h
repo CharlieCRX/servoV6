@@ -211,11 +211,13 @@ public:
                     m_groupName + " WaitingCoupled -> Done (coupling confirmed by PLC)");
                 m_step = Step::Done;
             } else if (coupling.hasError()) {
-                LOG_WARN(LogLayer::APP, "GantryOrch",
-                    m_groupName + " WaitingCoupled -> Error: "
-                    + rejectionToString(coupling.getLastError()));
-                m_step = Step::Error;
+                // 保存错误信息，进入清理流程：解耦 → 掉电 → 上报错误
                 m_lastError = coupling.getLastError();
+                m_cleanupAfterError = true;
+                LOG_WARN(LogLayer::APP, "GantryOrch",
+                    m_groupName + " WaitingCoupled -> Decoupling (cleanup after error: "
+                    + rejectionToString(coupling.getLastError()) + ")");
+                m_step = Step::Decoupling;
             }
             break;
 
@@ -260,7 +262,11 @@ public:
             // 因此仅依赖 isDecouplingRequested 变为 false 判断解耦完成，
             // 不需要检查 hasError()。
             if (!coupling.isDecouplingRequested()) {
-                if (m_disableAfterDecouple) {
+                if (m_cleanupAfterError) {
+                    LOG_DEBUG(LogLayer::APP, "GantryOrch",
+                        m_groupName + " WaitingDecoupled -> Disabling (cleanup after error flow)");
+                    m_step = Step::Disabling;
+                } else if (m_disableAfterDecouple) {
                     m_disableAfterDecouple = false;
                     LOG_DEBUG(LogLayer::APP, "GantryOrch",
                         m_groupName + " WaitingDecoupled -> Disabling (stopCouplingAndDisable flow)");
@@ -274,7 +280,7 @@ public:
             break;
 
         // ============================================================
-        // 掉电流程（stopCouplingAndDisable 后半段）
+        // 掉电流程（stopCouplingAndDisable 后半段 / 联动失败清理）
         // ============================================================
 
         case Step::Disabling: {
@@ -308,11 +314,19 @@ public:
 
         case Step::WaitingDisabled:
             LOG_TRACE(LogLayer::APP, "GantryOrch",
-                m_groupName + " WaitingDisabled: power.isEnabled=" + std::to_string(power.isEnabled()));
+                m_groupName + " WaitingDisabled: power.isEnabled=" + std::to_string(power.isEnabled())
+                + " cleanupAfterError=" + std::to_string(m_cleanupAfterError));
             if (!power.isEnabled()) {
-                LOG_INFO(LogLayer::APP, "GantryOrch",
-                    m_groupName + " WaitingDisabled -> Done (power off confirmed)");
-                m_step = Step::Done;
+                if (m_cleanupAfterError) {
+                    m_cleanupAfterError = false;
+                    LOG_ERROR(LogLayer::APP, "GantryOrch",
+                        m_groupName + " WaitingDisabled -> Error (cleanup completed)");
+                    m_step = Step::Error;
+                } else {
+                    LOG_INFO(LogLayer::APP, "GantryOrch",
+                        m_groupName + " WaitingDisabled -> Done (power off confirmed)");
+                    m_step = Step::Done;
+                }
             }
             break;
 
@@ -377,4 +391,6 @@ private:
     UseCaseError m_lastError = std::monostate{};
     bool m_disableAfterDecouple = false;
     bool m_decoupleAfterEnable = false;
+    /// @brief 联动失败时，在 Error 前需要执行清理流程（解耦 → 掉电）
+    bool m_cleanupAfterError = false;
 };
