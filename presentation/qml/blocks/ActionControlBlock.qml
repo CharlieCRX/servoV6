@@ -296,36 +296,89 @@ Rectangle {
                     }
                 }
 
-                // 绝对/相对 单选
-                RowLayout {
+                // 绝对/相对 单选切换器
+                Rectangle {
                     Layout.alignment: Qt.AlignHCenter
-                    spacing: 4 * Theme.scale
+                    Layout.preferredWidth: 200 * Theme.scale
+                    Layout.preferredHeight: 36 * Theme.scale
+                    radius: 8 * Theme.scale
+                    color: Theme.bgDark
+                    border.color: Theme.borderMain
+                    border.width: 1
+                    opacity: root.isReadyForSetTarget ? 1.0 : 0.4
 
-                    RadioButton {
-                        text: "绝对"
-                        checked: root.isAbsolute
-                        enabled: root.isReadyForSetTarget
-                        opacity: enabled ? 1.0 : 0.5
-                        onClicked: root.isAbsolute = true
-                        contentItem: Text {
-                            text: parent.text
-                            color: Theme.textMain
-                            font.pixelSize: Theme.fontSmall
-                            leftPadding: parent.indicator.width + 2
+                    RowLayout {
+                        anchors.fill: parent
+                        spacing: 0
+
+                        // 绝对选项
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            color: root.isAbsolute ? Theme.panelBg : "transparent"
+                            radius: 8 * Theme.scale
+                            clip: true
+
+                            RowLayout {
+                                anchors.centerIn: parent
+                                spacing: 6 * Theme.scale
+
+                                // 指示器圆点
+                                Rectangle {
+                                    width: 10 * Theme.scale
+                                    height: 10 * Theme.scale
+                                    radius: 5 * Theme.scale
+                                    color: root.isAbsolute ? Theme.colorIdle : Theme.colorDisabled
+                                }
+
+                                Text {
+                                    text: "绝对"
+                                    color: root.isAbsolute ? Theme.colorIdle : Theme.textDim
+                                    font.bold: root.isAbsolute
+                                    font.pixelSize: Theme.fontSmall
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: root.isReadyForSetTarget
+                                onClicked: root.isAbsolute = true
+                            }
                         }
-                    }
 
-                    RadioButton {
-                        text: "相对"
-                        checked: !root.isAbsolute
-                        enabled: root.isReadyForSetTarget
-                        opacity: enabled ? 1.0 : 0.5
-                        onClicked: root.isAbsolute = false
-                        contentItem: Text {
-                            text: parent.text
-                            color: Theme.textMain
-                            font.pixelSize: Theme.fontSmall
-                            leftPadding: parent.indicator.width + 2
+                        // 相对选项
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            color: !root.isAbsolute ? Theme.panelBg : "transparent"
+                            radius: 8 * Theme.scale
+                            clip: true
+
+                            RowLayout {
+                                anchors.centerIn: parent
+                                spacing: 6 * Theme.scale
+
+                                // 指示器圆点
+                                Rectangle {
+                                    width: 10 * Theme.scale
+                                    height: 10 * Theme.scale
+                                    radius: 5 * Theme.scale
+                                    color: !root.isAbsolute ? Theme.colorMoving : Theme.colorDisabled
+                                }
+
+                                Text {
+                                    text: "相对"
+                                    color: !root.isAbsolute ? Theme.colorMoving : Theme.textDim
+                                    font.bold: !root.isAbsolute
+                                    font.pixelSize: Theme.fontSmall
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                enabled: root.isReadyForSetTarget
+                                onClicked: root.isAbsolute = false
+                            }
                         }
                     }
                 }
