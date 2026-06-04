@@ -274,6 +274,19 @@ public:
         // ============================================================
         case Step::WaitingMotionStart:
             if (!m_motionObserved) {
+                // ★ 如果目标距离接近 0（小于位置检测阈值），运动不可观测，
+                //   直接跳过运动等待，进入 WaitingMotionFinish → Disabling → Done
+                //   避免因 PLC 不进入 MovingRelative 且位置无变化而永久卡死
+                if (std::abs(axis->relMoveTarget()) <= m_epsilon) {
+                    m_motionObserved = true;
+                    LOG_DEBUG(LogLayer::APP, "RelPolicy",
+                              "[" + m_groupName + "][" + axisName(m_targetId)
+                                  + "] WaitingMotionStart -> WaitingMotionFinish (relMoveTarget≈"
+                                  + std::to_string(axis->relMoveTarget())
+                                  + ", no motion expected)");
+                    m_step = Step::WaitingMotionFinish;
+                    break;
+                }
                 if (axis->state() == AxisState::MovingRelative ||
                     std::abs(pos - m_startPos) > m_epsilon) {
                     m_motionObserved = true;

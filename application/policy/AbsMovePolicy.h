@@ -281,6 +281,20 @@ public:
         // ============================================================
         case Step::WaitingMotionStart:
             if (!m_motionObserved) {
+                // ★ 如果目标距离接近 0（小于位置检测阈值），运动不可观测，
+                //   直接跳过运动等待，进入 WaitingMotionFinish → Disabling → Done
+                //   避免因 PLC 不进入 MovingAbsolute 且位置无变化而永久卡死
+                if (std::abs(axis->absMoveTarget() - pos) <= m_epsilon) {
+                    m_motionObserved = true;
+                    LOG_DEBUG(LogLayer::APP, "AbsPolicy",
+                              "[" + m_groupName + "][" + axisName(m_targetId)
+                                  + "] WaitingMotionStart -> WaitingMotionFinish (absMoveTarget≈"
+                                  + std::to_string(axis->absMoveTarget())
+                                  + ", pos≈" + std::to_string(pos)
+                                  + ", no motion expected)");
+                    m_step = Step::WaitingMotionFinish;
+                    break;
+                }
                 if (axis->state() == AxisState::MovingAbsolute ||
                     std::abs(pos - m_startPos) > m_epsilon) {
                     m_motionObserved = true;
