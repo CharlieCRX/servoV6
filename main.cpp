@@ -10,6 +10,7 @@
 #include "application/SystemManager.h"
 #include "domain/entity/AxisId.h"
 #include "domain/entity/ContextRejection.h"
+#include "infrastructure/udp/UdpServer.h"
 #include "infrastructure/plc/ModbusSystemDriver.h"
 #include "infrastructure/plc/protocol/AsioModbusTcpClient.h"
 #include "infrastructure/plc/protocol/PlcDevice.h"
@@ -26,6 +27,16 @@
 #include <sstream>
 #include <iomanip>
 #include <memory>
+
+// ════════════════════════════════════════════════════
+// windows.h 通过 Asio 间接引入，定义了 ERROR 和 NO_ERROR 宏，与 LogLevel::ERROR 冲突
+// ════════════════════════════════════════════════════
+#ifdef ERROR
+#undef ERROR
+#endif
+#ifdef NO_ERROR
+#undef NO_ERROR
+#endif
 
 // 辅助：将单个轴的摘要格式化为紧凑字符串
 // 输出如 "Y: pos=+0041.4 Standstill"
@@ -253,6 +264,19 @@ int main(int argc, char *argv[])
     driverB.pollFeedback(*ctxB);
 
     // ============================
+    // 3b. UDP 服务器（远程 R 轴控制）
+    // ============================
+    UdpServer::Config udpCfg;
+    udpCfg.listenPort = 9001;
+    udpCfg.bindAddress = "0.0.0.0";
+    udpCfg.recvBufferSize = 4096;
+
+    UdpServer udpServer(manager, udpCfg);
+    if (!udpServer.start()) {
+        LOG_ERROR(LogLayer::APP, "System", "UDP Server failed to start");
+    }
+
+    // ============================
     // 4. ViewModels（按 分组+轴 维度，两组各含6轴）
     // ============================
     // Machine_A 的全部轴
@@ -373,6 +397,9 @@ int main(int argc, char *argv[])
         // 6d. 龙门 ViewModel 推进（每帧推进 Orchestrator + 刷新状态投影）
         gantryVM_A.tick();
         gantryVM_B.tick();
+
+        // 6e. UDP 消息处理（收包 → 分发 → 回包）
+        udpServer.tick();
     });
     systemClock.start(10);  // 10ms 物理心跳
 

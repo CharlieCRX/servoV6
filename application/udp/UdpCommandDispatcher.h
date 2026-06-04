@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <optional>
 #include <QJsonDocument>
 #include <QJsonObject>
 
@@ -125,13 +126,17 @@ public:
             return UdpResponseBuilder::buildError(req, errMsg);
         }
 
-        // ── 步骤 5：Axis 获取（使用 tryReadAxis 绕过安全锁定，允许查询类操作在急停时仍可读取）──
+        // ── 步骤 5：Axis 获取 ──
+        // 控制类操作（cmd=0,1,3,5）使用 tryGetAxis（含安全拦截），
+        // 查询类操作（cmd=2,4）使用 tryReadAxis（跳过安全拦截），
+        // 未知 cmd 安全回退到 tryReadAxis。
         Axis* axis = nullptr;
         ContextRejection ctxReason = ContextRejection::None;
-        // 对于控制类操作（cmd=0,1,3,5）使用 tryGetAxis（含安全拦截），
-        // 对于查询类操作（cmd=2,4）使用 tryReadAxis（跳过安全拦截）。
-        // 为简化阶段 1 骨架，统一先使用 tryReadAxis，阶段 2 细化。
-        if (!group->tryReadAxis(axisId, axis, ctxReason)) {
+        bool isControlCmd = (cmdInt == 0 || cmdInt == 1 || cmdInt == 3 || cmdInt == 5);
+        bool axisOk = isControlCmd
+            ? group->tryGetAxis(axisId, axis, ctxReason)
+            : group->tryReadAxis(axisId, axis, ctxReason);
+        if (!axisOk) {
             std::string errMsg = "R axis not available: " + std::string(contextRejectionToString(ctxReason));
             LOG_WARN(LogLayer::APP, "UdpDispatcher", errMsg);
             return UdpResponseBuilder::buildError(req, errMsg);
@@ -174,16 +179,110 @@ private:
     // 阶段 1 提供空骨架，返回"命令已识别但未实现"的错误。
     // ═══════════════════════════════════════════════════════════
 
-    /// cmd=0: 基于相对零点的绝对位置移动
+    /// cmd=0: 基于相对零点的绝对位置移动（文档 §3.4.1）
     std::string handleMoveToRelTarget(const QJsonObject& req, Axis& axis, SystemContext& group) {
-        // 阶段 2 实现（文档 §3.4.1）
-        return UdpResponseBuilder::buildError(req, "cmd=0 (MOVE_TO_REL_TARGET) not implemented in stage 1");
+        // 必填字段校验
+        if (!req.contains(QString::fromUtf8(UdpField::TARGET))) {
+            return UdpResponseBuilder::buildError(req,
+                "missing required field 'target' for cmd=0");
+        }
+        double target = req[QString::fromUtf8(UdpField::TARGET)].toDouble();
+
+        // 1. 计算最终绝对目标位置
+        //    finalAbsTarget = target + relZeroAbsPos
+        double relZeroAbsPos = axis.relativeZeroAbsolutePosition();
+        double finalAbsTarget = target + relZeroAbsPos;
+
+        // 2. 通过 Axis 实体写入 ABS_TARGET 到 PLC
+        if (!axis.setAbsTarget(finalAbsTarget)) {
+            RejectionReason reason = axis.lastRejection();
+            std::string errMsg = "setAbsTarget(" + std::to_string(finalAbsTarget)
+                + ") rejected: " + rejectionReasonToString(reason);
+            LOG_WARN(LogLayer::APP, "UdpDispatcher",
+                     "[MOVE_TO_REL_TARGET] " + errMsg);
+            return UdpResponseBuilder::buildError(req, errMsg);
+        }
+
+        // 3. 消费 pending command → 将 SetAbsTargetCommand 下发到 PLC
+        if (auto commErr = consumePendingCommand(axis, group, "writing target")) {
+            return UdpResponseBuilder::buildError(req, *commErr);
+        }
+
+        // 4. 触发绝对位置移动（使用 AbsMovePolicy）
+        std::string groupName = req[QString::fromUtf8(UdpField::GROUP)].toString().toStdString();
+        AbsMovePolicy absPolicy(m_manager, groupName);
+        absPolicy.startAbs(AxisId::R);
+
+        // 5. 驱动 Policy 状态机直到完成或出错（阻塞等待模式）
+        while (absPolicy.currentStep() != AbsMovePolicy::Step::Done &&
+               absPolicy.currentStep() != AbsMovePolicy::Step::Error) {
+            absPolicy.tick();
+        }
+
+        // 6. 获取结果
+        if (absPolicy.hasError()) {
+            auto err = absPolicy.lastError();
+            std::string errMsg = "AbsMovePolicy failed: " + useCaseErrorToString(err);
+            LOG_WARN(LogLayer::APP, "UdpDispatcher", "[MOVE_TO_REL_TARGET] " + errMsg);
+            return UdpResponseBuilder::buildError(req, errMsg);
+        }
+
+        // 7. 构建成功回复
+        double currPos = axis.currentRelativePosition();
+        LOG_INFO(LogLayer::APP, "UdpDispatcher",
+                 "[MOVE_TO_REL_TARGET] SUCCESS: target=" + std::to_string(target)
+                 + " finalAbs=" + std::to_string(finalAbsTarget)
+                 + " curr=" + std::to_string(currPos));
+        return UdpResponseBuilder::buildSuccess(req, {{std::string(UdpField::CURR), currPos}});
     }
 
-    /// cmd=1: 相对偏移移动
+    /// cmd=1: 相对偏移移动（文档 §3.4.2）
     std::string handleMoveOffset(const QJsonObject& req, Axis& axis, SystemContext& group) {
-        // 阶段 2 实现（文档 §3.4.2）
-        return UdpResponseBuilder::buildError(req, "cmd=1 (MOVE_OFFSET) not implemented in stage 1");
+        // 必填字段校验
+        if (!req.contains(QString::fromUtf8(UdpField::OFFSET))) {
+            return UdpResponseBuilder::buildError(req,
+                "missing required field 'offset' for cmd=1");
+        }
+        double offset = req[QString::fromUtf8(UdpField::OFFSET)].toDouble();
+
+        // 1. 通过 Axis 实体设置相对移动距离
+        if (!axis.setRelTarget(offset)) {
+            RejectionReason reason = axis.lastRejection();
+            std::string errMsg = "setRelTarget(" + std::to_string(offset)
+                + ") rejected: " + rejectionReasonToString(reason);
+            LOG_WARN(LogLayer::APP, "UdpDispatcher", "[MOVE_OFFSET] " + errMsg);
+            return UdpResponseBuilder::buildError(req, errMsg);
+        }
+
+        // 2. 消费 pending command → 将 SetRelTargetCommand 下发到 PLC
+        if (auto commErr = consumePendingCommand(axis, group, "writing rel target")) {
+            return UdpResponseBuilder::buildError(req, *commErr);
+        }
+
+        // 3. 触发相对位置移动（使用 RelMovePolicy）
+        std::string groupName = req[QString::fromUtf8(UdpField::GROUP)].toString().toStdString();
+        RelMovePolicy relPolicy(m_manager, groupName);
+        relPolicy.startRel(AxisId::R);
+
+        // 4. 驱动 Policy 直到完成
+        while (relPolicy.currentStep() != RelMovePolicy::Step::Done &&
+               relPolicy.currentStep() != RelMovePolicy::Step::Error) {
+            relPolicy.tick();
+        }
+
+        // 5. 结果处理
+        if (relPolicy.hasError()) {
+            auto err = relPolicy.lastError();
+            std::string errMsg = "RelMovePolicy failed: " + useCaseErrorToString(err);
+            LOG_WARN(LogLayer::APP, "UdpDispatcher", "[MOVE_OFFSET] " + errMsg);
+            return UdpResponseBuilder::buildError(req, errMsg);
+        }
+
+        double currPos = axis.currentRelativePosition();
+        LOG_INFO(LogLayer::APP, "UdpDispatcher",
+                 "[MOVE_OFFSET] SUCCESS: offset=" + std::to_string(offset)
+                 + " curr=" + std::to_string(currPos));
+        return UdpResponseBuilder::buildSuccess(req, {{std::string(UdpField::CURR), currPos}});
     }
 
     /// cmd=2: 获取当前相对位置
@@ -193,10 +292,30 @@ private:
         return UdpResponseBuilder::buildSuccess(req, {{std::string(UdpField::CURR), currPos}});
     }
 
-    /// cmd=3: 设置位置移动速度
+    /// cmd=3: 设置位置移动速度（文档 §3.4.4）
     std::string handleSetMoveSpeed(const QJsonObject& req, Axis& axis, SystemContext& group) {
-        // 阶段 2 实现（文档 §3.4.4）
-        return UdpResponseBuilder::buildError(req, "cmd=3 (SET_MOVE_SPEED) not implemented in stage 1");
+        // 必填字段校验
+        if (!req.contains(QString::fromUtf8(UdpField::SPEED))) {
+            return UdpResponseBuilder::buildError(req,
+                "missing required field 'speed' for cmd=3");
+        }
+        double speed = req[QString::fromUtf8(UdpField::SPEED)].toDouble();
+
+        // 1. 通过 Axis 实体设置速度
+        if (!axis.setMoveVelocity(speed)) {
+            std::string errMsg = "setMoveVelocity(" + std::to_string(speed) + ") rejected";
+            LOG_WARN(LogLayer::APP, "UdpDispatcher", "[SET_MOVE_SPEED] " + errMsg);
+            return UdpResponseBuilder::buildError(req, errMsg);
+        }
+
+        // 2. 消费 pending command → 将 SetMoveVelocityCommand 下发到 PLC
+        if (auto commErr = consumePendingCommand(axis, group, "setting speed")) {
+            return UdpResponseBuilder::buildError(req, *commErr);
+        }
+
+        LOG_INFO(LogLayer::APP, "UdpDispatcher",
+                 "[SET_MOVE_SPEED] SUCCESS: speed=" + std::to_string(speed));
+        return UdpResponseBuilder::buildSuccess(req, {});
     }
 
     /// cmd=4: 获取位置移动速度
@@ -206,9 +325,45 @@ private:
         return UdpResponseBuilder::buildSuccess(req, {{std::string(UdpField::SPEED), speed}});
     }
 
-    /// cmd=5: 设置相对零点
+    /// cmd=5: 设置相对零点（文档 §3.4.6）
     std::string handleSetRelZero(const QJsonObject& req, Axis& axis, SystemContext& group) {
-        // 阶段 2 实现（文档 §3.4.6）
-        return UdpResponseBuilder::buildError(req, "cmd=5 (SET_REL_ZERO) not implemented in stage 1");
+        // 1. 调用 setRelativeZero() 设置当前绝对位置为相对零点
+        if (!axis.setRelativeZero()) {
+            std::string errMsg = "setRelativeZero rejected: "
+                + rejectionReasonToString(axis.lastRejection());
+            LOG_WARN(LogLayer::APP, "UdpDispatcher", "[SET_REL_ZERO] " + errMsg);
+            return UdpResponseBuilder::buildError(req, errMsg);
+        }
+
+        // 2. 消费 pending command → 将 SetRelativeZeroCommand 下发到 PLC
+        if (auto commErr = consumePendingCommand(axis, group, "setting rel zero")) {
+            return UdpResponseBuilder::buildError(req, *commErr);
+        }
+
+        LOG_INFO(LogLayer::APP, "UdpDispatcher", "[SET_REL_ZERO] SUCCESS");
+        return UdpResponseBuilder::buildSuccess(req, {});
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // 私有辅助方法
+    // ═══════════════════════════════════════════════════════════
+
+    /// @brief 消费 Axis pending command 并通过 driver 下发到 PLC
+    /// @param axis 目标轴
+    /// @param group 目标分组上下文
+    /// @param context 操作描述（用于错误消息）
+    /// @return 通讯错误描述（若成功则返回 std::nullopt）
+    std::optional<std::string> consumePendingCommand(Axis& axis, SystemContext& group,
+                                                      const std::string& context) {
+        if (!axis.hasPendingCommand()) return std::nullopt;
+
+        if (auto* drv = group.driver()) {
+            auto commResult = drv->send(AxisCommandWithId{AxisId::R, axis.getPendingCommand()});
+            if (!commResult.ok()) {
+                return "PLC communication failed when " + context
+                     + ": " + commResult.diagnostic;
+            }
+        }
+        return std::nullopt;
     }
 };
