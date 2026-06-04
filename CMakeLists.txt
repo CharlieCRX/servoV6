@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 # ==========================================
 # 1. 先引入 Qt 环境 (务必加上 Qml)
 # ==========================================
-find_package(Qt6 REQUIRED COMPONENTS Qml Quick QuickControls2)
+find_package(Qt6 REQUIRED COMPONENTS Qml Quick QuickControls2 Network)
 
 # ==========================================
 # 1.5 自动获取 asio (header-only 网络库)

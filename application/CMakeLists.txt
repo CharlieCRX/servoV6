@@ -17,6 +17,11 @@ add_library(application
 
     SystemManager.h
     UsecaseError.h
+
+    # ★ 阶段 1：UDP 通讯层（application 侧）
+    udp/UdpProtocol.h
+    udp/UdpResponseBuilder.h
+    udp/UdpCommandDispatcher.h
 )
 
 target_include_directories(application
@@ -28,4 +33,5 @@ target_link_libraries(application
     PUBLIC
         domain
         infrastructure
+        Qt6::Core
 )

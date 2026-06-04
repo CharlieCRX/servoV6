@@ -17,6 +17,9 @@ add_library(infrastructure STATIC
     plc/protocol/validator/ProtocolConstraintValidator.cpp
     plc/protocol/PlcPoller.cpp
     plc/protocol/AsioModbusTcpClient.cpp
+
+    # ★ 阶段 1：UDP 通讯层（infrastructure 侧）
+    udp/UdpServer.h
 )
 
 target_include_directories(infrastructure
@@ -29,4 +32,5 @@ target_link_libraries(infrastructure
     PUBLIC
         asio
         Qt6::Core
+        Qt6::Network
 )
