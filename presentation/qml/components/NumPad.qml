@@ -298,7 +298,7 @@ Popup {
                 Layout.preferredHeight: 52 * Theme.scale
                 keyText: "AC"
                 keyColor: "#5C3A3A"
-                textColor: Theme.colorFault
+                textColor: Theme.colorError
                 fontWeight: Font.Bold
                 onClicked: internal.clearAll()
             }
