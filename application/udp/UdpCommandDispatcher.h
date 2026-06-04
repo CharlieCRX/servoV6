@@ -2,6 +2,9 @@
 
 #include <string>
 #include <optional>
+#include <thread>
+#include <chrono>
+#include <QCoreApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
 
@@ -13,6 +16,7 @@
 #include "domain/entity/Axis.h"
 #include "domain/entity/SystemContext.h"
 #include "domain/entity/ContextRejection.h"
+#include "infrastructure/ISystemDriver.h"
 #include "infrastructure/logger/Logger.h"
 
 // ═══════════════════════════════════════════════════════════════════
@@ -214,9 +218,19 @@ private:
         absPolicy.startAbs(AxisId::R);
 
         // 5. 驱动 Policy 状态机直到完成或出错（阻塞等待模式）
+        //    ★ 先 pollFeedback 刷新 PLC 状态，再用最新反馈推进 Policy
+        //    避免 tick 后立即 poll 读到的仍是"命令已送达但未生效"的旧状态，
+        //    导致 Policy 误判"运动瞬间完成"。
         while (absPolicy.currentStep() != AbsMovePolicy::Step::Done &&
                absPolicy.currentStep() != AbsMovePolicy::Step::Error) {
+            if (auto* drv = group.driver()) {
+                drv->pollFeedback(group);
+            }
             absPolicy.tick();
+            // 匹配 PLC Modbus 扫描周期（~10ms），避免空转占用 CPU
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            // 让 Qt 处理 UI 事件，避免界面卡死
+            QCoreApplication::processEvents();
         }
 
         // 6. 获取结果
@@ -265,9 +279,16 @@ private:
         relPolicy.startRel(AxisId::R);
 
         // 4. 驱动 Policy 直到完成
+        //    ★ 先 pollFeedback 刷新 PLC 状态，再用最新反馈推进 Policy
         while (relPolicy.currentStep() != RelMovePolicy::Step::Done &&
                relPolicy.currentStep() != RelMovePolicy::Step::Error) {
+            if (auto* drv = group.driver()) {
+                drv->pollFeedback(group);
+            }
             relPolicy.tick();
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            // 让 Qt 处理 UI 事件，避免界面卡死
+            QCoreApplication::processEvents();
         }
 
         // 5. 结果处理
