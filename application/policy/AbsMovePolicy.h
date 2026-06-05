@@ -61,6 +61,7 @@ public:
         TriggeringMove,      // 触发 ABS_MOVE_TRIGGER（★ 无 SettingTarget）
         WaitingMotionStart,  // 等待运动开始
         WaitingMotionFinish, // 等待运动完成（只看轴状态：Moving→等待, Idle→完成，不判定位置）
+        PostStopDelay,       // 停稳后等待 500ms 完全静止再关使能
         Disabling,           // 关闭使能
         Done,
         Error
@@ -72,6 +73,7 @@ public:
         , m_step(Step::Initial)
         , m_enableTimeoutSeconds(2.0)       // ★ 使能超时：2 秒后未收到 Idle feedback 则判定失败
         , m_postEnableDelaySeconds(0.4)     // ★ 使能后等待 400ms，给抱闸释放和磁场建立留出时间
+        , m_postStopDelaySeconds(0.5)       // ★ 停止后等待 500ms 完全静止再关使能，避免每次移动差一点点
     {}
 
     // ========== 入口 ==========
@@ -94,6 +96,9 @@ public:
 
         // ★ 使能后延时相关标志复位
         m_idleReachedTime = std::chrono::steady_clock::time_point{};
+
+        // ★ 停止后延时相关标志复位
+        m_stopIdleReachedTime = std::chrono::steady_clock::time_point{};
 
         m_traceId = TraceScope::current().traceId;
 
@@ -325,13 +330,36 @@ public:
             if (axis->state() == AxisState::Idle) {
                 LOG_DEBUG(LogLayer::APP, "AbsPolicy",
                           "[" + m_groupName + "][" + axisName(m_targetId)
-                              + "] WaitingMotionFinish -- move completed -> Disabling");
-                m_step = Step::Disabling;
+                              + "] WaitingMotionFinish -- move completed -> PostStopDelay (waiting 500ms for full stop)");
+                m_stopIdleReachedTime = std::chrono::steady_clock::now();
+                m_step = Step::PostStopDelay;
             }
             break;
 
         // ============================================================
-        // Step 6：Disabling —— 关闭使能
+        // Step 6：PostStopDelay —— 停稳后等待 500ms 完全静止再关使能
+        //   避免轴在刚进入 Idle 时仍有微小振动，导致每次移动差一点点
+        // ============================================================
+        case Step::PostStopDelay: {
+            auto elapsed = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - m_stopIdleReachedTime).count();
+            if (elapsed >= m_postStopDelaySeconds) {
+                LOG_DEBUG(LogLayer::APP, "AbsPolicy",
+                          "[" + m_groupName + "][" + axisName(m_targetId)
+                              + "] PostStopDelay -> Disabling (fully stopped after "
+                              + std::to_string(elapsed * 1000) + "ms)");
+                m_step = Step::Disabling;
+            } else {
+                LOG_DEBUG(LogLayer::APP, "AbsPolicy",
+                          "[" + m_groupName + "][" + axisName(m_targetId)
+                              + "] PostStopDelay -- waiting for full stop, "
+                              + std::to_string(elapsed * 1000) + "ms elapsed");
+            }
+            break;
+        }
+
+        // ============================================================
+        // Step 7：Disabling —— 关闭使能
         // ============================================================
         case Step::Disabling:
             {
@@ -359,7 +387,7 @@ public:
             break;
 
         // ============================================================
-        // Step 7：Error —— 检测到错误，确保电机禁用（仅发一次）
+        // Step 8：Error —— 检测到错误，确保电机禁用（仅发一次）
         // ============================================================
         case Step::Error:
             if (!m_errorDisableSent) {
@@ -409,6 +437,7 @@ public:
             case Step::TriggeringMove:     return "TriggeringMove";
             case Step::WaitingMotionStart: return "WaitingMotionStart";
             case Step::WaitingMotionFinish:return "WaitingMotionFinish";
+            case Step::PostStopDelay:      return "PostStopDelay";
             case Step::Disabling:          return "Disabling";
             case Step::Done:              return "Done";
             case Step::Error:             return "Error";
@@ -448,6 +477,10 @@ public:
     // ========== ★ 使能后硬件稳定延迟（防爆冲）==========
     const double m_postEnableDelaySeconds;
     std::chrono::steady_clock::time_point m_idleReachedTime;
+
+    // ========== ★ 停止后完全静止延迟（防止移动差一点点）==========
+    const double m_postStopDelaySeconds;
+    std::chrono::steady_clock::time_point m_stopIdleReachedTime;
 
     bool m_errorDisableSent = false;
 

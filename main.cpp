@@ -267,7 +267,7 @@ int main(int argc, char *argv[])
     // 3b. UDP 服务器（远程 R 轴控制）
     // ============================
     UdpServer::Config udpCfg;
-    udpCfg.listenPort = 9001;
+    udpCfg.listenPort = 62000;
     udpCfg.bindAddress = "0.0.0.0";
     udpCfg.recvBufferSize = 4096;
 

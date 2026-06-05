@@ -38,6 +38,7 @@ public:
         Jogging,           // 点动运行中
         IssuingStop,       // 下发停止指令
         WaitingForIdle,    // 等待轴停稳
+        PostStopDelay,     // 停稳后等待 500ms 完全静止再关使能
         EnsuringDisabled,  // 下发掉电（正常流程结束）
         ErrorDisabling,    // ★ 错误恢复掉电（有状态展示，最多 2 次重试，3s 超时）
         Done,
@@ -54,6 +55,7 @@ public:
         , m_step(Step::Idle)
         , m_enableTimeoutSeconds(3.0)       // ★ 使能超时：3 秒后未收到 Idle feedback 则判定失败
         , m_postEnableDelaySeconds(0.4)     // ★ 使能后等待 400ms，给抱闸释放和磁场建立留出时间
+        , m_postStopDelaySeconds(0.5)       // ★ 停止后等待 500ms 完全静止再关使能，避免每次移动差一点点
     {
     }
 
@@ -75,6 +77,9 @@ public:
 
         // ★ 使能后延时相关标志复位
         m_idleReachedTime = std::chrono::steady_clock::time_point{};
+
+        // ★ 停止后延时相关标志复位
+        m_stopIdleReachedTime = std::chrono::steady_clock::time_point{};
 
         // ★ Error 掉电重试相关标志复位
         m_errorDisableSent      = false;
@@ -340,14 +345,36 @@ public:
         case Step::WaitingForIdle:
             if (axis->state() == AxisState::Idle) {
                 LOG_DEBUG(LogLayer::APP, "JogOrch",
-                          "[" + m_groupName + "][" + axisName(m_targetId) + "] WaitingForIdle -> EnsuringDisabled");
-                m_step = Step::EnsuringDisabled;
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] WaitingForIdle -> PostStopDelay (waiting 500ms for full stop)");
+                m_stopIdleReachedTime = std::chrono::steady_clock::now();
+                m_step = Step::PostStopDelay;
             } else {
                 LOG_DEBUG(LogLayer::APP, "JogOrch",
                           "[" + m_groupName + "][" + axisName(m_targetId) + "] WaitingForIdle -- waiting, axis state="
                               + std::string(axisStateName(axis->state())));
             }
             break;
+
+        // ============================================================
+        // PostStopDelay：停稳后等待 500ms 完全静止再关使能
+        //   避免轴在刚进入 Idle 时仍有微小振动，导致每次移动差一点点
+        // ============================================================
+
+        case Step::PostStopDelay: {
+            auto elapsed = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - m_stopIdleReachedTime).count();
+            if (elapsed >= m_postStopDelaySeconds) {
+                LOG_DEBUG(LogLayer::APP, "JogOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] PostStopDelay -> EnsuringDisabled (fully stopped after "
+                              + std::to_string(elapsed * 1000) + "ms)");
+                m_step = Step::EnsuringDisabled;
+            } else {
+                LOG_DEBUG(LogLayer::APP, "JogOrch",
+                          "[" + m_groupName + "][" + axisName(m_targetId) + "] PostStopDelay -- waiting for full stop, "
+                              + std::to_string(elapsed * 1000) + "ms elapsed");
+            }
+            break;
+        }
 
         // ============================================================
         // EnsuringDisabled：掉电 -> Done（正常流程）
@@ -518,6 +545,10 @@ private:
     // ========== ★ 使能后硬件稳定延迟（防爆冲）==========
     const double m_postEnableDelaySeconds;
     std::chrono::steady_clock::time_point m_idleReachedTime;
+
+    // ========== ★ 停止后完全静止延迟（防止移动差一点点）==========
+    const double m_postStopDelaySeconds;
+    std::chrono::steady_clock::time_point m_stopIdleReachedTime;
 
     // ========== ★ Error 掉电重试 ==========
     bool m_errorDisableSent = false;
