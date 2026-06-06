@@ -16,15 +16,17 @@ Rectangle {
     border.width: 1
 
     // 仅在有错误时显示
-    visible: {
-        if (!viewModel) return false
-        // 过滤 Silent 类错误（不展示）
-        let errors = viewModel.getAllErrors()
-        for (let i = 0; i < errors.length; i++) {
-            if (errors[i].category !== "Silent") return true
-        }
-        return false
-    }
+    // ★ 临时屏蔽：强制隐藏错误队列弹窗
+    visible: false
+    // visible: {
+    //     if (!viewModel) return false
+    //     // 过滤 Silent 类错误（不展示）
+    //     let errors = viewModel.getAllErrors()
+    //     for (let i = 0; i < errors.length; i++) {
+    //         if (errors[i].category !== "Silent") return true
+    //     }
+    //     return false
+    // }
 
     // 计算非 Silent 错误数量（用于徽标）
     property int visibleErrorCount: {
