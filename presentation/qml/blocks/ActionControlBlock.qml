@@ -227,7 +227,7 @@ Rectangle {
                 Item { Layout.fillHeight: true }
 
                 IndustrialButton {
-                    text: "JOG +"
+                    text: "前进 +"
                     isCircle: false
                     buttonSize: 170 * Theme.scale
                     Layout.alignment: Qt.AlignHCenter
@@ -239,7 +239,7 @@ Rectangle {
                 Item { Layout.preferredHeight: 8 * Theme.scale }
 
                 IndustrialButton {
-                    text: "JOG -"
+                    text: "后退 -"
                     isCircle: false
                     buttonSize: 170 * Theme.scale
                     Layout.alignment: Qt.AlignHCenter
@@ -468,7 +468,7 @@ Rectangle {
                 IndustrialButton {
                     Layout.alignment: Qt.AlignHCenter
                     visible: root.isAbsolute
-                    text: root.isReadyForTrigger ? "绝对定位 GO" : (
+                    text: root.isReadyForTrigger ? "绝对定位" : (
                         viewModel && viewModel.isLoading ? "运行中..." : "不可用"
                     )
                     isCircle: false
@@ -487,7 +487,7 @@ Rectangle {
                 IndustrialButton {
                     Layout.alignment: Qt.AlignHCenter
                     visible: !root.isAbsolute
-                    text: root.isReadyForTrigger ? "相对定位 GO" : (
+                    text: root.isReadyForTrigger ? "相对定位" : (
                         viewModel && viewModel.isLoading ? "运行中..." : "不可用"
                     )
                     isCircle: false

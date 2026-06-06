@@ -212,42 +212,11 @@ Rectangle {
             }
         }
 
-        // ===== 2. 使能状态 + 运动状态行 =====
+        // ===== 2. 运动状态行 =====
         RowLayout {
             Layout.fillWidth: true
             spacing: 12 * Theme.scale
             Layout.alignment: Qt.AlignHCenter
-
-            // 使能状态
-            RowLayout {
-                spacing: 4 * Theme.scale
-                Rectangle {
-                    width: 10 * Theme.scale
-                    height: 10 * Theme.scale
-                    radius: width / 2
-                    color: {
-                        if (root.selectedAxis === "X") {
-                            return root.gantryEnabled ? Theme.colorIdle : Theme.colorDisabled
-                        }
-                        return viewModel && viewModel.isEnabled ? Theme.colorIdle : Theme.colorDisabled
-                    }
-                }
-                Text {
-                    text: {
-                        if (root.selectedAxis === "X") {
-                            return root.gantryEnabled ? "已使能" : "未使能"
-                        }
-                        return viewModel && viewModel.isEnabled ? "已使能" : "未使能"
-                    }
-                    color: {
-                        if (root.selectedAxis === "X") {
-                            return root.gantryEnabled ? Theme.colorIdle : Theme.textDim
-                        }
-                        return viewModel && viewModel.isEnabled ? Theme.colorIdle : Theme.textDim
-                    }
-                    font.pixelSize: Theme.fontSmall
-                }
-            }
 
             // 运动状态指示灯 + 文本
             RowLayout {
