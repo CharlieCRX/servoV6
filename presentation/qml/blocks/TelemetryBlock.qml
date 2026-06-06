@@ -142,10 +142,12 @@ Rectangle {
             Item { Layout.fillWidth: true }
         }
 
-        // ===== 1.5 龙门耦合控制区（仅在选中 X 轴时显示） =====
+        // ===== 1.5 龙门耦合状态指示区（仅在选中 X 轴时显示） =====
+        // 注意：龙门联动已由 AxisViewModelCore 的 GantryMotionOrchestrator 自动编排，
+        //      不再需要手动「启用/停用」按钮。此区域仅保留状态指示灯。
         Rectangle {
             Layout.fillWidth: true
-            height: root.gantryAreaVisible ? 44 * Theme.scale : 0
+            height: root.gantryAreaVisible ? 36 * Theme.scale : 0
             visible: root.gantryAreaVisible
             color: root.gantryCoupled ? "#1F2F1F" : "#1F1F2F"
             radius: 8 * Theme.scale
@@ -157,7 +159,7 @@ Rectangle {
                 anchors.margins: 6 * Theme.scale
                 spacing: 8 * Theme.scale
 
-                // 左侧：耦合状态指示灯 + 文本
+                // 左侧：耦合状态指示灯
                 Rectangle {
                     width: 12 * Theme.scale
                     height: 12 * Theme.scale
@@ -178,36 +180,17 @@ Rectangle {
                     }
                 }
 
+                // 耦合状态文本
                 Text {
                     text: {
-                        if (root.gantryCoupling) return "启用中..."
-                        if (root.gantryActivated) return "已启用"
+                        if (root.gantryCoupling) return "联动中..."
                         if (root.gantryCoupled) return "龙门已耦合"
-                        return "未启用"
+                        return "未联动"
                     }
-                    color: root.gantryActivated ? Theme.colorIdle : Theme.textDim
+                    color: root.gantryCoupled ? Theme.colorIdle : Theme.textDim
                     font.pixelSize: Theme.fontSmall
                     font.bold: true
                     Layout.fillWidth: true
-                }
-
-                // 右侧：启用 / 停用按钮
-                IndustrialButton {
-                    text: root.gantryActivated ? "停用" : "启用"
-                    buttonSize: 60 * Theme.scale
-                    baseColor: root.locked ? Theme.colorDisabled : (root.gantryActivated ? "#5D4037" : "#2E7D32")
-                    enabled: !root.locked && !root.gantryCoupling
-                    opacity: enabled ? 1.0 : 0.4
-                    border.color: root.gantryActivated ? "#795548" : "#4CAF50"
-                    border.width: 1
-                    onClicked: {
-                        if (!root.gantryViewModel) return
-                        if (root.gantryActivated) {
-                            root.gantryViewModel.stopCouplingAndDisable()
-                        } else {
-                            root.gantryViewModel.startCoupling()
-                        }
-                    }
                 }
             }
         }

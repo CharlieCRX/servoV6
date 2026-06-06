@@ -9,6 +9,10 @@ add_library(application
     policy/AutoAbsMoveOrchestrator.h
     policy/AutoRelMoveOrchestrator.h
     policy/GantryOrchestrator.h
+    policy/GantryMotionOrchestrator.h
+    policy/GantryJogPolicy.h
+    policy/GantryAbsMovePolicy.h
+    policy/GantryRelMovePolicy.h
     policy/AbsMovePolicy.h
     policy/RelMovePolicy.h
 

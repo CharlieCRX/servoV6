@@ -17,6 +17,9 @@ class AutoRelMoveOrchestrator;
 class JogOrchestrator;
 class AbsMovePolicy;
 class RelMovePolicy;
+class GantryJogPolicy;
+class GantryAbsMovePolicy;
+class GantryRelMovePolicy;
 class EnableUseCase;
 class JogAxisUseCase;
 class StopAxisUseCase;
@@ -107,7 +110,15 @@ private:
     std::unique_ptr<AbsMovePolicy> m_absPolicy;
     std::unique_ptr<RelMovePolicy> m_relPolicy;
 
+    // ★ 龙门运动策略（仅当 m_axisId == AxisId::X 时使用）
+    std::unique_ptr<GantryJogPolicy>    m_gantryJogPolicy;
+    std::unique_ptr<GantryAbsMovePolicy> m_gantryAbsPolicy;
+    std::unique_ptr<GantryRelMovePolicy> m_gantryRelPolicy;
+
     std::vector<ErrorEntry> m_errorHistory;
+
+    /// @brief 判断当前轴是否为龙门逻辑轴
+    bool isGantryAxis() const { return m_axisId == AxisId::X; }
 
     void pushError(const ViewModelError& error, const std::string& source);
 

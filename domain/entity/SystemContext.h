@@ -76,6 +76,22 @@ public:
      *   Layer 4 -- 通过：None
      */
     bool tryReadAxis(AxisId id, Axis*& outAxis, ContextRejection& reason) {
+        // ★ 阶段1：读写分离 —— 龙门轴读取跳过龙门语义拦截
+        // 对 X/X1/X2 的读取：仅容器查找，不经过龙门同步/联动状态检查
+        // 理由：位置数据来自 PLC 反馈，读取无硬件副作用，不存在安全风险
+        if (id == AxisId::X || id == AxisId::X1 || id == AxisId::X2) {
+            auto it = m_axes.find(id);
+            if (it == m_axes.end()) {
+                reason = ContextRejection::AxisNotRegistered;
+                outAxis = nullptr;
+                return false;
+            }
+            outAxis = it->second.get();
+            reason = ContextRejection::None;
+            return true;  // ✅ 始终允许读取龙门轴信息
+        }
+
+        // 非龙门轴走原有逻辑（Y/Z/R 直接过容器查找，无额外拦截）
         return tryGetAxisInternal(id, outAxis, reason);
     }
 

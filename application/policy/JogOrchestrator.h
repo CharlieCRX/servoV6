@@ -268,9 +268,7 @@ public:
                               + std::to_string(static_cast<int>(axis->lastRejection())));
                 m_lastError = axis->lastRejection();
                 // 失败熔断 -> 掉电
-                if (m_targetId != AxisId::X) {
-                    EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, false);
-                }
+                EnableUseCase{}.execute(m_manager, m_groupName, m_targetId, false);
                 m_step = Step::Error;
                 break;
             }
@@ -381,15 +379,6 @@ public:
         // ============================================================
 
         case Step::EnsuringDisabled:
-            // 当X轴控制的时候，直接跳过关闭使能逻辑，进入Done状态。
-            // TODO 逻辑存在耦合地方，后期需要优化设计，抽象出一个独立的流程编排器来处理X轴的点动。
-            if (m_targetId == AxisId::X) {
-                LOG_INFO(LogLayer::APP, "JogOrch",
-                          "[" + m_groupName + "][" + axisName(m_targetId) + "] X-axis Jog complete, skipping disable and transitioning to Done");
-                m_step = Step::Done;
-                return;
-            }
-
             if (!m_disableIssued) {
                 LOG_DEBUG(LogLayer::APP, "JogOrch",
                           "[" + m_groupName + "][" + axisName(m_targetId) + "] EnsuringDisabled -- sending Disable command");

@@ -9,6 +9,10 @@
 #include "application/policy/AutoAbsMoveOrchestrator.h"
 #include "application/policy/AutoRelMoveOrchestrator.h"
 #include "application/policy/JogOrchestrator.h"
+#include "application/policy/GantryJogPolicy.h"
+#include "application/policy/GantryAbsMovePolicy.h"
+#include "application/policy/GantryRelMovePolicy.h"
+#include "application/policy/GantryMotionOrchestrator.h"
 #include "domain/entity/Axis.h"
 #include "domain/entity/SystemContext.h"
 #include "ErrorTranslator.h"
@@ -128,8 +132,17 @@ AxisViewModelCore::AxisViewModelCore(SystemManager& manager,
     , m_absPolicy(std::make_unique<AbsMovePolicy>(manager, groupName))
     , m_relPolicy(std::make_unique<RelMovePolicy>(manager, groupName))
 {
-    LOG_INFO(LogLayer::UI, "AxisVM",
-        logPrefix() + " ViewModel created");
+    // ★ 龙门轴专属策略初始化
+    if (isGantryAxis()) {
+        m_gantryJogPolicy = std::make_unique<GantryJogPolicy>(manager, groupName);
+        m_gantryAbsPolicy = std::make_unique<GantryAbsMovePolicy>(manager, groupName);
+        m_gantryRelPolicy = std::make_unique<GantryRelMovePolicy>(manager, groupName);
+        LOG_INFO(LogLayer::UI, "AxisVM",
+            logPrefix() + " ViewModel created (Gantry X-axis mode)");
+    } else {
+        LOG_INFO(LogLayer::UI, "AxisVM",
+            logPrefix() + " ViewModel created");
+    }
 }
 
 AxisViewModelCore::~AxisViewModelCore() = default;
@@ -337,15 +350,31 @@ void AxisViewModelCore::jog(Direction dir)
     TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
 
     const char* dirStr = (dir == Direction::Forward) ? "Forward" : "Backward";
-    LOG_INFO(LogLayer::UI, "AxisVM",
-        logPrefix() + " jog " + dirStr + " pressed");
 
-    m_jogOrch->startJog(m_axisId, dir);
+    if (isGantryAxis()) {
+        // ★ 龙门 X 轴：走 GantryJogPolicy（自动使能+联动）
+        LOG_INFO(LogLayer::UI, "AxisVM",
+            logPrefix() + " gantry jog " + dirStr + " pressed");
+        m_gantryJogPolicy->startJog(m_axisId, dir);
 
-    if (m_jogOrch->hasError()) {
-        auto vmError = translate(m_jogOrch->lastError());
-        LOG_WARN(LogLayer::UI, "AxisVM",
-            logPrefix() + " jog " + dirStr + " rejected at start: " + vmError.code);
+        if (m_gantryJogPolicy->hasError()) {
+            auto vmError = translate(m_gantryJogPolicy->lastError());
+            pushError(vmError, "GantryJog");
+            LOG_WARN(LogLayer::UI, "AxisVM",
+                logPrefix() + " gantry jog " + dirStr + " rejected: " + vmError.code);
+        }
+    } else {
+        // 单轴：走原有 JogOrchestrator
+        LOG_INFO(LogLayer::UI, "AxisVM",
+            logPrefix() + " jog " + dirStr + " pressed");
+
+        m_jogOrch->startJog(m_axisId, dir);
+
+        if (m_jogOrch->hasError()) {
+            auto vmError = translate(m_jogOrch->lastError());
+            LOG_WARN(LogLayer::UI, "AxisVM",
+                logPrefix() + " jog " + dirStr + " rejected at start: " + vmError.code);
+        }
     }
 }
 
@@ -354,10 +383,18 @@ void AxisViewModelCore::jogStop(Direction dir)
     TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
 
     const char* dirStr = (dir == Direction::Forward) ? "Forward" : "Backward";
-    LOG_INFO(LogLayer::UI, "AxisVM",
-        logPrefix() + " jog " + dirStr + " released");
 
-    m_jogOrch->stopJog(m_axisId, dir);
+    if (isGantryAxis()) {
+        // ★ 龙门 X 轴：通知 GantryJogPolicy 停止点动
+        LOG_INFO(LogLayer::UI, "AxisVM",
+            logPrefix() + " gantry jog " + dirStr + " released");
+        m_gantryJogPolicy->stopJog();
+    } else {
+        // 单轴：走原有 JogOrchestrator
+        LOG_INFO(LogLayer::UI, "AxisVM",
+            logPrefix() + " jog " + dirStr + " released");
+        m_jogOrch->stopJog(m_axisId, dir);
+    }
 }
 
 void AxisViewModelCore::stop()
@@ -376,9 +413,35 @@ void AxisViewModelCore::stop()
             logPrefix() + " stop command failed: " + vmError.code);
     }
 
-    // 2. 中断正在进行的点动编排器
-    //    注：Abs/Rel 编排器无显式 stop() 入口，
-    //    它们会在 tick() 中因 Axis 回到 Idle 而自行收敛
+    // 2. 中断正在进行的龙门运动编排器
+    if (isGantryAxis()) {
+        if (m_gantryJogPolicy
+            && m_gantryJogPolicy->currentStep() != GantryMotionOrchestrator::Step::Idle
+            && m_gantryJogPolicy->currentStep() != GantryMotionOrchestrator::Step::Done
+            && m_gantryJogPolicy->currentStep() != GantryMotionOrchestrator::Step::Error) {
+            m_gantryJogPolicy->cancelMotion();
+            LOG_DEBUG(LogLayer::UI, "AxisVM",
+                logPrefix() + " gantry jog orchestrator interrupted by stop");
+        }
+        if (m_gantryAbsPolicy
+            && m_gantryAbsPolicy->currentStep() != GantryMotionOrchestrator::Step::Idle
+            && m_gantryAbsPolicy->currentStep() != GantryMotionOrchestrator::Step::Done
+            && m_gantryAbsPolicy->currentStep() != GantryMotionOrchestrator::Step::Error) {
+            m_gantryAbsPolicy->cancelMotion();
+            LOG_DEBUG(LogLayer::UI, "AxisVM",
+                logPrefix() + " gantry abs orchestrator interrupted by stop");
+        }
+        if (m_gantryRelPolicy
+            && m_gantryRelPolicy->currentStep() != GantryMotionOrchestrator::Step::Idle
+            && m_gantryRelPolicy->currentStep() != GantryMotionOrchestrator::Step::Done
+            && m_gantryRelPolicy->currentStep() != GantryMotionOrchestrator::Step::Error) {
+            m_gantryRelPolicy->cancelMotion();
+            LOG_DEBUG(LogLayer::UI, "AxisVM",
+                logPrefix() + " gantry rel orchestrator interrupted by stop");
+        }
+    }
+
+    // 3. 中断正在进行的单轴点动编排器
     if (m_jogOrch->currentStep() != JogOrchestrator::Step::Done &&
         m_jogOrch->currentStep() != JogOrchestrator::Step::Error &&
         m_jogOrch->currentStep() != JogOrchestrator::Step::Idle) {
@@ -468,16 +531,31 @@ bool AxisViewModelCore::setAbsTarget(double target)
 void AxisViewModelCore::triggerAbsMove()
 {
     TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
-    LOG_INFO(LogLayer::UI, "AxisVM",
-        logPrefix() + " triggerAbsMove requested");
 
-    m_absPolicy->startAbs(m_axisId);
+    if (isGantryAxis()) {
+        // ★ 龙门 X 轴：走 GantryAbsMovePolicy（自动使能+联动）
+        LOG_INFO(LogLayer::UI, "AxisVM",
+            logPrefix() + " gantry triggerAbsMove requested");
+        m_gantryAbsPolicy->startAbsMove(m_axisId);
 
-    if (m_absPolicy->hasError()) {
-        auto vmError = translate(m_absPolicy->lastError());
-        pushError(vmError, "AbsPolicy");
-        LOG_WARN(LogLayer::UI, "AxisVM",
-            logPrefix() + " triggerAbsMove rejected: " + vmError.code);
+        if (m_gantryAbsPolicy->hasError()) {
+            auto vmError = translate(m_gantryAbsPolicy->lastError());
+            pushError(vmError, "GantryAbsMove");
+            LOG_WARN(LogLayer::UI, "AxisVM",
+                logPrefix() + " gantry triggerAbsMove rejected: " + vmError.code);
+        }
+    } else {
+        // 单轴：走原有 AbsMovePolicy
+        LOG_INFO(LogLayer::UI, "AxisVM",
+            logPrefix() + " triggerAbsMove requested");
+        m_absPolicy->startAbs(m_axisId);
+
+        if (m_absPolicy->hasError()) {
+            auto vmError = translate(m_absPolicy->lastError());
+            pushError(vmError, "AbsPolicy");
+            LOG_WARN(LogLayer::UI, "AxisVM",
+                logPrefix() + " triggerAbsMove rejected: " + vmError.code);
+        }
     }
 }
 
@@ -515,21 +593,82 @@ bool AxisViewModelCore::setRelTarget(double distance)
 void AxisViewModelCore::triggerRelMove()
 {
     TraceScope scope(m_groupName, axisIdToString(m_axisId), generateTraceId());
-    LOG_INFO(LogLayer::UI, "AxisVM",
-        logPrefix() + " triggerRelMove requested");
 
-    m_relPolicy->startRel(m_axisId);
+    if (isGantryAxis()) {
+        // ★ 龙门 X 轴：走 GantryRelMovePolicy（自动使能+联动）
+        LOG_INFO(LogLayer::UI, "AxisVM",
+            logPrefix() + " gantry triggerRelMove requested");
+        m_gantryRelPolicy->startRelMove(m_axisId);
 
-    if (m_relPolicy->hasError()) {
-        auto vmError = translate(m_relPolicy->lastError());
-        pushError(vmError, "RelPolicy");
-        LOG_WARN(LogLayer::UI, "AxisVM",
-            logPrefix() + " triggerRelMove rejected: " + vmError.code);
+        if (m_gantryRelPolicy->hasError()) {
+            auto vmError = translate(m_gantryRelPolicy->lastError());
+            pushError(vmError, "GantryRelMove");
+            LOG_WARN(LogLayer::UI, "AxisVM",
+                logPrefix() + " gantry triggerRelMove rejected: " + vmError.code);
+        }
+    } else {
+        // 单轴：走原有 RelMovePolicy
+        LOG_INFO(LogLayer::UI, "AxisVM",
+            logPrefix() + " triggerRelMove requested");
+        m_relPolicy->startRel(m_axisId);
+
+        if (m_relPolicy->hasError()) {
+            auto vmError = translate(m_relPolicy->lastError());
+            pushError(vmError, "RelPolicy");
+            LOG_WARN(LogLayer::UI, "AxisVM",
+                logPrefix() + " triggerRelMove rejected: " + vmError.code);
+        }
     }
 }
 
 bool AxisViewModelCore::isLoading() const
 {
+    if (isGantryAxis()) {
+        // ★ 龙门 X 轴：检查龙门策略是否活跃
+        bool gjActive = false;
+        bool gaActive = false;
+        bool grActive = false;
+
+        if (m_gantryJogPolicy) {
+            auto step = m_gantryJogPolicy->currentStep();
+            gjActive = (step != GantryMotionOrchestrator::Step::Idle &&
+                        step != GantryMotionOrchestrator::Step::Done &&
+                        step != GantryMotionOrchestrator::Step::Error);
+            if (gjActive) {
+                LOG_TRACE_EVERY_N(10, LogLayer::UI, "AxisVM",
+                    logPrefix() + " isLoading=true [GantryJog] step="
+                    + GantryMotionOrchestrator::stepToString(step));
+            }
+        }
+
+        if (m_gantryAbsPolicy) {
+            auto step = m_gantryAbsPolicy->currentStep();
+            gaActive = (step != GantryMotionOrchestrator::Step::Idle &&
+                        step != GantryMotionOrchestrator::Step::Done &&
+                        step != GantryMotionOrchestrator::Step::Error);
+            if (gaActive) {
+                LOG_TRACE_EVERY_N(10, LogLayer::UI, "AxisVM",
+                    logPrefix() + " isLoading=true [GantryAbs] step="
+                    + GantryMotionOrchestrator::stepToString(step));
+            }
+        }
+
+        if (m_gantryRelPolicy) {
+            auto step = m_gantryRelPolicy->currentStep();
+            grActive = (step != GantryMotionOrchestrator::Step::Idle &&
+                        step != GantryMotionOrchestrator::Step::Done &&
+                        step != GantryMotionOrchestrator::Step::Error);
+            if (grActive) {
+                LOG_TRACE_EVERY_N(10, LogLayer::UI, "AxisVM",
+                    logPrefix() + " isLoading=true [GantryRel] step="
+                    + GantryMotionOrchestrator::stepToString(step));
+            }
+        }
+
+        return gjActive || gaActive || grActive;
+    }
+
+    // 单轴：检查单轴策略
     bool absActive = false;
     bool relActive = false;
 
@@ -562,6 +701,27 @@ bool AxisViewModelCore::isLoading() const
 
 std::string AxisViewModelCore::moveStep() const
 {
+    if (isGantryAxis()) {
+        // ★ 龙门 X 轴：返回活跃的龙门策略步骤
+        if (m_gantryJogPolicy &&
+            m_gantryJogPolicy->currentStep() != GantryMotionOrchestrator::Step::Idle &&
+            m_gantryJogPolicy->currentStep() != GantryMotionOrchestrator::Step::Done) {
+            return GantryMotionOrchestrator::stepToString(m_gantryJogPolicy->currentStep());
+        }
+        if (m_gantryAbsPolicy &&
+            m_gantryAbsPolicy->currentStep() != GantryMotionOrchestrator::Step::Idle &&
+            m_gantryAbsPolicy->currentStep() != GantryMotionOrchestrator::Step::Done) {
+            return GantryMotionOrchestrator::stepToString(m_gantryAbsPolicy->currentStep());
+        }
+        if (m_gantryRelPolicy &&
+            m_gantryRelPolicy->currentStep() != GantryMotionOrchestrator::Step::Idle &&
+            m_gantryRelPolicy->currentStep() != GantryMotionOrchestrator::Step::Done) {
+            return GantryMotionOrchestrator::stepToString(m_gantryRelPolicy->currentStep());
+        }
+        return "Idle";
+    }
+
+    // 单轴：返回活跃的单轴策略步骤
     if (m_absPolicy &&
         m_absPolicy->currentStep() != AbsMovePolicy::Step::Initial &&
         m_absPolicy->currentStep() != AbsMovePolicy::Step::Done) {
@@ -691,28 +851,92 @@ void AxisViewModelCore::tick()
     // Step 1: 消费 pending commands（消费 setAbsTarget / setRelTarget 等简单写入）
     consumePendingCommands();
 
-    // Step 2: 驱动 Policy tick（移动触发编排）
-    // ★ 跳过处于 Initial/Done 步骤的 Policy。
-    // ★ Error 步骤不能跳过：首次 tick 的 Error 检入守卫设置 m_step=Error
-    //    后直接 return，case Step::Error 中的 Disable 清理逻辑尚未执行。
-    //    必须在后续 tick 中继续驱动，让 case Step::Error 有机会发送 Disable。
-    if (m_absPolicy
-        && m_absPolicy->currentStep() != AbsMovePolicy::Step::Initial
-        && m_absPolicy->currentStep() != AbsMovePolicy::Step::Done) {
-        m_absPolicy->tick();
-        if (m_absPolicy->hasError()) {
-            auto vmError = translate(m_absPolicy->lastError());
-            pushError(vmError, "AbsPolicy");
-        }
-    }
+    if (isGantryAxis()) {
+        // ============================================================
+        // ★ 龙门 X 轴：驱动龙门策略
+        // ============================================================
 
-    if (m_relPolicy
-        && m_relPolicy->currentStep() != RelMovePolicy::Step::Initial
-        && m_relPolicy->currentStep() != RelMovePolicy::Step::Done) {
-        m_relPolicy->tick();
-        if (m_relPolicy->hasError()) {
-            auto vmError = translate(m_relPolicy->lastError());
-            pushError(vmError, "RelPolicy");
+        // 驱动 GantryJogPolicy
+        if (m_gantryJogPolicy
+            && m_gantryJogPolicy->currentStep() != GantryMotionOrchestrator::Step::Idle
+            && m_gantryJogPolicy->currentStep() != GantryMotionOrchestrator::Step::Done
+            && m_gantryJogPolicy->currentStep() != GantryMotionOrchestrator::Step::Error) {
+            m_gantryJogPolicy->tick();
+            if (m_gantryJogPolicy->hasError()) {
+                auto vmError = translate(m_gantryJogPolicy->lastError());
+                pushError(vmError, "GantryJog");
+            }
+        }
+
+        // 驱动 GantryAbsMovePolicy
+        if (m_gantryAbsPolicy
+            && m_gantryAbsPolicy->currentStep() != GantryMotionOrchestrator::Step::Idle
+            && m_gantryAbsPolicy->currentStep() != GantryMotionOrchestrator::Step::Done
+            && m_gantryAbsPolicy->currentStep() != GantryMotionOrchestrator::Step::Error) {
+            m_gantryAbsPolicy->tick();
+            if (m_gantryAbsPolicy->hasError()) {
+                auto vmError = translate(m_gantryAbsPolicy->lastError());
+                pushError(vmError, "GantryAbsMove");
+            }
+        }
+
+        // 驱动 GantryRelMovePolicy
+        if (m_gantryRelPolicy
+            && m_gantryRelPolicy->currentStep() != GantryMotionOrchestrator::Step::Idle
+            && m_gantryRelPolicy->currentStep() != GantryMotionOrchestrator::Step::Done
+            && m_gantryRelPolicy->currentStep() != GantryMotionOrchestrator::Step::Error) {
+            m_gantryRelPolicy->tick();
+            if (m_gantryRelPolicy->hasError()) {
+                auto vmError = translate(m_gantryRelPolicy->lastError());
+                pushError(vmError, "GantryRelMove");
+            }
+        }
+    } else {
+        // ============================================================
+        // 单轴：驱动单轴策略
+        // ============================================================
+
+        // Step 2: 驱动 Policy tick（移动触发编排）
+        if (m_absPolicy
+            && m_absPolicy->currentStep() != AbsMovePolicy::Step::Initial
+            && m_absPolicy->currentStep() != AbsMovePolicy::Step::Done) {
+            m_absPolicy->tick();
+            if (m_absPolicy->hasError()) {
+                auto vmError = translate(m_absPolicy->lastError());
+                pushError(vmError, "AbsPolicy");
+            }
+        }
+
+        if (m_relPolicy
+            && m_relPolicy->currentStep() != RelMovePolicy::Step::Initial
+            && m_relPolicy->currentStep() != RelMovePolicy::Step::Done) {
+            m_relPolicy->tick();
+            if (m_relPolicy->hasError()) {
+                auto vmError = translate(m_relPolicy->lastError());
+                pushError(vmError, "RelPolicy");
+            }
+        }
+
+        // Step 3: 驱动旧编排器 tick（向后兼容）
+        if (m_jogOrch->currentStep() != JogOrchestrator::Step::Idle
+            && m_jogOrch->currentStep() != JogOrchestrator::Step::Done
+            && m_jogOrch->currentStep() != JogOrchestrator::Step::Error) {
+            m_jogOrch->tick();
+            collectOrchError(*m_jogOrch, "JogOrch");
+        }
+
+        if (m_absOrch->currentStep() != AutoAbsMoveOrchestrator::Step::Initial
+            && m_absOrch->currentStep() != AutoAbsMoveOrchestrator::Step::Done
+            && m_absOrch->currentStep() != AutoAbsMoveOrchestrator::Step::Error) {
+            m_absOrch->tick();
+            collectOrchError(*m_absOrch, "AbsOrch");
+        }
+
+        if (m_relOrch->currentStep() != AutoRelMoveOrchestrator::Step::Initial
+            && m_relOrch->currentStep() != AutoRelMoveOrchestrator::Step::Done
+            && m_relOrch->currentStep() != AutoRelMoveOrchestrator::Step::Error) {
+            m_relOrch->tick();
+            collectOrchError(*m_relOrch, "RelOrch");
         }
     }
 
@@ -723,8 +947,10 @@ void AxisViewModelCore::tick()
         if (s != AxisState::Error && s != AxisState::Unknown) {
             if (!m_errorHistory.empty()) {
                 auto& last = m_errorHistory.back();
-            if (last.source == "AbsPolicy" || last.source == "RelPolicy"
-                || last.source == "JogOrch" || last.source == "AbsOrch" || last.source == "RelOrch") {
+                if (last.source == "AbsPolicy" || last.source == "RelPolicy"
+                    || last.source == "JogOrch" || last.source == "AbsOrch" || last.source == "RelOrch"
+                    || last.source == "GantryJog" || last.source == "GantryAbsMove"
+                    || last.source == "GantryRelMove") {
                     LOG_INFO(LogLayer::UI, "AxisVM",
                         logPrefix() + " auto-clearing Policy error ("
                             + last.error.code + "), axis state="
@@ -733,30 +959,6 @@ void AxisViewModelCore::tick()
                 }
             }
         }
-    }
-
-    // Step 3: 驱动旧编排器 tick（向后兼容）
-    // ★ 仅在编排器处于活跃流程中时才 tick，避免空闲编排器
-    //    在 Error 轴状态下重复发送 Disable 等指令。
-    if (m_jogOrch->currentStep() != JogOrchestrator::Step::Idle
-        && m_jogOrch->currentStep() != JogOrchestrator::Step::Done
-        && m_jogOrch->currentStep() != JogOrchestrator::Step::Error) {
-        m_jogOrch->tick();
-        collectOrchError(*m_jogOrch, "JogOrch");
-    }
-
-    if (m_absOrch->currentStep() != AutoAbsMoveOrchestrator::Step::Initial
-        && m_absOrch->currentStep() != AutoAbsMoveOrchestrator::Step::Done
-        && m_absOrch->currentStep() != AutoAbsMoveOrchestrator::Step::Error) {
-        m_absOrch->tick();
-        collectOrchError(*m_absOrch, "AbsOrch");
-    }
-
-    if (m_relOrch->currentStep() != AutoRelMoveOrchestrator::Step::Initial
-        && m_relOrch->currentStep() != AutoRelMoveOrchestrator::Step::Done
-        && m_relOrch->currentStep() != AutoRelMoveOrchestrator::Step::Error) {
-        m_relOrch->tick();
-        collectOrchError(*m_relOrch, "RelOrch");
     }
 
     // Step 5: 日志摘要

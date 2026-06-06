@@ -28,11 +28,12 @@ Rectangle {
     }
 
     // ── X 轴（逻辑龙门）的状态文字 ──
+    // 联动已由 GantryMotionOrchestrator 自动编排，无需手动启用
     readonly property string gantryStatusText: {
         if (!gantryViewModel || currentAxisName !== "X") return ""
-        if (isCouplingTransition) return "启用中..."
-        if (isCoupled) return "已启用"
-        return "未启用"
+        if (isCouplingTransition) return "联动中..."
+        if (isCoupled) return "已耦合"
+        return "未耦合"
     }
 
     // ── X 轴状态指示灯颜色 ──
