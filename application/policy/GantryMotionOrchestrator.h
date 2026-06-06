@@ -23,8 +23,8 @@
  *
  * 状态机：
  *   Idle → EnsuringEnabled → WaitingEnabled → PostEnableDelay → Coupling → WaitingCoupled
- *   → IssuingCommand（子类实现） → Monitoring（子类实现）
- *   → PostMotionDelay → Decoupling → WaitingDecoupled → Disabling → WaitingDisabled → Done
+ *   → PostCouplingDelay → IssuingCommand（子类实现） → Monitoring（子类实现）
+ *   → PostMotionDelay → Decoupling → WaitingDecoupled → PostDecoupleDelay → Disabling → WaitingDisabled → Done
  *
  * 与单轴 JogOrchestrator 的差异：
  *   - 单轴：使能 → 点动 → 掉电（500ms 延迟）
@@ -38,21 +38,23 @@ class GantryMotionOrchestrator {
 public:
     enum class Step {
         Idle,
-        // --- 前置阶段：使能 + 联动 ---
+        // --- 前置阶段：使能 + 延迟 + 联动 + 延迟 ---
         EnsuringEnabled,      // 下发龙门电机使能命令
         WaitingEnabled,       // 等待电机使能完成
         PostEnableDelay,      // 使能完成后延迟 400ms 确保运行稳定
         Coupling,             // 下发联动指令
         WaitingCoupled,       // 等待 PLC 反馈联动完成
+        PostCouplingDelay,    // 联动确认后延迟 400ms 确保物理状态稳定
 
         // --- 运动阶段（子类重写钩子方法实现） ---
         IssuingCommand,       // 子类：下发具体运动指令（点动/绝对定位/相对定位）
         Monitoring,           // 子类：监视运动执行状态
 
-        // --- 后置阶段：延迟 + 解耦 + 掉电 ---
-        PostMotionDelay,      // 运动结束后等待 500ms 确保物理状态稳定 → 然后解耦
+        // --- 后置阶段：延迟 + 解耦 + 延迟 + 掉电 ---
+        PostMotionDelay,      // 运动结束后等待 400ms 确保物理状态稳定 → 然后解耦
         Decoupling,           // 下发解耦指令
         WaitingDecoupled,     // 等待 PLC 反馈解耦完成
+        PostDecoupleDelay,    // 解耦完成后延迟 400ms → 然后掉电
         Disabling,            // 下发龙门电机掉电命令
         WaitingDisabled,      // 等待掉电完成
 
@@ -90,7 +92,9 @@ public:
         m_cleanupAfterError = false;
 
         m_postEnableDoneTime = std::chrono::steady_clock::time_point{};
+        m_postCouplingDoneTime = std::chrono::steady_clock::time_point{};
         m_motionDoneTime = std::chrono::steady_clock::time_point{};
+        m_postDecoupleDoneTime = std::chrono::steady_clock::time_point{};
 
         LOG_INFO(LogLayer::APP, "GantryMotion",
             logPrefix() + " START " + motionType());
@@ -251,8 +255,9 @@ public:
                     + " hasError=" + std::to_string(coupling.hasError()));
             if (coupling.isCoupled()) {
                 LOG_INFO(LogLayer::APP, "GantryMotion",
-                    logPrefix() + " WaitingCoupled -> IssuingCommand (coupling confirmed by PLC)");
-                m_step = Step::IssuingCommand;
+                    logPrefix() + " WaitingCoupled -> PostCouplingDelay (coupling confirmed by PLC)");
+                m_postCouplingDoneTime = std::chrono::steady_clock::now();
+                m_step = Step::PostCouplingDelay;
             } else if (coupling.hasError()) {
                 m_lastError = coupling.getLastError();
                 m_cleanupAfterError = true;
@@ -262,6 +267,21 @@ public:
                 m_step = Step::Decoupling;
             }
             break;
+
+        // ============================================================
+        // PostCouplingDelay：联动确认后延迟 400ms 确保物理状态稳定 → 然后发送运动命令
+        // ============================================================
+        case Step::PostCouplingDelay: {
+            auto elapsed = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - m_postCouplingDoneTime).count();
+            if (elapsed >= kPostCouplingDelaySeconds) {
+                LOG_DEBUG(LogLayer::APP, "GantryMotion",
+                    logPrefix() + " PostCouplingDelay -> IssuingCommand (stabilized after "
+                        + std::to_string(elapsed * 1000) + "ms)");
+                m_step = Step::IssuingCommand;
+            }
+            break;
+        }
 
         // ============================================================
         // IssuingCommand：子类下发具体运动指令（仅调用一次）
@@ -345,7 +365,7 @@ public:
         }
 
         // ============================================================
-        // PostMotionDelay：运动结束后等待 500ms 确保物理状态稳定 → 然后解耦
+        // PostMotionDelay：运动结束后等待 400ms 确保物理状态稳定 → 然后解耦
         // ============================================================
         case Step::PostMotionDelay: {
             auto elapsed = std::chrono::duration<double>(
@@ -403,10 +423,26 @@ public:
                     + std::to_string(coupling.isDecouplingRequested()));
             if (!coupling.isDecouplingRequested()) {
                 LOG_DEBUG(LogLayer::APP, "GantryMotion",
-                    logPrefix() + " WaitingDecoupled -> Disabling");
+                    logPrefix() + " WaitingDecoupled -> PostDecoupleDelay (decoupled by PLC)");
+                m_postDecoupleDoneTime = std::chrono::steady_clock::now();
+                m_step = Step::PostDecoupleDelay;
+            }
+            break;
+
+        // ============================================================
+        // PostDecoupleDelay：解耦完成后延迟 400ms → 然后掉电
+        // ============================================================
+        case Step::PostDecoupleDelay: {
+            auto elapsed = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - m_postDecoupleDoneTime).count();
+            if (elapsed >= kPostDecoupleDelaySeconds) {
+                LOG_DEBUG(LogLayer::APP, "GantryMotion",
+                    logPrefix() + " PostDecoupleDelay -> Disabling (stabilized after "
+                        + std::to_string(elapsed * 1000) + "ms)");
                 m_step = Step::Disabling;
             }
             break;
+        }
 
         // ============================================================
         // Disabling：下发龙门电机掉电命令
@@ -529,15 +565,17 @@ public:
             case Step::Idle:              return "Idle";
             case Step::EnsuringEnabled:   return "EnsuringEnabled";
             case Step::WaitingEnabled:    return "WaitingEnabled";
-            case Step::PostEnableDelay:   return "PostEnableDelay";
-            case Step::Coupling:          return "Coupling";
-            case Step::WaitingCoupled:    return "WaitingCoupled";
-            case Step::IssuingCommand:    return "IssuingCommand";
-            case Step::Monitoring:        return "Monitoring";
-            case Step::PostMotionDelay:   return "PostMotionDelay";
-            case Step::Decoupling:        return "Decoupling";
-            case Step::WaitingDecoupled:  return "WaitingDecoupled";
-            case Step::Disabling:         return "Disabling";
+            case Step::PostEnableDelay:    return "PostEnableDelay";
+            case Step::Coupling:           return "Coupling";
+            case Step::WaitingCoupled:     return "WaitingCoupled";
+            case Step::PostCouplingDelay:  return "PostCouplingDelay";
+            case Step::IssuingCommand:     return "IssuingCommand";
+            case Step::Monitoring:         return "Monitoring";
+            case Step::PostMotionDelay:    return "PostMotionDelay";
+            case Step::Decoupling:         return "Decoupling";
+            case Step::WaitingDecoupled:   return "WaitingDecoupled";
+            case Step::PostDecoupleDelay:  return "PostDecoupleDelay";
+            case Step::Disabling:          return "Disabling";
             case Step::WaitingDisabled:   return "WaitingDisabled";
             case Step::Done:              return "Done";
             case Step::Error:             return "Error";
@@ -628,8 +666,14 @@ private:
     // --- 使能后延迟相关 ---
     std::chrono::steady_clock::time_point m_postEnableDoneTime;
 
+    // --- 联动后延迟相关 ---
+    std::chrono::steady_clock::time_point m_postCouplingDoneTime;
+
     // --- 运动后延迟相关 ---
     std::chrono::steady_clock::time_point m_motionDoneTime;
+
+    // --- 解耦后延迟相关 ---
+    std::chrono::steady_clock::time_point m_postDecoupleDoneTime;
 
     // --- 解耦相关 ---
     bool m_decoupleSent = false;
@@ -639,6 +683,8 @@ private:
     bool m_coupleSent = false;
     bool m_disableSent = false;
 
-    static constexpr double kPostEnableDelaySeconds = 0.4;
+    static constexpr double kPostEnableDelaySeconds = 0.5;
+    static constexpr double kPostCouplingDelaySeconds = 0.5;
     static constexpr double kPostMotionDelaySeconds = 0.5;
+    static constexpr double kPostDecoupleDelaySeconds = 0.5;
 };
