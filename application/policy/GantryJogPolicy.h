@@ -72,7 +72,7 @@ protected:
 
     bool checkMotionCompleted(Axis& axis) override {
         // 用户松手但轴还未停稳 → 通过 axis.stopJog() 产生停止命令
-        // （父类 Monitoring 步骤会自动消费待执行命令并发送到驱动）
+        // 停止命令由父类 Monitoring 步骤在钩子返回后消费发送到驱动
         if (!m_userPressing && !m_stopIssued) {
             LOG_DEBUG(LogLayer::APP, "GantryJog",
                 logPrefix() + " User released, requesting Stop");

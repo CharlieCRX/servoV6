@@ -325,17 +325,21 @@ public:
                 return;
             }
 
-            // ★ 消费子类钩子可能产生的 Axis 待执行命令（如点动停止命令）
-            if (axis->hasPendingCommand() && drv) {
-                drv->send(AxisCommandWithId{m_axisId, axis->getPendingCommand()});
-            }
-
             // 调用子类钩子判断运动是否完成
+            // 注意：钩子（如 GantryJogPolicy::checkMotionCompleted）可能产生
+            // 新的待执行命令（如点动停止 JogCommand{active=false}），必须
+            // 在钩子调用后立即消费，否则在两个 tick 之间 applyFeedback 会
+            // 在 Jogging 状态下无条件清除 JogCommand，导致停止命令丢失。
             if (checkMotionCompleted(*axis)) {
                 LOG_DEBUG(LogLayer::APP, "GantryMotion",
                     logPrefix() + " Monitoring -> PostMotionDelay (motion completed)");
                 m_motionDoneTime = std::chrono::steady_clock::now();
                 m_step = Step::PostMotionDelay;
+            }
+
+            // ★ 消费子类钩子产生的 Axis 待执行命令（如点动停止命令）
+            if (axis->hasPendingCommand() && drv) {
+                drv->send(AxisCommandWithId{m_axisId, axis->getPendingCommand()});
             }
             break;
         }
