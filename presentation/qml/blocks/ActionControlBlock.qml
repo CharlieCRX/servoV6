@@ -296,7 +296,85 @@ Rectangle {
                     }
                 }
 
-                // 绝对/相对 单选切换器
+                // ── ★ 绝对目标设置行（紧接定位速度下方）──
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    spacing: 8 * Theme.scale
+                    visible: root.isAbsolute
+
+                    Text {
+                        text: "目标:"
+                        color: Theme.textDim
+                        font.pixelSize: Theme.fontNormal
+                        font.family: "Monospace"
+                    }
+                    Text {
+                        text: viewModel ? viewModel.absMoveTarget.toFixed(1) : "0.0"
+                        color: Theme.colorIdle
+                        font.pixelSize: Theme.fontNormal
+                        font.bold: true
+                        font.family: "Monospace"
+                    }
+                    Text {
+                        text: "mm"
+                        color: Theme.textDim
+                        font.pixelSize: Theme.fontNormal
+                        font.family: "Monospace"
+                    }
+
+                    IndustrialButton {
+                        text: "⚙️"
+                        buttonSize: 30 * Theme.scale
+                        isCircle: true
+                        baseColor: Theme.panelBg
+                        enabled: root.isReadyForSetTarget
+                        onClicked: {
+                            absTargetNumPad.inputText = viewModel ? viewModel.absMoveTarget.toFixed(2) : "0.00"
+                            absTargetNumPad.open()
+                        }
+                    }
+                }
+
+                // ── ★ 相对距离设置行（紧接定位速度下方）──
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    spacing: 8 * Theme.scale
+                    visible: !root.isAbsolute
+
+                    Text {
+                        text: "距离:"
+                        color: Theme.textDim
+                        font.pixelSize: Theme.fontNormal
+                        font.family: "Monospace"
+                    }
+                    Text {
+                        text: viewModel ? viewModel.relMoveTarget.toFixed(1) : "0.0"
+                        color: Theme.colorIdle
+                        font.pixelSize: Theme.fontNormal
+                        font.bold: true
+                        font.family: "Monospace"
+                    }
+                    Text {
+                        text: "mm"
+                        color: Theme.textDim
+                        font.pixelSize: Theme.fontNormal
+                        font.family: "Monospace"
+                    }
+
+                    IndustrialButton {
+                        text: "⚙️"
+                        buttonSize: 30 * Theme.scale
+                        isCircle: true
+                        baseColor: Theme.panelBg
+                        enabled: root.isReadyForSetTarget
+                        onClicked: {
+                            relTargetNumPad.inputText = viewModel ? viewModel.relMoveTarget.toFixed(2) : "0.00"
+                            relTargetNumPad.open()
+                        }
+                    }
+                }
+
+                // 绝对/相对 单选切换器（在目标设置行下方）
                 Rectangle {
                     Layout.alignment: Qt.AlignHCenter
                     Layout.preferredWidth: 200 * Theme.scale
@@ -383,134 +461,45 @@ Rectangle {
                     }
                 }
 
-                // ── ★ 绝对定位组 ──
-                ColumnLayout {
+                // ── 弹性空间：将参数设置区与执行按钮区分开 ──
+                Item { Layout.fillHeight: true }
+
+                // ── ★ 绝对定位 GO 按钮（底部，远离参数设置区）──
+                IndustrialButton {
                     Layout.alignment: Qt.AlignHCenter
-                    spacing: 6 * Theme.scale
                     visible: root.isAbsolute
-
-                    Item { Layout.fillHeight: true }
-
-                    RowLayout {
-                        Layout.alignment: Qt.AlignHCenter
-                        spacing: 8 * Theme.scale
-
-                        Text {
-                            text: "目标:"
-                            color: Theme.textDim
-                            font.pixelSize: Theme.fontNormal
-                            font.family: "Monospace"
-                        }
-                        Text {
-                            text: viewModel ? viewModel.absMoveTarget.toFixed(1) : "0.0"
-                            color: Theme.colorIdle
-                            font.pixelSize: Theme.fontNormal
-                            font.bold: true
-                            font.family: "Monospace"
-                        }
-                        Text {
-                            text: "mm"
-                            color: Theme.textDim
-                            font.pixelSize: Theme.fontNormal
-                            font.family: "Monospace"
-                        }
-
-                        IndustrialButton {
-                            text: "⚙️"
-                            buttonSize: 30 * Theme.scale
-                            isCircle: true
-                            baseColor: Theme.panelBg
-                            enabled: root.isReadyForSetTarget
-                            onClicked: {
-                                absTargetNumPad.inputText = viewModel ? viewModel.absMoveTarget.toFixed(2) : "0.00"
-                                absTargetNumPad.open()
-                            }
+                    text: root.isReadyForTrigger ? "绝对定位 GO" : (
+                        viewModel && viewModel.isLoading ? "运行中..." : "不可用"
+                    )
+                    isCircle: false
+                    buttonSize: 170 * Theme.scale
+                    enabled: root.isReadyForTrigger
+                    baseColor: root.isReadyForTrigger ? Theme.colorIdle : Theme.colorDisabled
+                    onClicked: {
+                        if (!root.isReadyForTrigger) return
+                        if (viewModel) {
+                            viewModel.triggerAbsMove()
                         }
                     }
-
-                    IndustrialButton {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: root.isReadyForTrigger ? "绝对定位 GO" : (
-                            viewModel && viewModel.isLoading ? "运行中..." : "不可用"
-                        )
-                        isCircle: false
-                        buttonSize: 170 * Theme.scale
-                        enabled: root.isReadyForTrigger
-                        baseColor: root.isReadyForTrigger ? Theme.colorIdle : Theme.colorDisabled
-                        onClicked: {
-                            if (!root.isReadyForTrigger) return
-                            if (viewModel) {
-                                viewModel.triggerAbsMove()
-                            }
-                        }
-                    }
-
-                    Item { Layout.fillHeight: true }
                 }
 
-                // ── ★ 相对定位组 ──
-                ColumnLayout {
+                // ── ★ 相对定位 GO 按钮（底部，远离参数设置区）──
+                IndustrialButton {
                     Layout.alignment: Qt.AlignHCenter
-                    spacing: 6 * Theme.scale
                     visible: !root.isAbsolute
-
-                    Item { Layout.fillHeight: true }
-
-                    RowLayout {
-                        Layout.alignment: Qt.AlignHCenter
-                        spacing: 8 * Theme.scale
-
-                        Text {
-                            text: "距离:"
-                            color: Theme.textDim
-                            font.pixelSize: Theme.fontNormal
-                            font.family: "Monospace"
-                        }
-                        Text {
-                            text: viewModel ? viewModel.relMoveTarget.toFixed(1) : "0.0"
-                            color: Theme.colorIdle
-                            font.pixelSize: Theme.fontNormal
-                            font.bold: true
-                            font.family: "Monospace"
-                        }
-                        Text {
-                            text: "mm"
-                            color: Theme.textDim
-                            font.pixelSize: Theme.fontNormal
-                            font.family: "Monospace"
-                        }
-
-                        IndustrialButton {
-                            text: "⚙️"
-                            buttonSize: 30 * Theme.scale
-                            isCircle: true
-                            baseColor: Theme.panelBg
-                            enabled: root.isReadyForSetTarget
-                            onClicked: {
-                                relTargetNumPad.inputText = viewModel ? viewModel.relMoveTarget.toFixed(2) : "0.00"
-                                relTargetNumPad.open()
-                            }
+                    text: root.isReadyForTrigger ? "相对定位 GO" : (
+                        viewModel && viewModel.isLoading ? "运行中..." : "不可用"
+                    )
+                    isCircle: false
+                    buttonSize: 170 * Theme.scale
+                    enabled: root.isReadyForTrigger
+                    baseColor: root.isReadyForTrigger ? Theme.colorIdle : Theme.colorDisabled
+                    onClicked: {
+                        if (!root.isReadyForTrigger) return
+                        if (viewModel) {
+                            viewModel.triggerRelMove()
                         }
                     }
-
-                    IndustrialButton {
-                        Layout.alignment: Qt.AlignHCenter
-                        text: root.isReadyForTrigger ? "相对定位 GO" : (
-                            viewModel && viewModel.isLoading ? "运行中..." : "不可用"
-                        )
-                        isCircle: false
-                        buttonSize: 170 * Theme.scale
-                        enabled: root.isReadyForTrigger
-                        baseColor: root.isReadyForTrigger ? Theme.colorIdle : Theme.colorDisabled
-                        onClicked: {
-                            if (!root.isReadyForTrigger) return
-                            if (viewModel) {
-                                viewModel.triggerRelMove()
-                            }
-                        }
-                    }
-
-                    Item { Layout.fillHeight: true }
                 }
 
                 Text {
