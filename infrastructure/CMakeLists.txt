@@ -20,7 +20,13 @@ add_library(infrastructure STATIC
 
     # ★ 阶段 1：UDP 通讯层（infrastructure 侧）
     udp/UdpServer.h
+
+    # ★ 游戏手柄 JNI 桥接层
+    joystick/AndroidGamepadJoystick.h
+    joystick/AndroidGamepadJoystick.cpp
 )
+
+set_target_properties(infrastructure PROPERTIES AUTOMOC ON)
 
 target_include_directories(infrastructure
     PUBLIC
