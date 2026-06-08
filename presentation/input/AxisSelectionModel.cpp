@@ -59,6 +59,24 @@ void AxisSelectionModel::setCurrentAxis(AxisId id)
     }
 }
 
+void AxisSelectionModel::setCurrentAxisByName(const QString& name)
+{
+    AxisId id;
+    if (name == QStringLiteral("Y"))       id = AxisId::Y;
+    else if (name == QStringLiteral("Z"))  id = AxisId::Z;
+    else if (name == QStringLiteral("R"))  id = AxisId::R;
+    else if (name == QStringLiteral("X"))  id = AxisId::X;
+    else if (name == QStringLiteral("X1")) id = AxisId::X1;
+    else if (name == QStringLiteral("X2")) id = AxisId::X2;
+    else {
+        qDebug() << "[AxisModel] ❌ setCurrentAxisByName: unknown axis name '" << name << "'";
+        return;
+    }
+
+    qDebug() << "[AxisModel] setCurrentAxisByName(" << name << ")";
+    setCurrentAxis(id);
+}
+
 QString AxisSelectionModel::currentAxisName() const
 {
     if (m_axes.empty()) return QStringLiteral("?");

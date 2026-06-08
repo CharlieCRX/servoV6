@@ -24,8 +24,12 @@ public:
     /// @brief 左摇杆 →：切换到下一个轴（循环）
     void selectRight();
 
-    /// @brief 直接设置当前轴（供 QML UI 点击时调用）
+    /// @brief 直接设置当前轴（供 C++ 调用）
     void setCurrentAxis(AxisId id);
+
+    /// @brief 通过轴名字符串设置当前轴（供 QML UI 点击时调用）
+    /// 支持 "Y", "Z", "R", "X"
+    Q_INVOKABLE void setCurrentAxisByName(const QString& name);
 
     AxisId currentAxis() const { return m_axes[m_currentIndex]; }
     QString currentAxisName() const;

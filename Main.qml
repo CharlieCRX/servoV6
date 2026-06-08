@@ -94,7 +94,11 @@ Window {
                 jogAxisSwitchLocked: mainWindow.jogAxisSwitchLocked  // ★ JOG 点动时禁用轴切换
                 onAxisChanged: (axisName) => {
                     currentAxis = axisName;
-                    console.log("切换到组:", currentGroup, ", 轴:", axisName);
+                    // ★ 通知 C++ AxisSelectionModel，使 MotionController 的 m_currentAxis 同步
+                    if (axisSelectionModel) {
+                        axisSelectionModel.setCurrentAxisByName(axisName);
+                    }
+                    console.log("[QML] 切换到组:", currentGroup, ", 轴:", axisName);
                 }
             }
 
