@@ -60,6 +60,16 @@ void MotionController::setIsAbsolute(bool absolute)
     emit isAbsoluteChanged();
 }
 
+void MotionController::setJogActiveDirection(int dir)
+{
+    // 仅在 0/1/-1 范围内接受
+    if (dir < -1 || dir > 1) return;
+    if (m_jogActiveDirection == dir) return;
+    m_jogActiveDirection = dir;
+    qDebug() << "[MotionCtrl] jogActiveDirection changed to" << dir;
+    emit jogActiveDirectionChanged();
+}
+
 void MotionController::toggleMode()
 {
     int newMode = (m_controlMode == 0) ? 1 : 0;
@@ -107,9 +117,11 @@ void MotionController::handleJogMotion(const InputEvent& event)
         if (event.motionDir == MotionDirection::Forward) {
             qDebug() << "[MotionCtrl] 🎮 StartJog(" << m_axisModel->currentAxisName() << ") Forward";
             vm->jogPositivePressed();
+            setJogActiveDirection(1);       // ★ QML "前进 +" 按钮高亮
         } else {
             qDebug() << "[MotionCtrl] 🎮 StartJog(" << m_axisModel->currentAxisName() << ") Backward";
             vm->jogNegativePressed();
+            setJogActiveDirection(-1);      // ★ QML "后退 -" 按钮高亮
         }
     } else {
         m_motionActive = false;
@@ -121,6 +133,7 @@ void MotionController::handleJogMotion(const InputEvent& event)
             qDebug() << "[MotionCtrl] 🛑 StopJog(" << m_axisModel->currentAxisName() << ") Backward";
             vm->jogNegativeReleased();
         }
+        setJogActiveDirection(0);           // ★ 取消按钮高亮
     }
 }
 
@@ -195,6 +208,7 @@ void MotionController::releaseCurrentMotion()
                  << QString::fromLatin1(axisIdToString(m_currentAxis)) << ") Backward";
         vm->jogNegativeReleased();
     }
+    setJogActiveDirection(0);  // ★ 跨轴切换时先清除视觉
 }
 
 void MotionController::pressMotion(MotionDirection dir)
@@ -207,9 +221,11 @@ void MotionController::pressMotion(MotionDirection dir)
         qDebug() << "[MotionCtrl] 🔀 cross-axis press: StartJog("
                  << QString::fromLatin1(axisIdToString(m_currentAxis)) << ") Forward";
         vm->jogPositivePressed();
+        setJogActiveDirection(1);       // ★ 新轴：高亮前进按钮
     } else {
         qDebug() << "[MotionCtrl] 🔀 cross-axis press: StartJog("
                  << QString::fromLatin1(axisIdToString(m_currentAxis)) << ") Backward";
         vm->jogNegativePressed();
+        setJogActiveDirection(-1);      // ★ 新轴：高亮后退按钮
     }
 }

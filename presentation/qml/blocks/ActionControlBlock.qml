@@ -232,25 +232,41 @@ Rectangle {
                 Item { Layout.fillHeight: true }
 
                 IndustrialButton {
+                    id: jogPositiveButton
                     text: "前进 +"
                     isCircle: false
                     buttonSize: 170 * Theme.scale
                     Layout.alignment: Qt.AlignHCenter
                     enabled: root.jogEnabled
-                    onPressed: if(viewModel && root.jogEnabled) viewModel.jogPositivePressed()
-                    onReleased: if(viewModel && root.jogEnabled) viewModel.jogPositiveReleased()
+                    isActive: motionController ? motionController.jogActiveDirection === 1 : false
+                    onPressed: {
+                        if(viewModel && root.jogEnabled) viewModel.jogPositivePressed()
+                        if(motionController) motionController.jogActiveDirection = 1
+                    }
+                    onReleased: {
+                        if(viewModel && root.jogEnabled) viewModel.jogPositiveReleased()
+                        if(motionController) motionController.jogActiveDirection = 0
+                    }
                 }
 
                 Item { Layout.preferredHeight: 8 * Theme.scale }
 
                 IndustrialButton {
+                    id: jogNegativeButton
                     text: "后退 -"
                     isCircle: false
                     buttonSize: 170 * Theme.scale
                     Layout.alignment: Qt.AlignHCenter
                     enabled: root.jogEnabled
-                    onPressed: if(viewModel && root.jogEnabled) viewModel.jogNegativePressed()
-                    onReleased: if(viewModel && root.jogEnabled) viewModel.jogNegativeReleased()
+                    isActive: motionController ? motionController.jogActiveDirection === -1 : false
+                    onPressed: {
+                        if(viewModel && root.jogEnabled) viewModel.jogNegativePressed()
+                        if(motionController) motionController.jogActiveDirection = -1
+                    }
+                    onReleased: {
+                        if(viewModel && root.jogEnabled) viewModel.jogNegativeReleased()
+                        if(motionController) motionController.jogActiveDirection = 0
+                    }
                 }
 
                 Item { Layout.fillHeight: true }

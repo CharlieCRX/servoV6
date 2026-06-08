@@ -35,6 +35,11 @@ class MotionController : public QObject
     /// @brief 定位子模式：true=绝对定位，false=相对定位（仅 Position 模式下有意义）
     Q_PROPERTY(bool isAbsolute READ isAbsolute WRITE setIsAbsolute NOTIFY isAbsoluteChanged)
 
+    /// @brief JOG 点动活跃方向：0=无点动, 1=前进活跃, -1=后退活跃
+    /// 同时由摇杆 (handleJogMotion) 和 QML 按钮 (onPressed/onReleased) 写入，
+    /// QML 按钮的 isActive 绑定此属性以展示正确的选中视觉反馈。
+    Q_PROPERTY(int jogActiveDirection READ jogActiveDirection WRITE setJogActiveDirection NOTIFY jogActiveDirectionChanged)
+
 public:
     /// @param interpreter  摇杆事件源（emit inputEvent）
     /// @param axisModel    当前选轴模型（emit currentAxisChanged）
@@ -51,6 +56,9 @@ public:
     bool isAbsolute() const { return m_isAbsolute; }
     Q_INVOKABLE void setIsAbsolute(bool absolute);
 
+    int jogActiveDirection() const { return m_jogActiveDirection; }
+    Q_INVOKABLE void setJogActiveDirection(int dir);
+
     /// @brief 切换控制模式（JOG ↔ Position），由 Y 按钮或 QML 调用
     Q_INVOKABLE void toggleMode();
 
@@ -64,6 +72,7 @@ public slots:
 signals:
     void controlModeChanged();
     void isAbsoluteChanged();
+    void jogActiveDirectionChanged();
 
 private:
     /// @brief 释放当前轴的活跃 jog（给旧轴发 Released）
@@ -90,4 +99,7 @@ private:
     // ── 控制模式状态 ──
     int m_controlMode = 0;     // 0=JOG, 1=Position
     bool m_isAbsolute = true;  // true=绝对定位, false=相对定位（仅 Position 模式）
+
+    // ── JOG 活跃方向（QML 按钮视觉反馈）──
+    int m_jogActiveDirection = 0;  // 0=无点动, 1=前进活跃, -1=后退活跃
 };
