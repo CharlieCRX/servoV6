@@ -16,6 +16,8 @@ add_library(presentation
     input/AxisSelectionModel.cpp
     input/AxisSelectionController.h
     input/AxisSelectionController.cpp
+    input/MotionController.h
+    input/MotionController.cpp
 )
 
 set_target_properties(presentation PROPERTIES AUTOMOC ON)

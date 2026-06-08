@@ -84,7 +84,6 @@ Rectangle {
                     enabled: !root.locked
                     opacity: enabled ? 1.0 : 0.4
                     onClicked: {
-                        root.currentAxisName = "Y"
                         root.axisChanged("Y")
                     }
                 }
@@ -97,7 +96,6 @@ Rectangle {
                     enabled: !root.locked
                     opacity: enabled ? 1.0 : 0.4
                     onClicked: {
-                        root.currentAxisName = "Z"
                         root.axisChanged("Z")
                     }
                 }
@@ -110,7 +108,6 @@ Rectangle {
                     enabled: !root.locked
                     opacity: enabled ? 1.0 : 0.4
                     onClicked: {
-                        root.currentAxisName = "R"
                         root.axisChanged("R")
                     }
                 }
@@ -131,7 +128,6 @@ Rectangle {
                     // 龙门耦合状态指示色
                     indicatorColor: root.gantryStatusColor
                     onClicked: {
-                        root.currentAxisName = "X"
                         root.axisChanged("X")
                     }
                 }

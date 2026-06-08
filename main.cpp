@@ -26,6 +26,7 @@
 #include "presentation/input/GamepadInputInterpreter.h"
 #include "presentation/input/AxisSelectionModel.h"
 #include "presentation/input/AxisSelectionController.h"
+#include "presentation/input/MotionController.h"
 #include "infrastructure/joystick/AndroidGamepadJoystick.h"
 #include "infrastructure/logger/Logger.h"
 #include <sstream>
@@ -375,6 +376,19 @@ int main(int argc, char *argv[])
     GamepadInputInterpreter interpreter;
     AxisSelectionController axisCtrl(&interpreter, &axisModel);
     interpreter.start();
+
+    // ★ 右摇杆 → 点动控制器
+    //   信号链: interpreter::inputEvent(Motion) → MotionController::onInputEvent()
+    //          → 当前轴 ViewModel::jogPositivePressed/Released 或 jogNegativePressed/Released
+    //   跨轴跳跃保护: axisModel::currentAxisChanged → MotionController::onCurrentAxisChanged()
+    MotionController motionCtrl(&interpreter, &axisModel);
+
+    // 注册 Machine_A 轴 → ViewModel 映射（默认选轴列表: Y/Z/R/X）
+    // ★ 注意：registerAxis 使用 AxisId 作为 key，同 key 会覆盖，切勿为多分组重复注册相同 AxisId
+    motionCtrl.registerAxis(AxisId::Y, &qtVM_A_Y);
+    motionCtrl.registerAxis(AxisId::Z, &qtVM_A_Z);
+    motionCtrl.registerAxis(AxisId::R, &qtVM_A_R);
+    motionCtrl.registerAxis(AxisId::X, &qtVM_A_X);
 
     // ★ 暴露 AxisSelectionModel 给 QML，让摇杆切换轴能更新 UI
     engine.rootContext()->setContextProperty("axisSelectionModel", &axisModel);
