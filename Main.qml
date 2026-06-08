@@ -23,6 +23,9 @@ Window {
     property string currentGroup: "Machine_A"
     property string currentAxis: "Y"
 
+    /// @brief JOG 点动活跃时阻止轴切换（只读状态，供 UI disable 绑定）
+    readonly property bool jogAxisSwitchLocked: motionController ? motionController.jogActiveDirection !== 0 : false
+
     // ★ 监听 C++ AxisSelectionModel，摇杆切换轴时同步更新 UI
     Connections {
         target: axisSelectionModel
@@ -88,6 +91,7 @@ Window {
                 currentAxisName: mainWindow.currentAxis   // ★ 反向同步：摇杆切换时高亮对应轴
                 emergencyViewModel: currentEmergencyViewModel
                 gantryViewModel: currentGantryViewModel
+                jogAxisSwitchLocked: mainWindow.jogAxisSwitchLocked  // ★ JOG 点动时禁用轴切换
                 onAxisChanged: (axisName) => {
                     currentAxis = axisName;
                     console.log("切换到组:", currentGroup, ", 轴:", axisName);

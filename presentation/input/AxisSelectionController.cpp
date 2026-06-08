@@ -1,6 +1,7 @@
 #include "AxisSelectionController.h"
 #include "AxisSelectionModel.h"
 #include "GamepadInputInterpreter.h"
+#include "presentation/input/MotionController.h"
 #include <QDebug>
 
 AxisSelectionController::AxisSelectionController(GamepadInputInterpreter* interpreter,
@@ -23,6 +24,13 @@ void AxisSelectionController::onInputEvent(const InputEvent& event)
     qDebug() << "[AxisCtrl] onInputEvent type=" << static_cast<int>(event.type);
     if (event.type != InputEvent::Type::AxisSelect) {
         qDebug() << "[AxisCtrl] ignoring: not AxisSelect (type=" << static_cast<int>(event.type) << ")";
+        return;
+    }
+
+    // ★ JOG 点动活跃时（摇杆正在推），阻止左摇杆切换轴
+    if (m_motionCtrl && m_motionCtrl->jogActiveDirection() != 0) {
+        qDebug() << "[AxisCtrl] 🚫 axis select blocked: JOG is active (direction="
+                 << m_motionCtrl->jogActiveDirection() << ")";
         return;
     }
 

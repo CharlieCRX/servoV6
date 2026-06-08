@@ -374,14 +374,16 @@ int main(int argc, char *argv[])
 
     AxisSelectionModel axisModel;
     GamepadInputInterpreter interpreter;
-    AxisSelectionController axisCtrl(&interpreter, &axisModel);
-    interpreter.start();
 
-    // ★ 右摇杆 → 点动控制器
+    // ★ 右摇杆 → 点动控制器（必须在 AxisSelectionController 之前构造，因为 axisCtrl 需要引用它）
     //   信号链: interpreter::inputEvent(Motion) → MotionController::onInputEvent()
     //          → 当前轴 ViewModel::jogPositivePressed/Released 或 jogNegativePressed/Released
     //   跨轴跳跃保护: axisModel::currentAxisChanged → MotionController::onCurrentAxisChanged()
     MotionController motionCtrl(&interpreter, &axisModel);
+
+    AxisSelectionController axisCtrl(&interpreter, &axisModel);
+    axisCtrl.setMotionController(&motionCtrl);  // ★ 注入 MotionController，JOG 活跃时阻止左摇杆选轴
+    interpreter.start();
 
     // 注册 Machine_A 轴 → ViewModel 映射（默认选轴列表: Y/Z/R/X）
     // ★ 注意：registerAxis 使用 AxisId 作为 key，同 key 会覆盖，切勿为多分组重复注册相同 AxisId
