@@ -14,6 +14,8 @@ add_library(presentation
     input/GamepadInputInterpreter.cpp
     input/AxisSelectionModel.h
     input/AxisSelectionModel.cpp
+    input/AxisSelectionController.h
+    input/AxisSelectionController.cpp
 )
 
 set_target_properties(presentation PROPERTIES AUTOMOC ON)
