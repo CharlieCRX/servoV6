@@ -39,6 +39,7 @@ private:
 
     static constexpr float kDeadzone = 0.15f;           // LX 左右死区
     static constexpr float kDeadzoneLY = 0.5f;           // LY 上下死区
+    static constexpr float kDeadzoneRY = 0.3f;           // RY 上下死区
     static constexpr int kAxisSelectDebounceMs = 300;    // 去抖间隔（长按自动重复周期）
 
     // ── 右摇杆状态 ──

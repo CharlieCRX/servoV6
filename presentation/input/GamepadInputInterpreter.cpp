@@ -147,15 +147,60 @@ void GamepadInputInterpreter::onGamepadChanged()
         }
     }
 
-    // ──── RX/RY ────
-    if (rx != 0.0f || ry != 0.0f) {
-        qDebug() << "[Interpreter] RX =" << rx << " RY =" << ry;
+    // ═══════════════════════════════════════════════════════
+    // RY 上下：上推 → RY 负值（Forward），下推 → RY 正值（Backward）
+    //   边缘触发：进入死区外 → emit Motion Pressed；回到死区内 → emit Motion Released
+    // ═══════════════════════════════════════════════════════
+    {
+        RYDirection newDir = RYDirection::Neutral;
+        if (ry < -kDeadzoneRY) {
+            newDir = RYDirection::Forward;
+        } else if (ry > +kDeadzoneRY) {
+            newDir = RYDirection::Backward;
+        }
+
+        if (newDir != m_lastRYDir) {
+            // ── 离开旧状态 → 先发 Released（如果有旧方向）──
+            if (m_lastRYDir == RYDirection::Forward) {
+                qDebug() << "[Interpreter] ✅ Motion ForwardReleased (RY=" << ry << ")";
+                InputEvent event;
+                event.type = InputEvent::Type::Motion;
+                event.motionDir = MotionDirection::Forward;
+                event.motionType = MotionEventType::Released;
+                emit inputEvent(event);
+            } else if (m_lastRYDir == RYDirection::Backward) {
+                qDebug() << "[Interpreter] ✅ Motion BackwardReleased (RY=" << ry << ")";
+                InputEvent event;
+                event.type = InputEvent::Type::Motion;
+                event.motionDir = MotionDirection::Backward;
+                event.motionType = MotionEventType::Released;
+                emit inputEvent(event);
+            }
+
+            // ── 进入新状态 → 发 Pressed（如果是方向）──
+            if (newDir == RYDirection::Forward) {
+                qDebug() << "[Interpreter] ✅ Motion ForwardPressed (RY=" << ry << ")";
+                InputEvent event;
+                event.type = InputEvent::Type::Motion;
+                event.motionDir = MotionDirection::Forward;
+                event.motionType = MotionEventType::Pressed;
+                emit inputEvent(event);
+            } else if (newDir == RYDirection::Backward) {
+                qDebug() << "[Interpreter] ✅ Motion BackwardPressed (RY=" << ry << ")";
+                InputEvent event;
+                event.type = InputEvent::Type::Motion;
+                event.motionDir = MotionDirection::Backward;
+                event.motionType = MotionEventType::Pressed;
+                emit inputEvent(event);
+            }
+
+            m_lastRYDir = newDir;
+        }
     }
 
     // ──── 未实现的事件 ────
     (void)m_lastLX;
     (void)m_lastLY;
-    (void)m_lastRYDir;
     (void)m_lastA;
     (void)m_lastB;
     (void)m_lastX;
