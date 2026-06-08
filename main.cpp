@@ -393,6 +393,9 @@ int main(int argc, char *argv[])
     // ★ 暴露 AxisSelectionModel 给 QML，让摇杆切换轴能更新 UI
     engine.rootContext()->setContextProperty("axisSelectionModel", &axisModel);
 
+    // ★ 暴露 MotionController 给 QML，让 QML 的模式切换器与 C++ 同步
+    engine.rootContext()->setContextProperty("motionController", &motionCtrl);
+
     engine.loadFromModule("servoV6", "Main");
 
     // ============================

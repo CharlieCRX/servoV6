@@ -10,10 +10,11 @@ Rectangle {
     property var gantryViewModel: null     // 龙门 ViewModel
     property string currentAxis: ""        // 当前选中的轴名（用于龙门逻辑判断）
 
+    // ★ 绑定到 C++ MotionController，摇杆操作根据此模式自动分发到 JOG 或 Position
     // 内部状态：0 = 点动模式 (Jog), 1 = 定位模式 (Position)
-    property int currentMode: 0 
+    property int currentMode: motionController ? motionController.controlMode : 0
     // 定位模式下的子状态：true = 绝对, false = 相对
-    property bool isAbsolute: true 
+    property bool isAbsolute: motionController ? motionController.isAbsolute : true
 
     // ── 系统锁定 = 安全锁定 + 轴本身不可用 ──
     property bool systemLocked: {
@@ -146,7 +147,9 @@ Rectangle {
                     MouseArea {
                         anchors.fill: parent
                         enabled: !systemLocked
-                        onClicked: root.currentMode = 0
+                        onClicked: {
+                            if (motionController) motionController.controlMode = 0
+                        }
                     }
                 }
 
@@ -165,7 +168,9 @@ Rectangle {
                     MouseArea {
                         anchors.fill: parent
                         enabled: !systemLocked
-                        onClicked: root.currentMode = 1
+                        onClicked: {
+                            if (motionController) motionController.controlMode = 1
+                        }
                     }
                 }
             }
@@ -420,7 +425,9 @@ Rectangle {
                             MouseArea {
                                 anchors.fill: parent
                                 enabled: root.isReadyForSetTarget
-                                onClicked: root.isAbsolute = true
+                                onClicked: {
+                                    if (motionController) motionController.isAbsolute = true
+                                }
                             }
                         }
 
@@ -455,7 +462,9 @@ Rectangle {
                             MouseArea {
                                 anchors.fill: parent
                                 enabled: root.isReadyForSetTarget
-                                onClicked: root.isAbsolute = false
+                                onClicked: {
+                                    if (motionController) motionController.isAbsolute = false
+                                }
                             }
                         }
                     }
