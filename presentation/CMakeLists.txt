@@ -7,6 +7,11 @@ add_library(presentation
     viewmodel/ErrorTranslator.cpp
     viewmodel/ViewModelError.h
     viewmodel/EmergencyStopViewModel.h
+
+    # ★ 游戏手柄输入事件系统
+    input/InputEvent.h
+    input/GamepadInputInterpreter.h
+    input/GamepadInputInterpreter.cpp
 )
 
 set_target_properties(presentation PROPERTIES AUTOMOC ON)
@@ -22,4 +27,5 @@ target_link_libraries(presentation
         Qt6::Core
         domain
         application
+        infrastructure
 )
