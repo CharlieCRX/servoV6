@@ -23,6 +23,12 @@
 #include "presentation/viewmodel/QtAxisViewModel.h"
 #include "presentation/viewmodel/EmergencyStopViewModel.h"
 #include "presentation/viewmodel/GantryViewModel.h"
+#include "presentation/viewmodel/JoystickViewModel.h"
+#include "presentation/viewmodel/QtJoystickViewModel.h"
+#ifndef Q_OS_ANDROID
+#include "infrastructure/joystick/ISDLJoystickWrapper.h"
+#include "infrastructure/joystick/SDL3JoystickDriver.h"
+#endif
 #include "infrastructure/logger/Logger.h"
 #include <sstream>
 #include <iomanip>
@@ -347,6 +353,21 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("gantryVM_A", &gantryVM_A);
     engine.rootContext()->setContextProperty("gantryVM_B", &gantryVM_B);
 
+    // ─────────────── 5a. SDL3 摇杆 ViewModel ───────────────
+    // Android 上 SDL3 需要特殊的 JNI/Activity 集成（SDL_main/SDLActivity），
+    // 与 Qt Android App 模型不兼容，跳过 SDL3 初始化以避免 Native Crash。
+    std::unique_ptr<JoystickViewModel> joystickCore;
+#ifdef Q_OS_ANDROID
+    LOG_INFO(LogLayer::APP, "Joystick", "SDL3 Joystick subsystem DISABLED on Android (requires SDLActivity)");
+#else
+    auto sdlWrapper  = CreateSDL3JoystickWrapper();
+    auto sdlDriver   = std::make_unique<SDL3JoystickDriver>(std::move(sdlWrapper));
+    joystickCore = std::make_unique<JoystickViewModel>(std::move(sdlDriver));
+    LOG_INFO(LogLayer::APP, "Joystick", "SDL3 Joystick subsystem initialized");
+#endif
+    QtJoystickViewModel qtJoystickVM(joystickCore.get());
+    engine.rootContext()->setContextProperty("joystickVM", &qtJoystickVM);
+
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
         &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
 
@@ -400,6 +421,9 @@ int main(int argc, char *argv[])
 
         // 6e. UDP 消息处理（收包 → 分发 → 回包）
         udpServer.tick();
+
+        // 6f. SDL3 摇杆轮询 + 策略分发
+        qtJoystickVM.tick();
     });
     systemClock.start(10);  // 10ms 物理心跳
 

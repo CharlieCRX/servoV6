@@ -11,19 +11,23 @@ find_package(Qt6 REQUIRED COMPONENTS Qml Quick QuickControls2 Network)
 # ==========================================
 # 1.2 SDL3 集成（摇杆控制）
 # ==========================================
-find_package(SDL3 QUIET)
+# Android 上 SDL3 需要 SDLActivity 接管整个 Activity 生命周期，
+# 与 Qt Android App 模型不兼容。非 Android 平台才集成 SDL3。
+if(NOT ANDROID)
+    find_package(SDL3 QUIET)
 
-if(NOT SDL3_FOUND)
-    # 通过 FetchContent 自动下载（fallback）
-    include(FetchContent)
-    FetchContent_Declare(
-        SDL3
-        GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-        GIT_TAG        release-3.2.0
-        GIT_SHALLOW    TRUE
-    )
-    FetchContent_MakeAvailable(SDL3)
-    set(SDL3_LIBRARIES SDL3::SDL3)
+    if(NOT SDL3_FOUND)
+        # 通过 FetchContent 自动下载（fallback）
+        include(FetchContent)
+        FetchContent_Declare(
+            SDL3
+            GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+            GIT_TAG        release-3.2.0
+            GIT_SHALLOW    TRUE
+        )
+        FetchContent_MakeAvailable(SDL3)
+        set(SDL3_LIBRARIES SDL3::SDL3)
+    endif()
 endif()
 
 # ==========================================

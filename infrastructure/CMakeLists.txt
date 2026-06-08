@@ -22,8 +22,8 @@ add_library(infrastructure STATIC
     udp/UdpServer.h
 
     # ★ SDL3 摇杆控制（infrastructure 侧）
-    joystick/SDL3JoystickDriver.cpp
-    joystick/SDL3JoystickWrapper.cpp
+    $<$<NOT:$<PLATFORM_ID:Android>>:joystick/SDL3JoystickDriver.cpp>
+    $<$<NOT:$<PLATFORM_ID:Android>>:joystick/SDL3JoystickWrapper.cpp>
 )
 
 target_include_directories(infrastructure
@@ -37,5 +37,5 @@ target_link_libraries(infrastructure
         asio
         Qt6::Core
         Qt6::Network
-        ${SDL3_LIBRARIES}
+        $<$<NOT:$<PLATFORM_ID:Android>>:${SDL3_LIBRARIES}>
 )

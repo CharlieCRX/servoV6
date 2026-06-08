@@ -5,6 +5,8 @@ add_library(presentation
     viewmodel/QtAxisViewModel.cpp
     viewmodel/GantryViewModel.cpp
     viewmodel/ErrorTranslator.cpp
+    viewmodel/JoystickViewModel.cpp
+    viewmodel/QtJoystickViewModel.cpp
     viewmodel/ViewModelError.h
     viewmodel/EmergencyStopViewModel.h
 )
