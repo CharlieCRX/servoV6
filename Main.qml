@@ -23,6 +23,18 @@ Window {
     property string currentGroup: "Machine_A"
     property string currentAxis: "Y"
 
+    // ★ 监听 C++ AxisSelectionModel，摇杆切换轴时同步更新 UI
+    Connections {
+        target: axisSelectionModel
+        function onCurrentAxisChanged(axisId) {
+            // AxisId enum: Y=0, Z=1, R=2, X=3
+            var map = { 0: "Y", 1: "Z", 2: "R", 3: "X" };
+            var newAxis = map[axisId] || "Y";
+            console.log("[QML] axisSelectionModel.currentAxisChanged  axisId=" + axisId + " → " + newAxis);
+            currentAxis = newAxis;
+        }
+    }
+
     // 根据当前选择动态绑定 ViewModel
     property var currentViewModel: {
         if (currentGroup === "Machine_A") {
@@ -73,6 +85,7 @@ Window {
             AxisSelectorBlock {
                 Layout.preferredWidth: isMobile ? 180 * Theme.scale : 260 * Theme.scale
                 Layout.fillHeight: true
+                currentAxisName: mainWindow.currentAxis   // ★ 反向同步：摇杆切换时高亮对应轴
                 emergencyViewModel: currentEmergencyViewModel
                 gantryViewModel: currentGantryViewModel
                 onAxisChanged: (axisName) => {

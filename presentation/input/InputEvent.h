@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QMetaType>
+
 /// @brief 左摇杆产生的轴选择事件
 enum class AxisSelectDirection
 {
@@ -54,3 +56,5 @@ struct InputEvent
     GamepadButton button = GamepadButton::A;
     bool buttonPressed = false;  // true=按下, false=释放
 };
+
+Q_DECLARE_METATYPE(InputEvent)

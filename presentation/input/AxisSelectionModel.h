@@ -34,6 +34,6 @@ signals:
     void currentAxisChanged(AxisId id);
 
 private:
-    std::vector<AxisId> m_axes = { AxisId::Y, AxisId::Z, AxisId::R };
+    std::vector<AxisId> m_axes = { AxisId::Y, AxisId::Z, AxisId::R, AxisId::X };
     int m_currentIndex = 0;
 };

@@ -1,7 +1,9 @@
 #include "GamepadInputInterpreter.h"
 #include "infrastructure/joystick/AndroidGamepadJoystick.h"
+#include <QCoreApplication>
 #include <QDebug>
-#include <QElapsedTimer>
+#include <QDateTime>
+#include <QThread>
 
 GamepadInputInterpreter::GamepadInputInterpreter(QObject* parent)
     : QObject(parent)
@@ -11,54 +13,149 @@ GamepadInputInterpreter::GamepadInputInterpreter(QObject* parent)
 void GamepadInputInterpreter::start()
 {
     auto& pad = AndroidGamepadJoystick::instance();
-    connect(&pad, &AndroidGamepadJoystick::changed,
-            this, &GamepadInputInterpreter::onGamepadChanged);
-    qDebug() << "GamepadInputInterpreter started, listening to AndroidGamepadJoystick::changed()";
+
+    qDebug() << "[Interpreter] start() — thread=" << QThread::currentThread()
+             << "isMain=" << (QThread::currentThread() == QCoreApplication::instance()->thread());
+    qDebug() << "[Interpreter] singleton thread=" << pad.thread()
+             << "interpreter thread=" << this->thread();
+
+    bool ok = connect(&pad, &AndroidGamepadJoystick::changed,
+                      this, &GamepadInputInterpreter::onGamepadChanged);
+    qDebug() << "[Interpreter] connect(AndroidGamepadJoystick::changed -> onGamepadChanged) returned" << ok;
+
+    if (!ok) {
+        qWarning() << "[Interpreter] ❌ Signal-slot connection FAILED! Axis selection will not work.";
+    } else {
+        qDebug() << "[Interpreter] ✅ Signal-slot connection SUCCESS. Listening...";
+    }
+
+    qDebug() << "[Interpreter] deadzone LX=" << kDeadzone << " LY=" << kDeadzoneLY
+             << " debounce=" << kAxisSelectDebounceMs << "ms (long-press auto-repeat)";
+}
+
+// ─── 辅助：死区边缘检测（单次触发，必须回中才能再次触发） ───
+// 返回值：true 表示已 emit AxisSelect 事件
+static bool processAxisSelect(
+    float value, float deadzone, bool& wasOutside,
+    qint64& lastTime, int debounceMs,
+    AxisSelectDirection dirWhenPositive,  // value > +deadzone 时发出此方向
+    AxisSelectDirection dirWhenNegative,  // value < -deadzone 时发出此方向
+    const char* tag, GamepadInputInterpreter* self)
+{
+    qint64 now = QDateTime::currentMSecsSinceEpoch();
+
+    if (value > +deadzone) {
+        // 在正死区外
+        qint64 elapsed = now - lastTime;
+        qDebug() << "[Interpreter]" << tag << "=" << value << " > +deadzone(" << deadzone
+                 << ") → dir=" << (dirWhenPositive == AxisSelectDirection::Right ? "Right" : "Left")
+                 << "  wasOutside=" << wasOutside << " elapsed=" << elapsed << "ms";
+
+        if (!wasOutside && elapsed > debounceMs) {
+            // 首次离开死区 → 立即触发（边缘检测，必须之前在中位）
+            lastTime = now;
+            wasOutside = true;
+            qDebug() << "[Interpreter] ✅ AxisSelect" << (dirWhenPositive == AxisSelectDirection::Right ? "Right" : "Left")
+                     << " (via" << tag << ")  value=" << value;
+            InputEvent event;
+            event.type = InputEvent::Type::AxisSelect;
+            event.axisDir = dirWhenPositive;
+            emit self->inputEvent(event);
+            return true;
+        } else {
+            qDebug() << "[Interpreter] ❌ blocked" << tag
+                     << " (wasOutside=" << wasOutside << " elapsed=" << elapsed << "ms)";
+            // 保持 wasOutside=true，不触发直到回中
+            wasOutside = true;
+            return false;
+        }
+    } else if (value < -deadzone) {
+        // 在负死区外
+        qint64 elapsed = now - lastTime;
+        qDebug() << "[Interpreter]" << tag << "=" << value << " < -deadzone(" << -deadzone
+                 << ") → dir=" << (dirWhenNegative == AxisSelectDirection::Right ? "Right" : "Left")
+                 << "  wasOutside=" << wasOutside << " elapsed=" << elapsed << "ms";
+
+        if (!wasOutside && elapsed > debounceMs) {
+            // 首次离开死区 → 立即触发
+            lastTime = now;
+            wasOutside = true;
+            qDebug() << "[Interpreter] ✅ AxisSelect" << (dirWhenNegative == AxisSelectDirection::Right ? "Right" : "Left")
+                     << " (via" << tag << ")  value=" << value;
+            InputEvent event;
+            event.type = InputEvent::Type::AxisSelect;
+            event.axisDir = dirWhenNegative;
+            emit self->inputEvent(event);
+            return true;
+        } else {
+            qDebug() << "[Interpreter] ❌ blocked" << tag
+                     << " (wasOutside=" << wasOutside << " elapsed=" << elapsed << "ms)";
+            wasOutside = true;
+            return false;
+        }
+    } else {
+        // 回到死区内 → 重置边缘检测
+        if (wasOutside) {
+            qDebug() << "[Interpreter]" << tag << "=" << value << " → returned inside deadzone (±" << deadzone
+                     << ") — ready for next trigger";
+        }
+        wasOutside = false;
+        return false;
+    }
 }
 
 void GamepadInputInterpreter::onGamepadChanged()
 {
     auto& pad = AndroidGamepadJoystick::instance();
     float lx = pad.lx();
-
-    // ──── 左摇杆：选轴事件（死区 + 去抖）────
-    // Step3 只做左摇杆验证，LX > 0.3 → AxisSelect Right，LX < -0.3 → AxisSelect Left
-    if (lx > kDeadzone) {
-        // LX > +0.3: 右拨
-        qint64 now = QElapsedTimer::clockMsecs();
-        if (now - m_lastAxisSelectTime > kAxisSelectDebounceMs) {
-            m_lastAxisSelectTime = now;
-            qDebug() << "AxisSelect Right  (LX =" << lx << ")";
-            InputEvent event;
-            event.type = InputEvent::Type::AxisSelect;
-            event.axisDir = AxisSelectDirection::Right;
-            emit inputEvent(event);
-        }
-    } else if (lx < -kDeadzone) {
-        // LX < -0.3: 左拨
-        qint64 now = QElapsedTimer::clockMsecs();
-        if (now - m_lastAxisSelectTime > kAxisSelectDebounceMs) {
-            m_lastAxisSelectTime = now;
-            qDebug() << "AxisSelect Left   (LX =" << lx << ")";
-            InputEvent event;
-            event.type = InputEvent::Type::AxisSelect;
-            event.axisDir = AxisSelectDirection::Left;
-            emit inputEvent(event);
-        }
-    }
-
-    // ──── 打印 RX/RY（保持 servoV6 启动后打印 RX/RY 的功能不变）────
+    float ly = pad.ly();
     float rx = pad.rx();
     float ry = pad.ry();
-    if (rx != 0.0f || ry != 0.0f) {
-        qDebug() << "RX =" << rx << " RY =" << ry;
+
+    qDebug() << "[Interpreter] 🔔 onGamepadChanged()  lx=" << lx << " ly=" << ly
+             << " rx=" << rx << " ry=" << ry;
+
+    // ═══════════════════════════════════════════════════════
+    // LY 上下：向下推 → LY 正值（切换下一个轴），向上推 → LY 负值（切换上一个轴）
+    //   实际数据：向下推 → LY 正值（+1.0），向上推 → LY 负值（-1.0）
+    //   ★ LY 优先：先处理 LY，仅当 LY 在中位时（±kDeadzoneLY 内）才允许 LX 选轴
+    // ═══════════════════════════════════════════════════════
+    bool lyTriggered = processAxisSelect(
+        ly, kDeadzoneLY, m_lyWasOutside, m_lastLYSelectTime, kAxisSelectDebounceMs,
+        AxisSelectDirection::Right,   // 正值 LY（向下推） → Right（下一个轴）
+        AxisSelectDirection::Left,    // 负值 LY（向上推） → Left（上一个轴）
+        "LY", this);
+
+    // ═══════════════════════════════════════════════════════
+    // LX 左右：LX > +0.15 → Right，LX < -0.15 → Left
+    //   仅当 LY 在中位时才处理（避免斜推时 LX/LY 互相干扰导致"切了又回来"）
+    // ═══════════════════════════════════════════════════════
+    bool lyInDeadzone = (ly >= -kDeadzoneLY && ly <= kDeadzoneLY);
+    if (lyInDeadzone) {
+        processAxisSelect(lx, kDeadzone, m_lxWasOutside, m_lastLXSelectTime, kAxisSelectDebounceMs,
+                          AxisSelectDirection::Right,   // 正值 LX → Right
+                          AxisSelectDirection::Left,    // 负值 LX → Left
+                          "LX", this);
+    } else {
+        // LY 在死区外，跳过 LX 处理。但需要更新 LX 的回中状态
+        if (lx >= -kDeadzone && lx <= kDeadzone) {
+            if (m_lxWasOutside) {
+                qDebug() << "[Interpreter] LX=" << lx << " → returned inside deadzone (±" << kDeadzone
+                         << ") — LY priority, LX reset";
+            }
+            m_lxWasOutside = false;
+        }
     }
 
-    // ──── 右摇杆：运动事件（Step3 暂不做 Motion 语义解释，仅框架准备）────
-    (void)ry;  // 后续 Step 再实现 Motion 解释
-    (void)m_lastRYDir;
+    // ──── RX/RY ────
+    if (rx != 0.0f || ry != 0.0f) {
+        qDebug() << "[Interpreter] RX =" << rx << " RY =" << ry;
+    }
 
-    // ──── 按钮事件（Step3 暂不做，仅边缘检测框架）────
+    // ──── 未实现的事件 ────
+    (void)m_lastLX;
+    (void)m_lastLY;
+    (void)m_lastRYDir;
     (void)m_lastA;
     (void)m_lastB;
     (void)m_lastX;

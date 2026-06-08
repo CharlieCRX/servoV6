@@ -17,19 +17,31 @@ void AxisSelectionModel::setAxes(const std::vector<AxisId>& axes)
 
 void AxisSelectionModel::selectLeft()
 {
-    // ← 切换到上一个轴（循环）
-    if (m_axes.empty()) return;
+    qDebug() << "[AxisModel] selectLeft() called  currentIndex=" << m_currentIndex
+             << " currentAxis=" << currentAxisName();
+    if (m_axes.empty()) {
+        qDebug() << "[AxisModel] ❌ axes list is empty!";
+        return;
+    }
+    int oldIndex = m_currentIndex;
     m_currentIndex = (m_currentIndex - 1 + static_cast<int>(m_axes.size())) % static_cast<int>(m_axes.size());
-    qDebug() << "CurrentAxis =" << currentAxisName();
+    qDebug() << "[AxisModel] ✅ Left: " << oldIndex << "→" << m_currentIndex
+             << "  axis: " << currentAxisName();
     emit currentAxisChanged(currentAxis());
 }
 
 void AxisSelectionModel::selectRight()
 {
-    // → 切换到下一个轴（循环）
-    if (m_axes.empty()) return;
+    qDebug() << "[AxisModel] selectRight() called  currentIndex=" << m_currentIndex
+             << " currentAxis=" << currentAxisName();
+    if (m_axes.empty()) {
+        qDebug() << "[AxisModel] ❌ axes list is empty!";
+        return;
+    }
+    int oldIndex = m_currentIndex;
     m_currentIndex = (m_currentIndex + 1) % static_cast<int>(m_axes.size());
-    qDebug() << "CurrentAxis =" << currentAxisName();
+    qDebug() << "[AxisModel] ✅ Right: " << oldIndex << "→" << m_currentIndex
+             << "  axis: " << currentAxisName();
     emit currentAxisChanged(currentAxis());
 }
 

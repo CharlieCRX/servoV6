@@ -32,16 +32,24 @@ void AndroidGamepadJoystick::updateButton(int keyCode, bool pressed)
 
 #ifdef Q_OS_ANDROID
 #include <jni.h>
+#include <QDebug>
+#include <QCoreApplication>
 
+/// JNI 线程安全投递到主线程 event loop：
+/// - 使用 QCoreApplication::instance() 作为投递目标（保证在主线程执行）
+/// - 避免在 JNI 线程直接操作 QObject（跨线程 Q_PROPERTY 写入不安全）
 extern "C" JNIEXPORT void JNICALL
 Java_org_qtproject_gamepad_GamepadBridge_nativeAxisChanged(
     JNIEnv *, jclass,
     jfloat lx, jfloat ly, jfloat rx, jfloat ry, jfloat lt, jfloat rt)
 {
-    auto &pad = AndroidGamepadJoystick::instance();
+    qDebug() << "[JNI] nativeAxisChanged  lx=" << lx << " ly=" << ly
+             << " rx=" << rx << " ry=" << ry << " lt=" << lt << " rt=" << rt;
     QMetaObject::invokeMethod(
-        &pad,
-        [&]() { pad.updateAxis(lx, ly, rx, ry, lt, rt); },
+        QCoreApplication::instance(),
+        [lx, ly, rx, ry, lt, rt]() {
+            AndroidGamepadJoystick::instance().updateAxis(lx, ly, rx, ry, lt, rt);
+        },
         Qt::QueuedConnection);
 }
 
@@ -49,10 +57,12 @@ extern "C" JNIEXPORT void JNICALL
 Java_org_qtproject_gamepad_GamepadBridge_nativeButtonChanged(
     JNIEnv *, jclass, jint keyCode, jboolean pressed)
 {
-    auto &pad = AndroidGamepadJoystick::instance();
+    qDebug() << "[JNI] nativeButtonChanged  keyCode=" << keyCode << " pressed=" << pressed;
     QMetaObject::invokeMethod(
-        &pad,
-        [&]() { pad.updateButton(keyCode, pressed); },
+        QCoreApplication::instance(),
+        [keyCode, pressed]() {
+            AndroidGamepadJoystick::instance().updateButton(keyCode, pressed);
+        },
         Qt::QueuedConnection);
 }
 #endif // Q_OS_ANDROID

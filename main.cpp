@@ -23,6 +23,10 @@
 #include "presentation/viewmodel/QtAxisViewModel.h"
 #include "presentation/viewmodel/EmergencyStopViewModel.h"
 #include "presentation/viewmodel/GantryViewModel.h"
+#include "presentation/input/GamepadInputInterpreter.h"
+#include "presentation/input/AxisSelectionModel.h"
+#include "presentation/input/AxisSelectionController.h"
+#include "infrastructure/joystick/AndroidGamepadJoystick.h"
 #include "infrastructure/logger/Logger.h"
 #include <sstream>
 #include <iomanip>
@@ -349,6 +353,31 @@ int main(int argc, char *argv[])
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
         &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
+
+    // ============================
+    // 5b. ★ 游戏手柄输入管线初始化 ★
+    // 信号链: AndroidGamepadJoystick::changed()
+    //       → GamepadInputInterpreter::onGamepadChanged()
+    //       → emit inputEvent(InputEvent)
+    //       → AxisSelectionController::onInputEvent()
+    //       → AxisSelectionModel::selectLeft()/selectRight()
+    //       → qDebug "CurrentAxis = Y/Z/R"
+    // ============================
+    // ★ 关键：在 Qt 主线程首次触摸单例，确保 thread affinity 正确
+    // 否则 JNI 首次调用时单例在 Android Input 线程构造，该线程无 event loop，QueuedConnection 永不执行
+    (void)AndroidGamepadJoystick::instance();
+
+    // ★ 注册 InputEvent 为 Qt 元类型，确保跨线程 QueuedConnection 正常工作
+    qRegisterMetaType<InputEvent>();
+    LOG_INFO(LogLayer::APP, "System", "InputEvent metatype registered");
+
+    AxisSelectionModel axisModel;
+    GamepadInputInterpreter interpreter;
+    AxisSelectionController axisCtrl(&interpreter, &axisModel);
+    interpreter.start();
+
+    // ★ 暴露 AxisSelectionModel 给 QML，让摇杆切换轴能更新 UI
+    engine.rootContext()->setContextProperty("axisSelectionModel", &axisModel);
 
     engine.loadFromModule("servoV6", "Main");
 

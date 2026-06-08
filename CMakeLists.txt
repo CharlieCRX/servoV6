@@ -80,6 +80,13 @@ qt_add_executable(appservoV6
 
 set_target_properties(appservoV6 PROPERTIES AUTOMOC ON)
 
+# ★ 指定 Android 项目模板目录（包含自定义 MainActivity、GamepadBridge）★
+if(ANDROID)
+    set_target_properties(appservoV6 PROPERTIES
+        QT_ANDROID_PACKAGE_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/android
+    )
+endif()
+
 set_source_files_properties(presentation/qml/core/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 qt_add_qml_module(appservoV6
