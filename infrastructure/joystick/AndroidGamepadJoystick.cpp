@@ -1,4 +1,5 @@
 #include "AndroidGamepadJoystick.h"
+#include <QMetaObject>
 
 AndroidGamepadJoystick &AndroidGamepadJoystick::instance()
 {
@@ -28,3 +29,30 @@ void AndroidGamepadJoystick::updateButton(int keyCode, bool pressed)
     }
     emit changed();
 }
+
+#ifdef Q_OS_ANDROID
+#include <jni.h>
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_qtproject_gamepad_GamepadBridge_nativeAxisChanged(
+    JNIEnv *, jclass,
+    jfloat lx, jfloat ly, jfloat rx, jfloat ry, jfloat lt, jfloat rt)
+{
+    auto &pad = AndroidGamepadJoystick::instance();
+    QMetaObject::invokeMethod(
+        &pad,
+        [&]() { pad.updateAxis(lx, ly, rx, ry, lt, rt); },
+        Qt::QueuedConnection);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_qtproject_gamepad_GamepadBridge_nativeButtonChanged(
+    JNIEnv *, jclass, jint keyCode, jboolean pressed)
+{
+    auto &pad = AndroidGamepadJoystick::instance();
+    QMetaObject::invokeMethod(
+        &pad,
+        [&]() { pad.updateButton(keyCode, pressed); },
+        Qt::QueuedConnection);
+}
+#endif // Q_OS_ANDROID
