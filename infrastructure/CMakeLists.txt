@@ -20,6 +20,10 @@ add_library(infrastructure STATIC
 
     # ★ 阶段 1：UDP 通讯层（infrastructure 侧）
     udp/UdpServer.h
+
+    # ★ SDL3 摇杆控制（infrastructure 侧）
+    joystick/SDL3JoystickDriver.cpp
+    joystick/SDL3JoystickWrapper.cpp
 )
 
 target_include_directories(infrastructure
@@ -33,4 +37,5 @@ target_link_libraries(infrastructure
         asio
         Qt6::Core
         Qt6::Network
+        ${SDL3_LIBRARIES}
 )

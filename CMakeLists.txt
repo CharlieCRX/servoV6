@@ -9,6 +9,24 @@ set(CMAKE_CXX_STANDARD 20)
 find_package(Qt6 REQUIRED COMPONENTS Qml Quick QuickControls2 Network)
 
 # ==========================================
+# 1.2 SDL3 集成（摇杆控制）
+# ==========================================
+find_package(SDL3 QUIET)
+
+if(NOT SDL3_FOUND)
+    # 通过 FetchContent 自动下载（fallback）
+    include(FetchContent)
+    FetchContent_Declare(
+        SDL3
+        GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+        GIT_TAG        release-3.2.0
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(SDL3)
+    set(SDL3_LIBRARIES SDL3::SDL3)
+endif()
+
+# ==========================================
 # 1.5 自动获取 asio (header-only 网络库)
 # ==========================================
 #

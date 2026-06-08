@@ -2,6 +2,9 @@ include(GoogleTest)
 
 add_executable(unit_tests
 
+    # ================ SDL3 摇杆控制测试 ================
+    infrastructure/test_joystick_compute_direction.cpp
+
     # ================ First-party tests ================
     # presentation/viewmodel/test_axis_viewmodel_core.cpp
     # presentation/viewmodel/test_error_translator.cpp
