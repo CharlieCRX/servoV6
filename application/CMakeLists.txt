@@ -11,6 +11,7 @@ add_library(application
     policy/GantryOrchestrator.h
     policy/AbsMovePolicy.h
     policy/RelMovePolicy.h
+    policy/JoystickControlPolicy.h
 
     safety/EmergencyStopUseCase.h
     safety/ReleaseEmergencyStopUseCase.h

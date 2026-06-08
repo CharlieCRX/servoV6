@@ -5,6 +5,9 @@ add_executable(unit_tests
     # ================ SDL3 摇杆控制测试 ================
     infrastructure/test_joystick_compute_direction.cpp
 
+    # ★ Phase 2: JoystickControlPolicy 单元测试
+    application/policy/test_joystick_control_policy.cpp
+
     # ================ First-party tests ================
     # presentation/viewmodel/test_axis_viewmodel_core.cpp
     # presentation/viewmodel/test_error_translator.cpp
