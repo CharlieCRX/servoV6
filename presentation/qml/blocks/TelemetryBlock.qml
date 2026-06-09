@@ -10,6 +10,7 @@ Rectangle {
     property var viewModel: null
     property var emergencyViewModel: null
     property var gantryViewModel: null
+    property var connectionViewModel: null
     property string selectedAxis: ""
     property string groupName: ""
 
@@ -140,6 +141,61 @@ Rectangle {
             }
 
             Item { Layout.fillWidth: true }
+        }
+
+        // ===== 1.4 连接状态指示行（★ P1/P2 新增）=====
+        // 显示 TCP 连接状态：指示灯（绿/红）+ 状态文本 + 重连按钮
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: 8 * Theme.scale
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: 4 * Theme.scale
+            Layout.bottomMargin: 2 * Theme.scale
+
+            // 连接指示灯
+            Rectangle {
+                width: 12 * Theme.scale
+                height: 12 * Theme.scale
+                radius: width / 2
+                color: connectionViewModel && connectionViewModel.connected
+                       ? Theme.colorIdle : Theme.colorError
+                border.color: Qt.lighter(color, 1.5)
+                border.width: 1
+
+                // 断连时闪烁动画
+                SequentialAnimation on opacity {
+                    running: connectionViewModel && !connectionViewModel.connected
+                    loops: Animation.Infinite
+                    NumberAnimation { from: 1.0; to: 0.2; duration: 500 }
+                    NumberAnimation { from: 0.2; to: 1.0; duration: 500 }
+                }
+            }
+
+            Text {
+                text: connectionViewModel ? connectionViewModel.statusText : "未知"
+                color: connectionViewModel && connectionViewModel.connected
+                       ? Theme.colorIdle : Theme.colorError
+                font.pixelSize: Theme.fontSmall
+                font.bold: true
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                maximumLineCount: 2
+            }
+
+            // 重连按钮（仅在断连时可见）
+            IndustrialButton {
+                text: "\u27F3 重连"
+                visible: connectionViewModel && !connectionViewModel.connected
+                buttonSize: 60 * Theme.scale
+                baseColor: root.locked ? Theme.colorDisabled : "#D84315"
+                enabled: !root.locked
+                opacity: enabled ? 1.0 : 0.4
+                border.color: "#BF360C"
+                border.width: 1
+                onClicked: {
+                    if (connectionViewModel) connectionViewModel.reconnect()
+                }
+            }
         }
 
         // ===== 1.5 龙门耦合控制区（仅在选中 X 轴时显示） =====

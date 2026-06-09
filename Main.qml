@@ -72,6 +72,13 @@ Window {
         return gantryVM_A; // fallback
     }
 
+    // ★ P1/P2 新增：根据当前分组动态绑定连接状态 ViewModel
+    property var currentConnectionViewModel: {
+        if (currentGroup === "Machine_A") return connectionVM_A;
+        if (currentGroup === "Machine_B") return connectionVM_B;
+        return connectionVM_A; // fallback
+    }
+
     // ===== 垂直布局：分组选择栏 + 三栏 + 底部错误栏 =====
     ColumnLayout {
         anchors.fill: parent
@@ -109,6 +116,7 @@ Window {
                 viewModel: currentViewModel
                 emergencyViewModel: currentEmergencyViewModel
                 gantryViewModel: currentGantryViewModel
+                connectionViewModel: currentConnectionViewModel
                 selectedAxis: currentAxis
                 groupName: currentGroup
                 onGroupChanged: (newGroup) => {

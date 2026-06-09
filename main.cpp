@@ -24,6 +24,7 @@
 #include "presentation/viewmodel/QtAxisViewModel.h"
 #include "presentation/viewmodel/EmergencyStopViewModel.h"
 #include "presentation/viewmodel/GantryViewModel.h"
+#include "presentation/viewmodel/ConnectionViewModel.h"
 #include "presentation/input/GamepadInputInterpreter.h"
 #include "presentation/input/AxisSelectionModel.h"
 #include "presentation/input/AxisSelectionController.h"
@@ -325,6 +326,12 @@ int main(int argc, char *argv[])
     GantryViewModel gantryVM_A(manager, "Machine_A");
     GantryViewModel gantryVM_B(manager, "Machine_B");
 
+    // ─────────────── 4d. 连接状态 ViewModel（★ P1/P2 新增）───────────────
+    // 每个分组一个 ConnectionViewModel，桥接基础设施层 TCP 连接状态到 QML
+    // 提供：连接状态指示灯（绿/红）+ 状态文本 + 手动重连按钮
+    ConnectionViewModel connectionVM_A(manager, "Machine_A");
+    ConnectionViewModel connectionVM_B(manager, "Machine_B");
+
     // ============================
     // 5. QML 引擎初始化与依赖注入
     // ============================
@@ -351,6 +358,10 @@ int main(int argc, char *argv[])
     // 龙门 ViewModel
     engine.rootContext()->setContextProperty("gantryVM_A", &gantryVM_A);
     engine.rootContext()->setContextProperty("gantryVM_B", &gantryVM_B);
+
+    // 连接状态 ViewModel（★ P1/P2 新增）
+    engine.rootContext()->setContextProperty("connectionVM_A", &connectionVM_A);
+    engine.rootContext()->setContextProperty("connectionVM_B", &connectionVM_B);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
         &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
@@ -446,7 +457,11 @@ int main(int argc, char *argv[])
         gantryVM_A.tick();
         gantryVM_B.tick();
 
-        // 6e. UDP 消息处理（收包 → 分发 → 回包）
+        // 6e. 连接状态 ViewModel 推进（★ P1/P2 新增 — 每帧刷新 TCP 连接状态投影）
+        connectionVM_A.tick();
+        connectionVM_B.tick();
+
+        // 6f. UDP 消息处理（收包 → 分发 → 回包）
         udpServer.tick();
     });
     systemClock.start(10);  // 10ms 物理心跳

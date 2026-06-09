@@ -4,6 +4,8 @@ add_library(presentation
     viewmodel/AxisViewModelCore.cpp
     viewmodel/QtAxisViewModel.cpp
     viewmodel/GantryViewModel.cpp
+    viewmodel/ConnectionViewModel.h
+    viewmodel/ConnectionViewModel.cpp
     viewmodel/ErrorTranslator.cpp
     viewmodel/ViewModelError.h
     viewmodel/EmergencyStopViewModel.h
