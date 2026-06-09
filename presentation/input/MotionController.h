@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QElapsedTimer>
 #include <unordered_map>
 #include "InputEvent.h"
 #include "domain/entity/AxisId.h"
@@ -102,4 +103,9 @@ private:
 
     // ── JOG 活跃方向（QML 按钮视觉反馈）──
     int m_jogActiveDirection = 0;  // 0=无点动, 1=前进活跃, -1=后退活跃
+
+    // ── 快速摆动检测（防误触） ──
+    // 当方向 Released 后极短时间内又收到反向 Pressed → 视为取消操作，拒绝启动新方向
+    QElapsedTimer m_jogReleaseTimer;
+    static constexpr qint64 kRapidWiggleThresholdMs = 150;  // 150ms 内反向摆动 = 取消
 };

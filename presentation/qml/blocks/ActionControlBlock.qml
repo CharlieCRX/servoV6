@@ -237,15 +237,14 @@ Rectangle {
                     isCircle: false
                     buttonSize: 170 * Theme.scale
                     Layout.alignment: Qt.AlignHCenter
-                    enabled: root.jogEnabled
+                    // ★ 按钮互斥：前进活跃时不允许后退操作，反之亦然
+                    enabled: root.jogEnabled && (motionController ? motionController.jogActiveDirection !== -1 : true)
                     isActive: motionController ? motionController.jogActiveDirection === 1 : false
                     onPressed: {
-                        if(viewModel && root.jogEnabled) viewModel.jogPositivePressed()
-                        if(motionController) motionController.jogActiveDirection = 1
+                        if(motionController && root.jogEnabled) motionController.jogActiveDirection = 1
                     }
                     onReleased: {
-                        if(viewModel && root.jogEnabled) viewModel.jogPositiveReleased()
-                        if(motionController) motionController.jogActiveDirection = 0
+                        if(motionController && root.jogEnabled) motionController.jogActiveDirection = 0
                     }
                 }
 
@@ -257,15 +256,13 @@ Rectangle {
                     isCircle: false
                     buttonSize: 170 * Theme.scale
                     Layout.alignment: Qt.AlignHCenter
-                    enabled: root.jogEnabled
+                    enabled: root.jogEnabled && (motionController ? motionController.jogActiveDirection !== 1 : true)
                     isActive: motionController ? motionController.jogActiveDirection === -1 : false
                     onPressed: {
-                        if(viewModel && root.jogEnabled) viewModel.jogNegativePressed()
-                        if(motionController) motionController.jogActiveDirection = -1
+                        if(motionController && root.jogEnabled) motionController.jogActiveDirection = -1
                     }
                     onReleased: {
-                        if(viewModel && root.jogEnabled) viewModel.jogNegativeReleased()
-                        if(motionController) motionController.jogActiveDirection = 0
+                        if(motionController && root.jogEnabled) motionController.jogActiveDirection = 0
                     }
                 }
 

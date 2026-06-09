@@ -65,7 +65,45 @@ void MotionController::setJogActiveDirection(int dir)
     // 仅在 0/1/-1 范围内接受
     if (dir < -1 || dir > 1) return;
     if (m_jogActiveDirection == dir) return;
+
+    // ★ 顺序约束：不允许直接在 ±1 之间跳转，必须经过 0
+    //   前进 → 后退：必须先松开前进 (0) 才能按后退 (-1)
+    //   这确保一个方向的点动完全停止后，才能启动另一个方向
+    if (m_jogActiveDirection != 0 && dir != 0) {
+        qDebug() << "[MotionCtrl] 🚫 jogActiveDirection blocked: cannot jump from "
+                 << m_jogActiveDirection << " to " << dir << " (must go through 0)";
+        return;
+    }
+
+    // ★ 查找当前轴的 ViewModel
+    auto it = m_vmMap.find(m_currentAxis);
+    QtAxisViewModel* vm = (it != m_vmMap.end()) ? it->second : nullptr;
+
+    // ★ 先停止旧方向的 JOG（如果从 ±1 → 0）
+    if (vm) {
+        if (m_jogActiveDirection == 1) {
+            qDebug() << "[MotionCtrl] 🛑 setJogActiveDirection: releasing Forward JOG";
+            vm->jogPositiveReleased();
+        } else if (m_jogActiveDirection == -1) {
+            qDebug() << "[MotionCtrl] 🛑 setJogActiveDirection: releasing Backward JOG";
+            vm->jogNegativeReleased();
+        }
+    }
+
     m_jogActiveDirection = dir;
+
+    // ★ 再启动新方向的 JOG（如果需要）
+    if (vm) {
+        if (dir == 1) {
+            qDebug() << "[MotionCtrl] 🎮 setJogActiveDirection: starting Forward JOG";
+            vm->jogPositivePressed();
+        } else if (dir == -1) {
+            qDebug() << "[MotionCtrl] 🎮 setJogActiveDirection: starting Backward JOG";
+            vm->jogNegativePressed();
+        }
+        // dir == 0: 仅停止，不启动
+    }
+
     qDebug() << "[MotionCtrl] jogActiveDirection changed to" << dir;
     emit jogActiveDirectionChanged();
 }
@@ -103,37 +141,31 @@ void MotionController::onInputEvent(const InputEvent& event)
 // ═══════════════════════════════════════════════════════
 void MotionController::handleJogMotion(const InputEvent& event)
 {
-    auto it = m_vmMap.find(m_currentAxis);
-    if (it == m_vmMap.end()) {
-        qDebug() << "[MotionCtrl] ❌ No ViewModel registered for axis:" << static_cast<int>(m_currentAxis);
-        return;
-    }
-    QtAxisViewModel* vm = it->second;
-
     if (event.motionType == MotionEventType::Pressed) {
         m_motionActive = true;
         m_activeMotionDir = event.motionDir;
 
-        if (event.motionDir == MotionDirection::Forward) {
-            qDebug() << "[MotionCtrl] 🎮 StartJog(" << m_axisModel->currentAxisName() << ") Forward";
-            vm->jogPositivePressed();
-            setJogActiveDirection(1);       // ★ QML "前进 +" 按钮高亮
-        } else {
-            qDebug() << "[MotionCtrl] 🎮 StartJog(" << m_axisModel->currentAxisName() << ") Backward";
-            vm->jogNegativePressed();
-            setJogActiveDirection(-1);      // ★ QML "后退 -" 按钮高亮
+        int targetDir = (event.motionDir == MotionDirection::Forward) ? 1 : -1;
+
+        // ★ 快速摆动检测：上一次 Released 在阈值时间内，且当前方向已归零
+        //   摇杆从 Forward 甩到 Backward 时，解释器在同一帧 emit ForwardReleased + BackwardPressed
+        //   第二次进入时 m_jogActiveDirection==0（刚被 Released 清零），且计时器刚启动
+        if (m_jogReleaseTimer.isValid()) {
+            qint64 elapsed = m_jogReleaseTimer.elapsed();
+            if (elapsed < kRapidWiggleThresholdMs && m_jogActiveDirection == 0) {
+                qDebug() << "[MotionCtrl] 🚫 rapid wiggle detected (elapsed=" << elapsed
+                         << "ms) — cancelling JOG, not starting direction " << targetDir;
+                m_jogReleaseTimer.invalidate();
+                return;  // 拒绝启动新方向，轴停在当前位置
+            }
         }
+        m_jogReleaseTimer.invalidate();  // 正常操作，清除计时器
+
+        setJogActiveDirection(targetDir);
     } else {
         m_motionActive = false;
-
-        if (event.motionDir == MotionDirection::Forward) {
-            qDebug() << "[MotionCtrl] 🛑 StopJog(" << m_axisModel->currentAxisName() << ") Forward";
-            vm->jogPositiveReleased();
-        } else {
-            qDebug() << "[MotionCtrl] 🛑 StopJog(" << m_axisModel->currentAxisName() << ") Backward";
-            vm->jogNegativeReleased();
-        }
-        setJogActiveDirection(0);           // ★ 取消按钮高亮
+        setJogActiveDirection(0);
+        m_jogReleaseTimer.start();  // ★ 记录释放时刻，用于快速摆动检测
     }
 }
 
@@ -195,37 +227,21 @@ void MotionController::onCurrentAxisChanged(AxisId newAxis)
 
 void MotionController::releaseCurrentMotion()
 {
-    auto it = m_vmMap.find(m_currentAxis);
-    if (it == m_vmMap.end()) return;
-    QtAxisViewModel* vm = it->second;
-
-    if (m_activeMotionDir == MotionDirection::Forward) {
-        qDebug() << "[MotionCtrl] 🔀 cross-axis release: StopJog("
-                 << QString::fromLatin1(axisIdToString(m_currentAxis)) << ") Forward";
-        vm->jogPositiveReleased();
-    } else {
-        qDebug() << "[MotionCtrl] 🔀 cross-axis release: StopJog("
-                 << QString::fromLatin1(axisIdToString(m_currentAxis)) << ") Backward";
-        vm->jogNegativeReleased();
-    }
-    setJogActiveDirection(0);  // ★ 跨轴切换时先清除视觉
+    qDebug() << "[MotionCtrl] 🔀 cross-axis release: axis="
+             << QString::fromLatin1(axisIdToString(m_currentAxis));
+    // ★ 由 setJogActiveDirection 统一处理：停止当前方向的 JOG
+    setJogActiveDirection(0);
 }
 
 void MotionController::pressMotion(MotionDirection dir)
 {
-    auto it = m_vmMap.find(m_currentAxis);
-    if (it == m_vmMap.end()) return;
-    QtAxisViewModel* vm = it->second;
-
+    qDebug() << "[MotionCtrl] 🔀 cross-axis press: axis="
+             << QString::fromLatin1(axisIdToString(m_currentAxis))
+             << " dir=" << (dir == MotionDirection::Forward ? "Forward" : "Backward");
+    // ★ 由 setJogActiveDirection 统一处理：停止旧方向 → 启动新方向
     if (dir == MotionDirection::Forward) {
-        qDebug() << "[MotionCtrl] 🔀 cross-axis press: StartJog("
-                 << QString::fromLatin1(axisIdToString(m_currentAxis)) << ") Forward";
-        vm->jogPositivePressed();
-        setJogActiveDirection(1);       // ★ 新轴：高亮前进按钮
+        setJogActiveDirection(1);
     } else {
-        qDebug() << "[MotionCtrl] 🔀 cross-axis press: StartJog("
-                 << QString::fromLatin1(axisIdToString(m_currentAxis)) << ") Backward";
-        vm->jogNegativePressed();
-        setJogActiveDirection(-1);      // ★ 新轴：高亮后退按钮
+        setJogActiveDirection(-1);
     }
 }
