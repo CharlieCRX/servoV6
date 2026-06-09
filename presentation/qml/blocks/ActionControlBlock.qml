@@ -130,17 +130,20 @@ Rectangle {
 
             RowLayout {
                 anchors.fill: parent
+                anchors.margins: 2 * Theme.scale
                 spacing: 0
 
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    color: root.currentMode === 0 ? Theme.panelBg : "transparent"
-                    radius: 8 * Theme.scale
+                    color: root.currentMode === 0 ? "#1A3A2A" : "transparent"
+                    radius: 6 * Theme.scale
+                    border.color: root.currentMode === 0 ? Theme.colorIdle : "transparent"
+                    border.width: root.currentMode === 0 ? 1.5 * Theme.scale : 0
                     Text {
                         anchors.centerIn: parent
                         text: "点动"
-                        color: root.currentMode === 0 ? Theme.textMain : Theme.textDim
+                        color: root.currentMode === 0 ? Theme.colorIdle : Theme.textDim
                         font.bold: root.currentMode === 0
                         font.pixelSize: Theme.fontSmall
                     }
@@ -156,12 +159,14 @@ Rectangle {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    color: root.currentMode === 1 ? Theme.panelBg : "transparent"
-                    radius: 8 * Theme.scale
+                    color: root.currentMode === 1 ? "#1A2A3A" : "transparent"
+                    radius: 6 * Theme.scale
+                    border.color: root.currentMode === 1 ? Theme.colorMoving : "transparent"
+                    border.width: root.currentMode === 1 ? 1.5 * Theme.scale : 0
                     Text {
                         anchors.centerIn: parent
                         text: "定位"
-                        color: root.currentMode === 1 ? Theme.textMain : Theme.textDim
+                        color: root.currentMode === 1 ? Theme.colorMoving : Theme.textDim
                         font.bold: root.currentMode === 1
                         font.pixelSize: Theme.fontSmall
                     }
@@ -405,14 +410,17 @@ Rectangle {
 
                     RowLayout {
                         anchors.fill: parent
+                        anchors.margins: 2 * Theme.scale
                         spacing: 0
 
                         // 绝对选项
                         Rectangle {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            color: root.isAbsolute ? Theme.panelBg : "transparent"
-                            radius: 8 * Theme.scale
+                            color: root.isAbsolute ? "#1A3A2A" : "transparent"
+                            radius: 6 * Theme.scale
+                            border.color: root.isAbsolute ? Theme.colorIdle : "transparent"
+                            border.width: root.isAbsolute ? 1.5 * Theme.scale : 0
                             clip: true
 
                             RowLayout {
@@ -448,8 +456,10 @@ Rectangle {
                         Rectangle {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            color: !root.isAbsolute ? Theme.panelBg : "transparent"
-                            radius: 8 * Theme.scale
+                            color: !root.isAbsolute ? "#1A2A3A" : "transparent"
+                            radius: 6 * Theme.scale
+                            border.color: !root.isAbsolute ? Theme.colorMoving : "transparent"
+                            border.width: !root.isAbsolute ? 1.5 * Theme.scale : 0
                             clip: true
 
                             RowLayout {
