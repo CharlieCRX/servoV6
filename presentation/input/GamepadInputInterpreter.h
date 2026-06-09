@@ -37,6 +37,10 @@ private:
     qint64 m_lastLYSelectTime = 0;
     bool m_lyWasOutside = false;
 
+    // ★ 全局轴选择防抖：任意轴触发后，所有轴在去抖时间内都被锁定
+    //   解决斜推（LY+LX 同时出死区）时两个轴分别触发导致跳两步的问题
+    qint64 m_lastAxisSelectTime = 0;
+
     static constexpr float kDeadzone = 0.15f;           // LX 左右死区
     static constexpr float kDeadzoneLY = 0.5f;           // LY 上下死区
     static constexpr float kDeadzoneRY = 0.3f;           // RY 上下死区

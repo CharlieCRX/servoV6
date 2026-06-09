@@ -37,7 +37,7 @@ void GamepadInputInterpreter::start()
 // 返回值：true 表示已 emit AxisSelect 事件
 static bool processAxisSelect(
     float value, float deadzone, bool& wasOutside,
-    qint64& lastTime, int debounceMs,
+    qint64& lastTime, qint64& sharedLastTime, int debounceMs,
     AxisSelectDirection dirWhenPositive,  // value > +deadzone 时发出此方向
     AxisSelectDirection dirWhenNegative,  // value < -deadzone 时发出此方向
     const char* tag, GamepadInputInterpreter* self)
@@ -47,13 +47,16 @@ static bool processAxisSelect(
     if (value > +deadzone) {
         // 在正死区外
         qint64 elapsed = now - lastTime;
+        qint64 sharedElapsed = now - sharedLastTime;
         qDebug() << "[Interpreter]" << tag << "=" << value << " > +deadzone(" << deadzone
                  << ") → dir=" << (dirWhenPositive == AxisSelectDirection::Right ? "Right" : "Left")
-                 << "  wasOutside=" << wasOutside << " elapsed=" << elapsed << "ms";
+                 << "  wasOutside=" << wasOutside << " elapsed=" << elapsed << "ms"
+                 << " sharedElapsed=" << sharedElapsed << "ms";
 
-        if (!wasOutside && elapsed > debounceMs) {
+        if (!wasOutside && elapsed > debounceMs && sharedElapsed > debounceMs) {
             // 首次离开死区 → 立即触发（边缘检测，必须之前在中位）
-            lastTime = now;
+            // ★ 同时刷新本轴时间和全局共享时间，防止斜推时另一个轴紧随触发
+            lastTime = sharedLastTime = now;
             wasOutside = true;
             qDebug() << "[Interpreter] ✅ AxisSelect" << (dirWhenPositive == AxisSelectDirection::Right ? "Right" : "Left")
                      << " (via" << tag << ")  value=" << value;
@@ -64,7 +67,8 @@ static bool processAxisSelect(
             return true;
         } else {
             qDebug() << "[Interpreter] ❌ blocked" << tag
-                     << " (wasOutside=" << wasOutside << " elapsed=" << elapsed << "ms)";
+                     << " (wasOutside=" << wasOutside << " elapsed=" << elapsed << "ms"
+                     << " sharedElapsed=" << sharedElapsed << "ms)";
             // 保持 wasOutside=true，不触发直到回中
             wasOutside = true;
             return false;
@@ -72,13 +76,15 @@ static bool processAxisSelect(
     } else if (value < -deadzone) {
         // 在负死区外
         qint64 elapsed = now - lastTime;
+        qint64 sharedElapsed = now - sharedLastTime;
         qDebug() << "[Interpreter]" << tag << "=" << value << " < -deadzone(" << -deadzone
                  << ") → dir=" << (dirWhenNegative == AxisSelectDirection::Right ? "Right" : "Left")
-                 << "  wasOutside=" << wasOutside << " elapsed=" << elapsed << "ms";
+                 << "  wasOutside=" << wasOutside << " elapsed=" << elapsed << "ms"
+                 << " sharedElapsed=" << sharedElapsed << "ms";
 
-        if (!wasOutside && elapsed > debounceMs) {
+        if (!wasOutside && elapsed > debounceMs && sharedElapsed > debounceMs) {
             // 首次离开死区 → 立即触发
-            lastTime = now;
+            lastTime = sharedLastTime = now;
             wasOutside = true;
             qDebug() << "[Interpreter] ✅ AxisSelect" << (dirWhenNegative == AxisSelectDirection::Right ? "Right" : "Left")
                      << " (via" << tag << ")  value=" << value;
@@ -89,15 +95,19 @@ static bool processAxisSelect(
             return true;
         } else {
             qDebug() << "[Interpreter] ❌ blocked" << tag
-                     << " (wasOutside=" << wasOutside << " elapsed=" << elapsed << "ms)";
+                     << " (wasOutside=" << wasOutside << " elapsed=" << elapsed << "ms"
+                     << " sharedElapsed=" << sharedElapsed << "ms)";
             wasOutside = true;
             return false;
         }
     } else {
         // 回到死区内 → 重置边缘检测
+        // ★ 刷新 lastTime，防止摇杆弹簧回弹越过中位进入反向死区导致误触发
+        //   回弹时 elapsed = now - lastTime 接近 0，必定 < debounceMs，被拒绝
         if (wasOutside) {
             qDebug() << "[Interpreter]" << tag << "=" << value << " → returned inside deadzone (±" << deadzone
                      << ") — ready for next trigger";
+            lastTime = now;
         }
         wasOutside = false;
         return false;
@@ -121,7 +131,7 @@ void GamepadInputInterpreter::onGamepadChanged()
     //   ★ LY 优先：先处理 LY，仅当 LY 在中位时（±kDeadzoneLY 内）才允许 LX 选轴
     // ═══════════════════════════════════════════════════════
     bool lyTriggered = processAxisSelect(
-        ly, kDeadzoneLY, m_lyWasOutside, m_lastLYSelectTime, kAxisSelectDebounceMs,
+        ly, kDeadzoneLY, m_lyWasOutside, m_lastLYSelectTime, m_lastAxisSelectTime, kAxisSelectDebounceMs,
         AxisSelectDirection::Right,   // 正值 LY（向下推） → Right（下一个轴）
         AxisSelectDirection::Left,    // 负值 LY（向上推） → Left（上一个轴）
         "LY", this);
@@ -132,7 +142,7 @@ void GamepadInputInterpreter::onGamepadChanged()
     // ═══════════════════════════════════════════════════════
     bool lyInDeadzone = (ly >= -kDeadzoneLY && ly <= kDeadzoneLY);
     if (lyInDeadzone) {
-        processAxisSelect(lx, kDeadzone, m_lxWasOutside, m_lastLXSelectTime, kAxisSelectDebounceMs,
+        processAxisSelect(lx, kDeadzone, m_lxWasOutside, m_lastLXSelectTime, m_lastAxisSelectTime, kAxisSelectDebounceMs,
                           AxisSelectDirection::Right,   // 正值 LX → Right
                           AxisSelectDirection::Left,    // 负值 LX → Left
                           "LX", this);
