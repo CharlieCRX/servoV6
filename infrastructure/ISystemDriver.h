@@ -137,12 +137,33 @@ struct CommunicationResult {
 };
 
 /**
+ * @brief 连接状态快照（★ P1 新增）
+ *
+ * 用于从基础设施层向表现层传播 TCP 连接状态信息，
+ * 解决"UI 无法获知 PLC 网络是否正常"的问题。
+ *
+ * 线程安全:
+ *   - connected 字段由 AsioModbusTcpClient::m_connected (atomic) 填充
+ *   - diagnostic 为不可变字符串 copy，查询时快照
+ */
+struct ConnectionState {
+    bool connected = false;          ///< 当前 TCP 是否已连接
+    std::string diagnostic;          ///< 诊断文本，如 "已连接 192.168.1.88:502" 或 "断连: ECONNREFUSED"
+
+    /// @brief 工厂方法：创建"未知"状态（驱动未初始化）
+    [[nodiscard]] static ConnectionState Unknown() {
+        return ConnectionState{false, "未知: 驱动未初始化"};
+    }
+};
+
+/**
  * @brief 工业控制系统驱动的统一接口
  *
  * 设计原则:
  *   1. Command / Feedback 双通路: send() 发命令，pollFeedback() 收反馈。
  *   2. send() 返回通讯结果 -- 只表达"帧是否送达"，不表达"PLC 是否执行"。
  *   3. pollFeedback() 是主动拉取 -- 负责物理状态回传，每主循环周期调用一次。
+ *   4. getConnectionState() / reconnect() -- 连接状态监控与手动重连（★ P1/P2 新增）
  */
 class ISystemDriver {
 public:
@@ -169,4 +190,24 @@ public:
     ///
     /// @param ctx 目标分组上下文
     virtual void pollFeedback(SystemContext& ctx) = 0;
+
+    // ===== 连接状态监控与手动重连（★ P1/P2 新增）=====
+
+    /// @brief 查询当前连接状态快照
+    ///
+    /// 从任意线程安全调用（内部读取 atomic flag）
+    ///
+    /// @return ConnectionState — connected 字段表达 TCP 状态，diagnostic 表达诊断文本
+    virtual ConnectionState getConnectionState() const = 0;
+
+    /// @brief 触发手动重连
+    ///
+    /// 内部委托给 IModbusClient::requestReconnect():
+    ///   1. 关闭当前 socket
+    ///   2. 标记断连
+    ///   3. 取消重连定时器
+    ///   4. 立即发起 DNS 解析 + TCP 连接
+    ///
+    /// @note 与自动重连协作：手动重连相当于"加速"，跳过 2s 等待间隔
+    virtual void reconnect() = 0;
 };

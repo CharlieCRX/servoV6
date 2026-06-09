@@ -63,6 +63,19 @@ public:
 
     // ========== ISystemDriver 统一入口 ==========
 
+    /// @brief 连接状态快照（测试替身实现）
+    ConnectionState getConnectionState() const override {
+        ConnectionState state;
+        state.connected = m_connected;
+        state.diagnostic = m_connected ? "已连接 (FakeDriver)" : "断连 (FakeDriver)";
+        return state;
+    }
+
+    /// @brief 手动重连（测试替身实现）
+    void reconnect() override {
+        m_connected = true;
+    }
+
     CommunicationResult send(const SystemCommand& cmd) override {
         if (!m_connected) {
             return CommunicationResult{

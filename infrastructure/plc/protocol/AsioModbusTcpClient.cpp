@@ -178,6 +178,50 @@ bool AsioModbusTcpClient::isConnected() const {
     return m_connected.load(std::memory_order_acquire);
 }
 
+void AsioModbusTcpClient::requestReconnect() {
+    if (!m_running.load(std::memory_order_acquire)) {
+        LOG_INFO(LogLayer::HAL, m_moduleName,
+            "requestReconnect() -- client not running, calling start() first");
+        start();
+        return;
+    }
+
+    LOG_INFO(LogLayer::HAL, m_moduleName,
+        "requestReconnect() -- scheduling immediate reconnect on io thread");
+
+    // 在 io_context 线程中执行：关闭 socket → 取消 timer → 立即重连
+    std::string moduleName = m_moduleName;
+    asio::post(m_ioctx, [this, moduleName]() {
+        std::error_code ec;
+
+        // 1. 关闭当前 socket（如果已打开）
+        if (m_socket.is_open()) {
+            m_socket.close(ec);
+            if (ec) {
+                std::ostringstream oss;
+                oss << "requestReconnect() -- socket.close() warning: " << ec.message();
+                LOG_WARN(LogLayer::HAL, moduleName, oss.str());
+            }
+        }
+
+        // 2. 标记断连
+        m_connected.store(false, std::memory_order_release);
+
+        // 3. 取消当前重连定时器（如果正在等待）
+        m_timer.cancel(ec);
+        if (ec) {
+            std::ostringstream oss;
+            oss << "requestReconnect() -- timer.cancel() warning: " << ec.message();
+            LOG_WARN(LogLayer::HAL, moduleName, oss.str());
+        }
+
+        // 4. 立即发起重连（跳过 scheduleReconnect 的 2s 延迟）
+        LOG_INFO(LogLayer::HAL, moduleName,
+            "requestReconnect() -- initiating immediate reconnect");
+        startReconnect();
+    });
+}
+
 // ========================================================================
 //  IModbusClient -- 读通道
 // ========================================================================

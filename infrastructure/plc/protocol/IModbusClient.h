@@ -37,6 +37,28 @@ public:
     virtual ~IModbusClient() = default;
 
     // ═══════════════════════════════════════
+    //  连接管理（★ P1/P2 新增）
+    // ═══════════════════════════════════════
+
+    /// @brief 当前 TCP 连接状态
+    /// @return true 已连接，false 未连接
+    ///
+    /// 原子操作，可从任意线程安全调用
+    [[nodiscard]]
+    virtual bool isConnected() const = 0;
+
+    /// @brief 请求立即重连（跳过自动重连等待间隔）
+    ///
+    /// 在 io_context 线程中执行:
+    ///   1. 关闭当前 socket
+    ///   2. 标记 m_connected = false
+    ///   3. 取消当前重连定时器
+    ///   4. 立即调用 startReconnect()
+    ///
+    /// @note 与自动重连协作：手动重连相当于"加速"，两者不冲突
+    virtual void requestReconnect() = 0;
+
+    // ═══════════════════════════════════════
     //  读通道 — PlcPoller 使用
     // ═══════════════════════════════════════
 

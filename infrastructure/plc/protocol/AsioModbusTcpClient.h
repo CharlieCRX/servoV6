@@ -100,7 +100,16 @@ public:
     ///
     /// 原子操作，可从任意线程安全调用
     [[nodiscard]]
-    bool isConnected() const;
+    bool isConnected() const override;
+
+    /// @brief 请求立即重连（跳过自动重连等待间隔）
+    ///
+    /// 在 io_context 线程中执行:
+    ///   1. 关闭当前 socket
+    ///   2. 标记 m_connected = false
+    ///   3. 取消当前重连定时器
+    ///   4. 立即调用 startReconnect()
+    void requestReconnect() override;
 
     // ═══════════════════════════════════════
     //  IModbusClient 接口实现 (读通道)
