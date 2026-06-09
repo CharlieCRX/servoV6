@@ -5,6 +5,7 @@
 #include <QUrl>
 #include <QQuickStyle>
 #include <QStandardPaths>
+#include <QDir>
 #include <vector>
 
 #include "application/SystemManager.h"
@@ -71,7 +72,8 @@ int main(int argc, char *argv[])
     LoggerConfig logCfg;
     logCfg.enableConsole = true;
     logCfg.enableFile = true;
-    logCfg.minConsoleLevel = LogLevel::DEBUG;   // 调试模式：显示 DEBUG 及以上（生产可改回 INFO）
+    logCfg.minConsoleLevel = LogLevel::INFO;    // 控制台：屏蔽 DEBUG / TRACE 噪音
+    logCfg.minFileLevel    = LogLevel::INFO;    // 日志文件：同样屏蔽 DEBUG / TRACE，节省磁盘空间
 
     QString logBasePath;
 #ifdef Q_OS_ANDROID
@@ -80,7 +82,7 @@ int main(int argc, char *argv[])
         logBasePath = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
     }
 #else
-    logBasePath = QCoreApplication::applicationDirPath();
+    logBasePath = QDir::currentPath();
 #endif
 
     logCfg.logDirectory = QString("%1/logs").arg(logBasePath).toStdString();

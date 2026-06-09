@@ -455,6 +455,7 @@ CommunicationResult AsioModbusTcpClient::executeTransaction(
                     0,
                     "Socket write timed out after " + std::to_string(timeout) + "ms"
                 });
+                scheduleReconnect();
             } else {
                 m_connected.store(false, std::memory_order_release);
                 {
@@ -467,6 +468,7 @@ CommunicationResult AsioModbusTcpClient::executeTransaction(
                     0,
                     "Write failed: " + ec.message()
                 });
+                scheduleReconnect();
             }
             return;
         }
@@ -500,6 +502,7 @@ CommunicationResult AsioModbusTcpClient::executeTransaction(
                     0,
                     "Socket read timed out after " + std::to_string(timeout) + "ms"
                 });
+                scheduleReconnect();
             } else {
                 m_connected.store(false, std::memory_order_release);
                 {
@@ -512,6 +515,7 @@ CommunicationResult AsioModbusTcpClient::executeTransaction(
                     0,
                     "Read MBAP failed: " + ec.message()
                 });
+                scheduleReconnect();
             }
             return;
         }
@@ -588,6 +592,7 @@ CommunicationResult AsioModbusTcpClient::executeTransaction(
                     0,
                     "Socket read timed out after " + std::to_string(timeout) + "ms"
                 });
+                scheduleReconnect();
             } else {
                 m_connected.store(false, std::memory_order_release);
                 {
@@ -600,6 +605,7 @@ CommunicationResult AsioModbusTcpClient::executeTransaction(
                     0,
                     "Read PDU failed: " + ec.message()
                 });
+                scheduleReconnect();
             }
             return;
         }
@@ -709,6 +715,7 @@ CommunicationResult AsioModbusTcpClient::executeTransaction(
             m_socket.cancel(ec);
             m_socket.close(ec);
             m_connected.store(false, std::memory_order_release);
+            scheduleReconnect();
         });
         return CommunicationResult{
             CommunicationResult::Status::Timeout,
@@ -748,8 +755,40 @@ void AsioModbusTcpClient::configureSocket() {
         LOG_WARN(LogLayer::HAL, m_moduleName, oss.str());
     }
 
+    // ★ 操作系统级 socket 超时（防止断连时 asio::write/read 无限阻塞）
+    // 
+    // 问题：TCP 断连后，asio::write() 是同步阻塞调用，Windows 默认 TCP 栈
+    // 重试超时约 20 秒。12 个已入队事务串行阻塞 → UI 卡死 ~24 秒。
+    // 
+    // 解决：SO_SNDTIMEO/SO_RCVTIMEO 让 write/read 在 200ms 后返回
+    // WSAETIMEDOUT，快速解除阻塞。Async 超时定时器（1000ms）作为兜底。
+    {
+        auto native = m_socket.native_handle();
+#ifdef _WIN32
+        // Windows: SO_SNDTIMEO / SO_RCVTIMEO 使用 DWORD 毫秒
+        DWORD socketTimeoutMs = 200;
+        int sndResult = ::setsockopt(native, SOL_SOCKET, SO_SNDTIMEO,
+            reinterpret_cast<const char*>(&socketTimeoutMs), sizeof(socketTimeoutMs));
+        int rcvResult = ::setsockopt(native, SOL_SOCKET, SO_RCVTIMEO,
+            reinterpret_cast<const char*>(&socketTimeoutMs), sizeof(socketTimeoutMs));
+        if (sndResult != 0 || rcvResult != 0) {
+            std::ostringstream oss;
+            oss << "setsockopt SO_SNDTIMEO/SO_RCVTIMEO failed: snd="
+                << sndResult << " rcv=" << rcvResult;
+            LOG_WARN(LogLayer::HAL, m_moduleName, oss.str());
+        }
+#else
+        // Linux/macOS: SO_SNDTIMEO / SO_RCVTIMEO 使用 struct timeval
+        struct timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 200000;  // 200ms
+        ::setsockopt(native, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+        ::setsockopt(native, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
+    }
+
     LOG_DEBUG(LogLayer::HAL, m_moduleName,
-        "socket configured (no_delay=true, keep_alive=true)");
+        "socket configured (no_delay=true, keep_alive=true, snd_timeout=200ms, rcv_timeout=200ms)");
 }
 
 // ========================================================================
