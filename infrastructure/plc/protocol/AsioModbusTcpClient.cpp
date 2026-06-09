@@ -707,16 +707,37 @@ CommunicationResult AsioModbusTcpClient::executeTransaction(
     if (status == std::future_status::timeout) {
         {
             std::ostringstream oss;
-            oss << "future timeout -- posting socket close (TID=" << tid << ")";
+            oss << "future timeout -- shutting down socket from caller thread (TID=" << tid << ")";
             LOG_WARN(LogLayer::HAL, m_moduleName, oss.str());
         }
-        asio::post(m_ioctx, [this]() {
-            std::error_code ec;
-            m_socket.cancel(ec);
-            m_socket.close(ec);
-            m_connected.store(false, std::memory_order_release);
-            scheduleReconnect();
-        });
+
+        // ★ 关键修复：从调用方线程直接执行两个操作：
+        //
+        // 1. atomic store m_connected = false
+        //    → pollFeedback 立刻 isConnected()==false → skip → UI 恢复
+        //
+        // 2. 原生 shutdown(sockfd, SHUT_RDWR/SD_BOTH)
+        //    → 强制终止 io_context 线程上阻塞的 asio::write/read
+        //    → io_context 线程恢复 → lambda 错误分支自动触发 scheduleReconnect()
+        //
+        // 背景：asio::post() 无法穿透阻塞的 io_context 线程（所有 post 任务
+        // 都排在阻塞的 I/O 后面等待）。只有操作系统级 shutdown() 能解阻塞。
+        m_connected.store(false, std::memory_order_release);
+
+        {
+            auto sockfd = m_socket.native_handle();
+            if (sockfd != asio::ip::tcp::socket::native_handle_type(-1)) {
+#ifdef _WIN32
+                ::shutdown(sockfd, SD_BOTH);
+#else
+                ::shutdown(sockfd, SHUT_RDWR);
+#endif
+            }
+        }
+
+        // io_context 线程恢复后，执行中的 lambda 会自然走到 scheduleReconnect。
+        // 这里不再 post — 由 io_context 线程自己完成后处理。
+
         return CommunicationResult{
             CommunicationResult::Status::Timeout,
             0,

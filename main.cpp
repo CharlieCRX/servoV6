@@ -77,10 +77,8 @@ int main(int argc, char *argv[])
 
     QString logBasePath;
 #ifdef Q_OS_ANDROID
-    logBasePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (logBasePath.isEmpty()) {
-        logBasePath = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
-    }
+    // Android: 日志输出到 /storage/emulated/0/Documents/servo/logs
+    logBasePath = QStringLiteral("/storage/emulated/0/Documents/servo");
 #else
     logBasePath = QDir::currentPath();
 #endif
