@@ -79,10 +79,10 @@ Rectangle {
 
                 // --- Y 轴 ---
                 AxisItemDelegate {
-                    name: root.jogAxisSwitchLocked ? "Y 轴 (水平) 🔒" : "Y 轴 (水平)"
+                    name: root.jogAxisSwitchLocked && !isActive ? "Y 轴 (水平) 🔒" : "Y 轴 (水平)"
                     isActive: root.currentAxisName === "Y"
-                    statusText: root.jogAxisSwitchLocked ? "点动中..." : (isActive ? "控制中" : "待机")
-                    enabled: !root.locked && !root.jogAxisSwitchLocked
+                    statusText: root.jogAxisSwitchLocked && isActive ? "点动中..." : (isActive ? "控制中" : "待机")
+                    enabled: !root.locked && (!root.jogAxisSwitchLocked || isActive)
                     opacity: enabled ? 1.0 : 0.4
                     onClicked: {
                         if (root.jogAxisSwitchLocked) return
@@ -92,10 +92,10 @@ Rectangle {
 
                 // --- Z 轴 ---
                 AxisItemDelegate {
-                    name: root.jogAxisSwitchLocked ? "Z 轴 (垂直) 🔒" : "Z 轴 (垂直)"
+                    name: root.jogAxisSwitchLocked && !isActive ? "Z 轴 (垂直) 🔒" : "Z 轴 (垂直)"
                     isActive: root.currentAxisName === "Z"
-                    statusText: root.jogAxisSwitchLocked ? "点动中..." : (isActive ? "控制中" : "待机")
-                    enabled: !root.locked && !root.jogAxisSwitchLocked
+                    statusText: root.jogAxisSwitchLocked && isActive ? "点动中..." : (isActive ? "控制中" : "待机")
+                    enabled: !root.locked && (!root.jogAxisSwitchLocked || isActive)
                     opacity: enabled ? 1.0 : 0.4
                     onClicked: {
                         if (root.jogAxisSwitchLocked) return
@@ -105,10 +105,10 @@ Rectangle {
 
                 // --- R 轴 ---
                 AxisItemDelegate {
-                    name: root.jogAxisSwitchLocked ? "R 轴 (旋转) 🔒" : "R 轴 (旋转)"
+                    name: root.jogAxisSwitchLocked && !isActive ? "R 轴 (旋转) 🔒" : "R 轴 (旋转)"
                     isActive: root.currentAxisName === "R"
-                    statusText: root.jogAxisSwitchLocked ? "点动中..." : (isActive ? "控制中" : "待机")
-                    enabled: !root.locked && !root.jogAxisSwitchLocked
+                    statusText: root.jogAxisSwitchLocked && isActive ? "点动中..." : (isActive ? "控制中" : "待机")
+                    enabled: !root.locked && (!root.jogAxisSwitchLocked || isActive)
                     opacity: enabled ? 1.0 : 0.4
                     onClicked: {
                         if (root.jogAxisSwitchLocked) return
@@ -118,17 +118,17 @@ Rectangle {
 
                 // --- X 轴（逻辑龙门轴） ---
                 AxisItemDelegate {
-                    name: root.jogAxisSwitchLocked ? "X 轴 (前后) 🔒" : "X 轴 (前后)"
+                    name: root.jogAxisSwitchLocked && !isActive ? "X 轴 (前后) 🔒" : "X 轴 (前后)"
                     isActive: root.currentAxisName === "X"
                     statusText: {
-                        if (root.jogAxisSwitchLocked) return "点动中..."
+                        if (root.jogAxisSwitchLocked && isActive) return "点动中..."
                         if (root.currentAxisName === "X") {
                             return root.gantryStatusText || "控制中"
                         }
                         return root.gantryStatusText || "待机"
                     }
                     isDual: true
-                    enabled: !root.locked && !root.jogAxisSwitchLocked
+                    enabled: !root.locked && (!root.jogAxisSwitchLocked || isActive)
                     opacity: enabled ? 1.0 : 0.4
                     // 龙门耦合状态指示色
                     indicatorColor: root.gantryStatusColor
