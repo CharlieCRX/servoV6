@@ -388,9 +388,9 @@ inline const protocol::RegisterInfo& ModbusSystemDriver::regFbRelZeroRecord(Axis
 
 inline const protocol::RegisterInfo& ModbusSystemDriver::regFbSoftLimitPos(AxisId id) const {
     switch (id) {
-        case AxisId::X:  [[fallthrough]];
-        case AxisId::X1: [[fallthrough]];
-        case AxisId::X2: return reg::x_axis::feedback::X1_SOFT_LIMIT_POS;
+        case AxisId::X:  return reg::x_axis::feedback::SOFT_LIMIT_POS;
+        case AxisId::X1: return reg::x_axis::feedback::X1_SOFT_LIMIT_POS;
+        case AxisId::X2: return reg::x_axis::feedback::X2_SOFT_LIMIT_POS;
         case AxisId::Y:  return reg::y_axis::feedback::SOFT_LIMIT_POS;
         case AxisId::Z:  return reg::z_axis::feedback::SOFT_LIMIT_POS;
         case AxisId::R:  return reg::x_axis::feedback::X1_SOFT_LIMIT_POS; // R has no specific SOFT_LIMIT_POS in z_axis, fallthrough placeholder; per register table, use a reasonable default
@@ -400,9 +400,9 @@ inline const protocol::RegisterInfo& ModbusSystemDriver::regFbSoftLimitPos(AxisI
 
 inline const protocol::RegisterInfo& ModbusSystemDriver::regFbSoftLimitNeg(AxisId id) const {
     switch (id) {
-        case AxisId::X:  [[fallthrough]];
-        case AxisId::X1: [[fallthrough]];
-        case AxisId::X2: return reg::x_axis::feedback::X1_SOFT_LIMIT_NEG;
+        case AxisId::X:  return reg::x_axis::feedback::SOFT_LIMIT_NEG;
+        case AxisId::X1: return reg::x_axis::feedback::X1_SOFT_LIMIT_NEG;
+        case AxisId::X2: return reg::x_axis::feedback::X2_SOFT_LIMIT_NEG;
         case AxisId::Y:  return reg::y_axis::feedback::SOFT_LIMIT_NEG;
         case AxisId::Z:  return reg::z_axis::feedback::SOFT_LIMIT_NEG;
         case AxisId::R:  return reg::x_axis::feedback::X1_SOFT_LIMIT_NEG; // R has no specific SOFT_LIMIT_NEG, use a fallthrough placeholder

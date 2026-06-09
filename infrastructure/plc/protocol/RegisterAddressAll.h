@@ -82,8 +82,6 @@ namespace command {
   constexpr RegisterInfo MOVE_SPEED = { RegisterArea::HoldingReg, 1002, RegisterType::Float32, RegisterAccess::ReadWrite, RegisterBehavior::Level, RegisterGroup::Command, "mm/s", "轴X定位速度", 0 };
   constexpr RegisterInfo TOLERANCE_LIMIT = { RegisterArea::HoldingReg, 1030, RegisterType::Float32, RegisterAccess::ReadWrite, RegisterBehavior::Level, RegisterGroup::Parameter, "mm", "轴X超差阈值", 0 };
   
-  constexpr RegisterInfo SOFT_LIMIT_NEG = { RegisterArea::HoldingReg, 1040, RegisterType::Float32, RegisterAccess::ReadWrite, RegisterBehavior::Level, RegisterGroup::Parameter, "mm", "轴X软件负限位", 0 };
-  constexpr RegisterInfo SOFT_LIMIT_POS = { RegisterArea::HoldingReg, 1042, RegisterType::Float32, RegisterAccess::ReadWrite, RegisterBehavior::Level, RegisterGroup::Parameter, "mm", "轴X软件正限位", 0 };
 }
 
 namespace feedback {
@@ -108,6 +106,8 @@ namespace feedback {
   constexpr RegisterInfo ABS_POSITION = { RegisterArea::HoldingReg, 120, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Feedback, "mm", "轴X当前绝对位置", 0 };
   constexpr RegisterInfo REL_POSITION = { RegisterArea::HoldingReg, 122, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Feedback, "mm", "轴X当前相对位置", 0 };
   constexpr RegisterInfo REL_ZERO_OFFSET = { RegisterArea::HoldingReg, 136, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Feedback, "mm", "轴X当前相对零点", 0 };
+  constexpr RegisterInfo SOFT_LIMIT_POS = { RegisterArea::HoldingReg, 1042, RegisterType::Float32, RegisterAccess::ReadWrite, RegisterBehavior::Level, RegisterGroup::Parameter, "mm", "轴X软件正限位", 0 };
+  constexpr RegisterInfo SOFT_LIMIT_NEG = { RegisterArea::HoldingReg, 1040, RegisterType::Float32, RegisterAccess::ReadWrite, RegisterBehavior::Level, RegisterGroup::Parameter, "mm", "轴X软件负限位", 0 };
   
   constexpr RegisterInfo X1_SOFT_LIMIT_POS = { RegisterArea::HoldingReg, 150, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Parameter, "mm", "轴X1软正极限", 0 };
   constexpr RegisterInfo X1_SOFT_LIMIT_NEG = { RegisterArea::HoldingReg, 152, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Parameter, "mm", "轴X1软负极限", 0 };
@@ -166,9 +166,9 @@ namespace feedback {
   constexpr RegisterInfo ABS_POSITION = { RegisterArea::HoldingReg, 124, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Feedback, "mm", "轴Y当前绝对位置", 0 };
   constexpr RegisterInfo REL_POSITION = { RegisterArea::HoldingReg, 126, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Feedback, "mm", "轴Y当前相对位置", 0 };
   constexpr RegisterInfo REL_ZERO_OFFSET = { RegisterArea::HoldingReg, 138, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Feedback, "mm", "轴Y当前相对零点", 0 };
-  
-  constexpr RegisterInfo SOFT_LIMIT_POS = { RegisterArea::HoldingReg, 154, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Parameter, "mm", "轴Y软正极限", 0 };
-  constexpr RegisterInfo SOFT_LIMIT_NEG = { RegisterArea::HoldingReg, 156, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Parameter, "mm", "轴Y软负极限", 0 };
+
+  constexpr RegisterInfo SOFT_LIMIT_POS = { RegisterArea::HoldingReg, 1044, RegisterType::Float32, RegisterAccess::ReadWrite, RegisterBehavior::Level, RegisterGroup::Parameter, "mm", "轴Y软件正限位", 0 };
+  constexpr RegisterInfo SOFT_LIMIT_NEG = { RegisterArea::HoldingReg, 1046, RegisterType::Float32, RegisterAccess::ReadWrite, RegisterBehavior::Level, RegisterGroup::Parameter, "mm", "轴Y软件负限位", 0 };
   
   constexpr RegisterInfo REL_ZERO_RECORD = { RegisterArea::HoldingReg, 1022, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Feedback, "mm", "轴Y相对原点记录", 0 };
 }
@@ -208,8 +208,8 @@ namespace feedback {
   constexpr RegisterInfo ABS_POSITION = { RegisterArea::HoldingReg, 128, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Feedback, "mm", "轴Z当前绝对位置", 0 };
   constexpr RegisterInfo REL_POSITION = { RegisterArea::HoldingReg, 130, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Feedback, "mm", "轴Z当前相对位置", 0 };
   constexpr RegisterInfo REL_ZERO_OFFSET = { RegisterArea::HoldingReg, 140, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Feedback, "mm", "轴Z当前相对零点", 0 };
-  constexpr RegisterInfo SOFT_LIMIT_POS = { RegisterArea::HoldingReg, 158, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Parameter, "mm", "轴Z软正极限", 0 };
-  constexpr RegisterInfo SOFT_LIMIT_NEG = { RegisterArea::HoldingReg, 160, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Parameter, "mm", "轴Z软负极限", 0 };
+  constexpr RegisterInfo SOFT_LIMIT_POS = { RegisterArea::HoldingReg, 1048, RegisterType::Float32, RegisterAccess::ReadWrite, RegisterBehavior::Level, RegisterGroup::Parameter, "mm", "轴Z软件正限位", 0 };
+  constexpr RegisterInfo SOFT_LIMIT_NEG = { RegisterArea::HoldingReg, 1050, RegisterType::Float32, RegisterAccess::ReadWrite, RegisterBehavior::Level, RegisterGroup::Parameter, "mm", "轴Z软件负限位", 0 };
   constexpr RegisterInfo REL_ZERO_RECORD = { RegisterArea::HoldingReg, 1024, RegisterType::Float32, RegisterAccess::ReadOnly, RegisterBehavior::Continuous, RegisterGroup::Feedback, "mm", "轴Z相对原点记录", 0 };
 }
 } // namespace plc::reg::z_axis

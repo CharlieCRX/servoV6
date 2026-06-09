@@ -122,7 +122,7 @@ int main(int argc, char *argv[])
               x_axis::command::X1_ABS_TARGET, x_axis::command::X2_ABS_TARGET,
               x_axis::command::JOG_SPEED, x_axis::command::MOVE_SPEED,
               x_axis::command::TOLERANCE_LIMIT,
-              x_axis::command::SOFT_LIMIT_NEG, x_axis::command::SOFT_LIMIT_POS,
+              x_axis::feedback::SOFT_LIMIT_NEG, x_axis::feedback::SOFT_LIMIT_POS,
               x_axis::feedback::MOVE_DONE, x_axis::feedback::ABS_MOVING,
               x_axis::feedback::REL_MOVING, x_axis::feedback::JOGGING,
               x_axis::feedback::TOLERANCE_FLAG, x_axis::feedback::TOLERANCE_TIMEOUT,
