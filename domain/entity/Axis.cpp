@@ -158,9 +158,9 @@ void Axis::applyFeedback(const AxisFeedback &feedback)
     }
 
     // ═══════════════════════════════════════════════
-    // 1. 限位运行中熔断逻辑
+    // 1. 限位运行中熔断逻辑（仅当限位使能时生效）
     // ═══════════════════════════════════════════════
-    if (m_pos_limit_active || m_neg_limit_active) {
+    if (m_limit_enabled && (m_pos_limit_active || m_neg_limit_active)) {
         if (std::holds_alternative<MoveCommand>(m_pending_intent) || 
             std::holds_alternative<JogCommand>(m_pending_intent)) {
             LOG_DEBUG(LogLayer::DOM, "Axis",
@@ -429,34 +429,36 @@ bool Axis::jog(Direction dir)
         return false;
     }
 
-    // 2. 硬件限位 Bit 拦截
-    if (dir == Direction::Forward && m_pos_limit_active) {
-        m_last_rejection = RejectionReason::AtPositiveLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "jog: REJECT reason=AtPositiveLimit, abs=" + std::to_string(m_current_abs_pos));
-        return false;
-    }
-    if (dir == Direction::Backward && m_neg_limit_active) {
-        m_last_rejection = RejectionReason::AtNegativeLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "jog: REJECT reason=AtNegativeLimit, abs=" + std::to_string(m_current_abs_pos));
-        return false;
-    }
+    // 2. 硬件限位 Bit 拦截（仅当限位使能时生效）
+    if (m_limit_enabled) {
+        if (dir == Direction::Forward && m_pos_limit_active) {
+            m_last_rejection = RejectionReason::AtPositiveLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "jog: REJECT reason=AtPositiveLimit, abs=" + std::to_string(m_current_abs_pos));
+            return false;
+        }
+        if (dir == Direction::Backward && m_neg_limit_active) {
+            m_last_rejection = RejectionReason::AtNegativeLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "jog: REJECT reason=AtNegativeLimit, abs=" + std::to_string(m_current_abs_pos));
+            return false;
+        }
 
-    // 3. 软件限位数值预检
-    if (dir == Direction::Forward && m_current_abs_pos >= m_pos_limit_value) {
-        m_last_rejection = RejectionReason::AtPositiveLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "jog: REJECT reason=AtPositiveLimit (soft), abs=" + std::to_string(m_current_abs_pos)
-            + " >= limit=" + std::to_string(m_pos_limit_value));
-        return false;
-    }
-    if (dir == Direction::Backward && m_current_abs_pos <= m_neg_limit_value) {
-        m_last_rejection = RejectionReason::AtNegativeLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "jog: REJECT reason=AtNegativeLimit (soft), abs=" + std::to_string(m_current_abs_pos)
-            + " <= limit=" + std::to_string(m_neg_limit_value));
-        return false;
+        // 3. 软件限位数值预检
+        if (dir == Direction::Forward && m_current_abs_pos >= m_pos_limit_value) {
+            m_last_rejection = RejectionReason::AtPositiveLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "jog: REJECT reason=AtPositiveLimit (soft), abs=" + std::to_string(m_current_abs_pos)
+                + " >= limit=" + std::to_string(m_pos_limit_value));
+            return false;
+        }
+        if (dir == Direction::Backward && m_current_abs_pos <= m_neg_limit_value) {
+            m_last_rejection = RejectionReason::AtNegativeLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "jog: REJECT reason=AtNegativeLimit (soft), abs=" + std::to_string(m_current_abs_pos)
+                + " <= limit=" + std::to_string(m_neg_limit_value));
+            return false;
+        }
     }
 
     // 4. 准入通过：生成点动意图
@@ -509,33 +511,35 @@ bool Axis::moveAbsolute(double target)
         return false;
     }
 
-    if (m_pos_limit_active) {
-        m_last_rejection = RejectionReason::AtPositiveLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "moveAbsolute: REJECT reason=AtPositiveLimit");
-        return false;
-    }
+    if (m_limit_enabled) {
+        if (m_pos_limit_active) {
+            m_last_rejection = RejectionReason::AtPositiveLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "moveAbsolute: REJECT reason=AtPositiveLimit");
+            return false;
+        }
 
-    if (m_neg_limit_active) {
-        m_last_rejection = RejectionReason::AtNegativeLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "moveAbsolute: REJECT reason=AtNegativeLimit");
-        return false;
-    }
+        if (m_neg_limit_active) {
+            m_last_rejection = RejectionReason::AtNegativeLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "moveAbsolute: REJECT reason=AtNegativeLimit");
+            return false;
+        }
 
-    if (target > m_pos_limit_value) {
-        m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "moveAbsolute: REJECT reason=TargetOutOfPositiveLimit, target=" + std::to_string(target)
-            + " > limit=" + std::to_string(m_pos_limit_value));
-        return false;
-    }
-    if (target < m_neg_limit_value) {
-        m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "moveAbsolute: REJECT reason=TargetOutOfNegativeLimit, target=" + std::to_string(target)
-            + " < limit=" + std::to_string(m_neg_limit_value));
-        return false;
+        if (target > m_pos_limit_value) {
+            m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "moveAbsolute: REJECT reason=TargetOutOfPositiveLimit, target=" + std::to_string(target)
+                + " > limit=" + std::to_string(m_pos_limit_value));
+            return false;
+        }
+        if (target < m_neg_limit_value) {
+            m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "moveAbsolute: REJECT reason=TargetOutOfNegativeLimit, target=" + std::to_string(target)
+                + " < limit=" + std::to_string(m_neg_limit_value));
+            return false;
+        }
     }
 
     m_pending_intent = MoveCommand{ MoveType::Absolute, target, m_current_abs_pos };
@@ -571,34 +575,36 @@ bool Axis::moveRelative(double distance)
         return false;
     }
 
-    if (m_pos_limit_active) {
-        m_last_rejection = RejectionReason::AtPositiveLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "moveRelative: REJECT reason=AtPositiveLimit");
-        return false;
-    }
+    if (m_limit_enabled) {
+        if (m_pos_limit_active) {
+            m_last_rejection = RejectionReason::AtPositiveLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "moveRelative: REJECT reason=AtPositiveLimit");
+            return false;
+        }
 
-    if (m_neg_limit_active) {
-        m_last_rejection = RejectionReason::AtNegativeLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "moveRelative: REJECT reason=AtNegativeLimit");
-        return false;
-    }
+        if (m_neg_limit_active) {
+            m_last_rejection = RejectionReason::AtNegativeLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "moveRelative: REJECT reason=AtNegativeLimit");
+            return false;
+        }
 
-    double expectedTarget = m_current_abs_pos + distance;
-    if (expectedTarget > m_pos_limit_value) {
-        m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "moveRelative: REJECT reason=TargetOutOfPositiveLimit, expectedTarget=" + std::to_string(expectedTarget)
-            + " > limit=" + std::to_string(m_pos_limit_value));
-        return false;
-    }
-    if (expectedTarget < m_neg_limit_value) {
-        m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "moveRelative: REJECT reason=TargetOutOfNegativeLimit, expectedTarget=" + std::to_string(expectedTarget)
-            + " < limit=" + std::to_string(m_neg_limit_value));
-        return false;
+        double expectedTarget = m_current_abs_pos + distance;
+        if (expectedTarget > m_pos_limit_value) {
+            m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "moveRelative: REJECT reason=TargetOutOfPositiveLimit, expectedTarget=" + std::to_string(expectedTarget)
+                + " > limit=" + std::to_string(m_pos_limit_value));
+            return false;
+        }
+        if (expectedTarget < m_neg_limit_value) {
+            m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "moveRelative: REJECT reason=TargetOutOfNegativeLimit, expectedTarget=" + std::to_string(expectedTarget)
+                + " < limit=" + std::to_string(m_neg_limit_value));
+            return false;
+        }
     }
 
     m_pending_intent = MoveCommand{ MoveType::Relative, distance, m_current_abs_pos };
@@ -627,20 +633,22 @@ bool Axis::setAbsTarget(double target)
         return false;
     }
 
-    // 目标值限位预检
-    if (target > m_pos_limit_value) {
-        m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "setAbsTarget: REJECT reason=TargetOutOfPositiveLimit, target=" + std::to_string(target)
-            + " > limit=" + std::to_string(m_pos_limit_value));
-        return false;
-    }
-    if (target < m_neg_limit_value) {
-        m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "setAbsTarget: REJECT reason=TargetOutOfNegativeLimit, target=" + std::to_string(target)
-            + " < limit=" + std::to_string(m_neg_limit_value));
-        return false;
+    // 目标值限位预检（仅当限位使能时生效）
+    if (m_limit_enabled) {
+        if (target > m_pos_limit_value) {
+            m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "setAbsTarget: REJECT reason=TargetOutOfPositiveLimit, target=" + std::to_string(target)
+                + " > limit=" + std::to_string(m_pos_limit_value));
+            return false;
+        }
+        if (target < m_neg_limit_value) {
+            m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "setAbsTarget: REJECT reason=TargetOutOfNegativeLimit, target=" + std::to_string(target)
+                + " < limit=" + std::to_string(m_neg_limit_value));
+            return false;
+        }
     }
 
     m_pending_intent = SetAbsTargetCommand{target};
@@ -677,34 +685,36 @@ bool Axis::triggerAbsMove()
         return false;
     }
 
-    // 限位状态预检
-    if (m_pos_limit_active) {
-        m_last_rejection = RejectionReason::AtPositiveLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "triggerAbsMove: REJECT reason=AtPositiveLimit");
-        return false;
-    }
-    if (m_neg_limit_active) {
-        m_last_rejection = RejectionReason::AtNegativeLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "triggerAbsMove: REJECT reason=AtNegativeLimit");
-        return false;
-    }
+    // 限位状态预检（仅当限位使能时生效）
+    if (m_limit_enabled) {
+        if (m_pos_limit_active) {
+            m_last_rejection = RejectionReason::AtPositiveLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "triggerAbsMove: REJECT reason=AtPositiveLimit");
+            return false;
+        }
+        if (m_neg_limit_active) {
+            m_last_rejection = RejectionReason::AtNegativeLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "triggerAbsMove: REJECT reason=AtNegativeLimit");
+            return false;
+        }
 
-    // 目标值限位预检（基于 m_abs_move_target 镜像值）
-    if (m_abs_move_target > m_pos_limit_value) {
-        m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "triggerAbsMove: REJECT reason=TargetOutOfPositiveLimit, target=" + std::to_string(m_abs_move_target)
-            + " > limit=" + std::to_string(m_pos_limit_value));
-        return false;
-    }
-    if (m_abs_move_target < m_neg_limit_value) {
-        m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "triggerAbsMove: REJECT reason=TargetOutOfNegativeLimit, target=" + std::to_string(m_abs_move_target)
-            + " < limit=" + std::to_string(m_neg_limit_value));
-        return false;
+        // 目标值限位预检（基于 m_abs_move_target 镜像值）
+        if (m_abs_move_target > m_pos_limit_value) {
+            m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "triggerAbsMove: REJECT reason=TargetOutOfPositiveLimit, target=" + std::to_string(m_abs_move_target)
+                + " > limit=" + std::to_string(m_pos_limit_value));
+            return false;
+        }
+        if (m_abs_move_target < m_neg_limit_value) {
+            m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "triggerAbsMove: REJECT reason=TargetOutOfNegativeLimit, target=" + std::to_string(m_abs_move_target)
+                + " < limit=" + std::to_string(m_neg_limit_value));
+            return false;
+        }
     }
 
     m_pending_intent = TriggerAbsMoveCommand{};
@@ -730,21 +740,23 @@ bool Axis::setRelTarget(double distance)
         return false;
     }
 
-    // 目标值限位预检
-    double expectedTarget = m_current_abs_pos + distance;
-    if (expectedTarget > m_pos_limit_value) {
-        m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "setRelTarget: REJECT reason=TargetOutOfPositiveLimit, expected=" + std::to_string(expectedTarget)
-            + " > limit=" + std::to_string(m_pos_limit_value));
-        return false;
-    }
-    if (expectedTarget < m_neg_limit_value) {
-        m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "setRelTarget: REJECT reason=TargetOutOfNegativeLimit, expected=" + std::to_string(expectedTarget)
-            + " < limit=" + std::to_string(m_neg_limit_value));
-        return false;
+    // 目标值限位预检（仅当限位使能时生效）
+    if (m_limit_enabled) {
+        double expectedTarget = m_current_abs_pos + distance;
+        if (expectedTarget > m_pos_limit_value) {
+            m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "setRelTarget: REJECT reason=TargetOutOfPositiveLimit, expected=" + std::to_string(expectedTarget)
+                + " > limit=" + std::to_string(m_pos_limit_value));
+            return false;
+        }
+        if (expectedTarget < m_neg_limit_value) {
+            m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "setRelTarget: REJECT reason=TargetOutOfNegativeLimit, expected=" + std::to_string(expectedTarget)
+                + " < limit=" + std::to_string(m_neg_limit_value));
+            return false;
+        }
     }
 
     m_pending_intent = SetRelTargetCommand{distance};
@@ -781,35 +793,37 @@ bool Axis::triggerRelMove()
         return false;
     }
 
-    // 限位状态预检
-    if (m_pos_limit_active) {
-        m_last_rejection = RejectionReason::AtPositiveLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "triggerRelMove: REJECT reason=AtPositiveLimit");
-        return false;
-    }
-    if (m_neg_limit_active) {
-        m_last_rejection = RejectionReason::AtNegativeLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "triggerRelMove: REJECT reason=AtNegativeLimit");
-        return false;
-    }
+    // 限位状态预检（仅当限位使能时生效）
+    if (m_limit_enabled) {
+        if (m_pos_limit_active) {
+            m_last_rejection = RejectionReason::AtPositiveLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "triggerRelMove: REJECT reason=AtPositiveLimit");
+            return false;
+        }
+        if (m_neg_limit_active) {
+            m_last_rejection = RejectionReason::AtNegativeLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "triggerRelMove: REJECT reason=AtNegativeLimit");
+            return false;
+        }
 
-    // 目标值限位预检（基于系统当前绝对位置 + m_rel_move_target 镜像值）
-    double expectedTarget = m_current_abs_pos + m_rel_move_target;
-    if (expectedTarget > m_pos_limit_value) {
-        m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "triggerRelMove: REJECT reason=TargetOutOfPositiveLimit, expected=" + std::to_string(expectedTarget)
-            + " > limit=" + std::to_string(m_pos_limit_value));
-        return false;
-    }
-    if (expectedTarget < m_neg_limit_value) {
-        m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
-        LOG_DEBUG(LogLayer::DOM, "Axis",
-            "triggerRelMove: REJECT reason=TargetOutOfNegativeLimit, expected=" + std::to_string(expectedTarget)
-            + " < limit=" + std::to_string(m_neg_limit_value));
-        return false;
+        // 目标值限位预检（基于系统当前绝对位置 + m_rel_move_target 镜像值）
+        double expectedTarget = m_current_abs_pos + m_rel_move_target;
+        if (expectedTarget > m_pos_limit_value) {
+            m_last_rejection = RejectionReason::TargetOutOfPositiveLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "triggerRelMove: REJECT reason=TargetOutOfPositiveLimit, expected=" + std::to_string(expectedTarget)
+                + " > limit=" + std::to_string(m_pos_limit_value));
+            return false;
+        }
+        if (expectedTarget < m_neg_limit_value) {
+            m_last_rejection = RejectionReason::TargetOutOfNegativeLimit;
+            LOG_DEBUG(LogLayer::DOM, "Axis",
+                "triggerRelMove: REJECT reason=TargetOutOfNegativeLimit, expected=" + std::to_string(expectedTarget)
+                + " < limit=" + std::to_string(m_neg_limit_value));
+            return false;
+        }
     }
 
     m_pending_intent = TriggerRelMoveCommand{};
@@ -1015,6 +1029,18 @@ double Axis::getjogVelocity() const
 double Axis::getMoveVelocity() const
 {
     return m_move_velocity;
+}
+
+bool Axis::isLimitEnabled() const
+{
+    return m_limit_enabled;
+}
+
+void Axis::setLimitEnabled(bool enabled)
+{
+    LOG_INFO(LogLayer::DOM, "Axis",
+        "setLimitEnabled: " + std::string(enabled ? "true" : "false"));
+    m_limit_enabled = enabled;
 }
 
 bool Axis::hasPendingCommand() const

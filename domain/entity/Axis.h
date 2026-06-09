@@ -215,6 +215,9 @@ public:
     double getjogVelocity() const;
     double getMoveVelocity() const;
 
+    // 正负限位使能控制
+    bool isLimitEnabled() const;
+    void setLimitEnabled(bool enabled);
 
     bool hasPendingCommand() const;
     RejectionReason lastRejection() const;
@@ -245,6 +248,9 @@ private:
     // 速度
     double m_jog_velocity = 0.0;
     double m_move_velocity = 0.0;
+
+    // 正负限位使能标志，默认为 true（启用限位控制）
+    bool m_limit_enabled = true;
 
     // ⭐ 阶段 1：PLC target 寄存器镜像
     // 默认值设为 max，确保 PLC 未反馈时 trigger 限位校验必然拒绝

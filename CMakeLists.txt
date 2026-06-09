@@ -33,7 +33,7 @@ if(NOT asio_POPULATED)
         set(asio_POPULATED TRUE)
         set(asio_SOURCE_DIR ${CMAKE_SOURCE_DIR}/external/asio)
     else()
-        FetchContent_Populate(asio)
+        FetchContent_MakeAvailable(asio)
     endif()
 endif()
 

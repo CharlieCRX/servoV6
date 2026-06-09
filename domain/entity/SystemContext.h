@@ -22,6 +22,7 @@ public:
         m_axes[AxisId::Y] = std::make_unique<Axis>();
         m_axes[AxisId::Z] = std::make_unique<Axis>();
         m_axes[AxisId::R] = std::make_unique<Axis>();
+        m_axes[AxisId::R]->setLimitEnabled(false);  // R 轴默认不启用正负限位
 
         // 2. 初始化龙门联动控制器（不持有 Axis 引用，PLC 负责物理安全校验）
         m_gantryCouplingController = std::make_unique<GantryCouplingController>();
