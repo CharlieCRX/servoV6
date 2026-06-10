@@ -540,7 +540,7 @@ Rectangle {
                 Text {
                     Layout.alignment: Qt.AlignHCenter
                     text: viewModel ? viewModel.moveStep : ""
-                    visible: viewModel && viewModel.isLoading
+                    visible: false
                     color: "gray"
                     font.pixelSize: Theme.fontSmall
                     font.family: "Monospace"

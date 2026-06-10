@@ -175,7 +175,7 @@ Rectangle {
             }
 
             Text {
-                text: connectionViewModel ? connectionViewModel.statusText : "未知"
+                text: "PLC连接状态：" + (connectionViewModel ? connectionViewModel.statusText : "未知")
                 color: connectionViewModel && connectionViewModel.connected
                        ? Theme.colorIdle : Theme.colorError
                 font.pixelSize: Theme.fontSmall
@@ -289,7 +289,7 @@ Rectangle {
                     border.width: 1
                 }
                 Text {
-                    text: viewModel ? viewModel.stateText : "--"
+                    text: "电机状态：" + (viewModel ? viewModel.stateText : "--")
                     color: getStateColor(viewModel ? viewModel.state : 0)
                     font.pixelSize: Theme.fontNormal
                     font.bold: true
