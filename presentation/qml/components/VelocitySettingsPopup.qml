@@ -12,6 +12,10 @@ Popup {
     // ⭐ 速度类型选择："jog" = 点动速度, "move" = 定位速度
     property string speedType: "jog"
 
+    // R轴（旋转轴）判定
+    property string currentAxis: ""
+    readonly property bool isRAxis: currentAxis === "R"
+
     // 弹窗基本属性
     modal: true
     dim: true
@@ -92,7 +96,7 @@ Popup {
                     onClicked: numPad.open()
                 }
             }
-            Text { text: "mm/s"; color: Theme.textDim }
+            Text { text: root.isRAxis ? "°/s" : "mm/s"; color: Theme.textDim }
         }
 
         Item { Layout.fillHeight: true } // 弹簧
@@ -134,7 +138,7 @@ Popup {
     NumPad {
         id: numPad
         title: speedType === "jog" ? "点动速度" : "定位速度"
-        unit: "mm/s"
+        unit: root.isRAxis ? "°/s" : "mm/s"
         allowNegative: false
         allowDecimal: true
         maxValue: 1000.0

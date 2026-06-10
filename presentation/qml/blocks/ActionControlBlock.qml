@@ -49,6 +49,9 @@ Rectangle {
 
     property bool jogEnabled: !systemLocked && !gantryOperationLocked && viewModel !== null
 
+    // R轴（旋转轴）判定
+    readonly property bool isRAxis: currentAxis === "R"
+
     // ★ 定位模式下触发是否就绪：仅 Modal 错误阻断操作
     property bool isReadyForTrigger: !systemLocked && !gantryOperationLocked && viewModel ? 
         (!viewModel.hasBlockingError && viewModel.state <= 2 && !viewModel.isLoading) : false
@@ -215,7 +218,7 @@ Rectangle {
                         font.family: "Monospace"
                     }
                     Text {
-                        text: "mm/s"
+                        text: root.isRAxis ? "°/s" : "mm/s"
                         color: Theme.textDim
                         font.pixelSize: Theme.fontNormal
                         font.family: "Monospace"
@@ -300,7 +303,7 @@ Rectangle {
                         font.family: "Monospace"
                     }
                     Text {
-                        text: "mm/s"
+                        text: root.isRAxis ? "°/s" : "mm/s"
                         color: Theme.textDim
                         font.pixelSize: Theme.fontNormal
                         font.family: "Monospace"
@@ -339,7 +342,7 @@ Rectangle {
                         font.family: "Monospace"
                     }
                     Text {
-                        text: "mm"
+                        text: root.isRAxis ? "°" : "mm"
                         color: Theme.textDim
                         font.pixelSize: Theme.fontNormal
                         font.family: "Monospace"
@@ -378,7 +381,7 @@ Rectangle {
                         font.family: "Monospace"
                     }
                     Text {
-                        text: "mm"
+                        text: root.isRAxis ? "°" : "mm"
                         color: Theme.textDim
                         font.pixelSize: Theme.fontNormal
                         font.family: "Monospace"
@@ -603,7 +606,7 @@ Rectangle {
     NumPad {
         id: jogVelocityNumPad
         title: "点动速度"
-        unit: "mm/s"
+        unit: root.isRAxis ? "°/s" : "mm/s"
         allowNegative: false
         allowDecimal: true
         maxValue: 1000.0
@@ -620,7 +623,7 @@ Rectangle {
     NumPad {
         id: moveVelocityNumPad
         title: "定位速度"
-        unit: "mm/s"
+        unit: root.isRAxis ? "°/s" : "mm/s"
         allowNegative: false
         allowDecimal: true
         maxValue: 1000.0
@@ -637,7 +640,7 @@ Rectangle {
     NumPad {
         id: absTargetNumPad
         title: "绝对目标"
-        unit: "mm"
+        unit: root.isRAxis ? "°" : "mm"
         allowNegative: true
         allowDecimal: true
         maxValue: 10000.0
@@ -660,7 +663,7 @@ Rectangle {
     NumPad {
         id: relTargetNumPad
         title: "相对距离"
-        unit: "mm"
+        unit: root.isRAxis ? "°" : "mm"
         allowNegative: true
         allowDecimal: true
         maxValue: 10000.0

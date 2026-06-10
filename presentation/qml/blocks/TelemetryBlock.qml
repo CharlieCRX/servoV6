@@ -48,6 +48,9 @@ Rectangle {
     // 相对零点位置不为 0 时才展示清除行
     readonly property bool hasRelativeZero: Math.abs(root.relZeroPosition) > 0.0005
 
+    // R轴（旋转轴）判定
+    readonly property bool isRAxis: selectedAxis === "R"
+
     color: Theme.panelBg
     radius: 12 * Theme.scale
     border.color: Theme.borderMain
@@ -73,7 +76,7 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.bottom: limitBar.top
+        anchors.bottom: root.isRAxis ? parent.bottom : limitBar.top
         anchors.leftMargin: 6 * Theme.scale
         anchors.rightMargin: 6 * Theme.scale
         anchors.topMargin: 6 * Theme.scale
@@ -313,7 +316,7 @@ Rectangle {
                 Layout.alignment: Qt.AlignLeft
 
                 Text {
-                    text: "绝对位置 (mm):"
+                    text: root.isRAxis ? "绝对位置 (°):" : "绝对位置 (mm):"
                     color: Theme.textDim
                     font.pixelSize: Theme.fontSmall
                 }
@@ -357,7 +360,7 @@ Rectangle {
                 Layout.alignment: Qt.AlignLeft
 
                 Text {
-                    text: "相对位置 (mm):"
+                    text: root.isRAxis ? "相对位置 (°):" : "相对位置 (mm):"
                     color: Theme.textDim
                     font.pixelSize: Theme.fontSmall
                 }
@@ -434,9 +437,10 @@ Rectangle {
         }  // end ColumnLayout
     }  // end Flickable
 
-    // ===== 底部固定：限位进度条（真正紧贴底部边框）=====
+    // ===== 底部固定：限位进度条（R轴不展示）=====
     ColumnLayout {
         id: limitBar
+        visible: !root.isRAxis
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom

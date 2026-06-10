@@ -131,7 +131,7 @@ Window {
                 viewModel: currentViewModel
                 emergencyViewModel: currentEmergencyViewModel
                 gantryViewModel: currentGantryViewModel
-                currentAxis: currentAxis
+                currentAxis: mainWindow.currentAxis
             }
         }
 
