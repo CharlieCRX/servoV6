@@ -56,16 +56,16 @@ bool QtAxisViewModel::isEnabled() const {
 }
 
 QString QtAxisViewModel::stateText() const {
-    if (!m_core) return "Unavailable";
+    if (!m_core) return "N/A";
     switch (m_core->state()) {
-    case AxisState::Unknown:        return "Unknown";
-    case AxisState::Disabled:       return "Disabled";
-    case AxisState::Idle:           return "Standstill";
-    case AxisState::Jogging:        return "Jogging";
-    case AxisState::MovingAbsolute: return "MovingAbsolute";
-    case AxisState::MovingRelative: return "MovingRelative";
-    case AxisState::Error:          return "Error";
-    default:                        return "Unknown";
+    case AxisState::Unknown:        return "未知";
+    case AxisState::Disabled:       return "未使能";
+    case AxisState::Idle:           return "静止";
+    case AxisState::Jogging:        return "点动中";
+    case AxisState::MovingAbsolute: return "绝对移动中";
+    case AxisState::MovingRelative: return "相对移动中";
+    case AxisState::Error:          return "故障";
+    default:                        return "未知";
     }
 }
 

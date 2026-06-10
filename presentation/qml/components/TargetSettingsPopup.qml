@@ -15,6 +15,10 @@ Popup {
     // ⭐ 正负号：true = +, false = -
     property bool signPositive: true
 
+    // R轴（旋转轴）判定
+    property string currentAxis: ""
+    readonly property bool isRAxis: currentAxis === "R"
+
     // 弹窗基本属性
     modal: true
     dim: true
@@ -153,7 +157,7 @@ Popup {
                     onClicked: numPad.open()
                 }
             }
-            Text { text: "mm"; color: Theme.textDim }
+            Text { text: root.isRAxis ? "°" : "mm"; color: Theme.textDim }
         }
 
         Item { Layout.fillHeight: true } // 弹簧
@@ -202,7 +206,7 @@ Popup {
     NumPad {
         id: numPad
         title: targetType === "abs" ? "绝对目标" : "相对距离"
-        unit: "mm"
+        unit: root.isRAxis ? "°" : "mm"
         allowNegative: false   // 正负号由外部按钮控制
         allowDecimal: true
         maxValue: 10000.0

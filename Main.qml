@@ -23,6 +23,21 @@ Window {
     property string currentGroup: "Machine_A"
     property string currentAxis: "Y"
 
+    /// @brief JOG 点动活跃时阻止轴切换（只读状态，供 UI disable 绑定）
+    readonly property bool jogAxisSwitchLocked: motionController ? motionController.jogActiveDirection !== 0 : false
+
+    // ★ 监听 C++ AxisSelectionModel，摇杆切换轴时同步更新 UI
+    Connections {
+        target: axisSelectionModel
+        function onCurrentAxisChanged(axisId) {
+            // AxisId enum: Y=0, Z=1, R=2, X=3
+            var map = { 0: "Y", 1: "Z", 2: "R", 3: "X" };
+            var newAxis = map[axisId] || "Y";
+            console.log("[QML] axisSelectionModel.currentAxisChanged  axisId=" + axisId + " → " + newAxis);
+            currentAxis = newAxis;
+        }
+    }
+
     // 根据当前选择动态绑定 ViewModel
     property var currentViewModel: {
         if (currentGroup === "Machine_A") {
@@ -57,6 +72,13 @@ Window {
         return gantryVM_A; // fallback
     }
 
+    // ★ P1/P2 新增：根据当前分组动态绑定连接状态 ViewModel
+    property var currentConnectionViewModel: {
+        if (currentGroup === "Machine_A") return connectionVM_A;
+        if (currentGroup === "Machine_B") return connectionVM_B;
+        return connectionVM_A; // fallback
+    }
+
     // ===== 垂直布局：分组选择栏 + 三栏 + 底部错误栏 =====
     ColumnLayout {
         anchors.fill: parent
@@ -73,11 +95,17 @@ Window {
             AxisSelectorBlock {
                 Layout.preferredWidth: isMobile ? 180 * Theme.scale : 260 * Theme.scale
                 Layout.fillHeight: true
+                currentAxisName: mainWindow.currentAxis   // ★ 反向同步：摇杆切换时高亮对应轴
                 emergencyViewModel: currentEmergencyViewModel
                 gantryViewModel: currentGantryViewModel
+                jogAxisSwitchLocked: mainWindow.jogAxisSwitchLocked  // ★ JOG 点动时禁用轴切换
                 onAxisChanged: (axisName) => {
                     currentAxis = axisName;
-                    console.log("切换到组:", currentGroup, ", 轴:", axisName);
+                    // ★ 通知 C++ AxisSelectionModel，使 MotionController 的 m_currentAxis 同步
+                    if (axisSelectionModel) {
+                        axisSelectionModel.setCurrentAxisByName(axisName);
+                    }
+                    console.log("[QML] 切换到组:", currentGroup, ", 轴:", axisName);
                 }
             }
 
@@ -88,6 +116,7 @@ Window {
                 viewModel: currentViewModel
                 emergencyViewModel: currentEmergencyViewModel
                 gantryViewModel: currentGantryViewModel
+                connectionViewModel: currentConnectionViewModel
                 selectedAxis: currentAxis
                 groupName: currentGroup
                 onGroupChanged: (newGroup) => {
@@ -102,7 +131,7 @@ Window {
                 viewModel: currentViewModel
                 emergencyViewModel: currentEmergencyViewModel
                 gantryViewModel: currentGantryViewModel
-                currentAxis: currentAxis
+                currentAxis: mainWindow.currentAxis
             }
         }
 

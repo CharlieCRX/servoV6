@@ -4,9 +4,22 @@ add_library(presentation
     viewmodel/AxisViewModelCore.cpp
     viewmodel/QtAxisViewModel.cpp
     viewmodel/GantryViewModel.cpp
+    viewmodel/ConnectionViewModel.h
+    viewmodel/ConnectionViewModel.cpp
     viewmodel/ErrorTranslator.cpp
     viewmodel/ViewModelError.h
     viewmodel/EmergencyStopViewModel.h
+
+    # ★ 游戏手柄输入事件系统
+    input/InputEvent.h
+    input/GamepadInputInterpreter.h
+    input/GamepadInputInterpreter.cpp
+    input/AxisSelectionModel.h
+    input/AxisSelectionModel.cpp
+    input/AxisSelectionController.h
+    input/AxisSelectionController.cpp
+    input/MotionController.h
+    input/MotionController.cpp
 )
 
 set_target_properties(presentation PROPERTIES AUTOMOC ON)
@@ -22,4 +35,5 @@ target_link_libraries(presentation
         Qt6::Core
         domain
         application
+        infrastructure
 )

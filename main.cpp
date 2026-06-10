@@ -5,6 +5,7 @@
 #include <QUrl>
 #include <QQuickStyle>
 #include <QStandardPaths>
+#include <QDir>
 #include <vector>
 
 #include "application/SystemManager.h"
@@ -23,6 +24,12 @@
 #include "presentation/viewmodel/QtAxisViewModel.h"
 #include "presentation/viewmodel/EmergencyStopViewModel.h"
 #include "presentation/viewmodel/GantryViewModel.h"
+#include "presentation/viewmodel/ConnectionViewModel.h"
+#include "presentation/input/GamepadInputInterpreter.h"
+#include "presentation/input/AxisSelectionModel.h"
+#include "presentation/input/AxisSelectionController.h"
+#include "presentation/input/MotionController.h"
+#include "infrastructure/joystick/AndroidGamepadJoystick.h"
 #include "infrastructure/logger/Logger.h"
 #include <sstream>
 #include <iomanip>
@@ -66,16 +73,15 @@ int main(int argc, char *argv[])
     LoggerConfig logCfg;
     logCfg.enableConsole = true;
     logCfg.enableFile = true;
-    logCfg.minConsoleLevel = LogLevel::DEBUG;   // 调试模式：显示 DEBUG 及以上（生产可改回 INFO）
+    logCfg.minConsoleLevel = LogLevel::INFO;    // 控制台：屏蔽 DEBUG / TRACE 噪音
+    logCfg.minFileLevel    = LogLevel::INFO;    // 日志文件：同样屏蔽 DEBUG / TRACE，节省磁盘空间
 
     QString logBasePath;
 #ifdef Q_OS_ANDROID
-    logBasePath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (logBasePath.isEmpty()) {
-        logBasePath = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
-    }
+    // Android: 日志输出到 /storage/emulated/0/Documents/servo/logs
+    logBasePath = QStringLiteral("/storage/emulated/0/Documents/servo");
 #else
-    logBasePath = QCoreApplication::applicationDirPath();
+    logBasePath = QDir::currentPath();
 #endif
 
     logCfg.logDirectory = QString("%1/logs").arg(logBasePath).toStdString();
@@ -116,7 +122,7 @@ int main(int argc, char *argv[])
               x_axis::command::X1_ABS_TARGET, x_axis::command::X2_ABS_TARGET,
               x_axis::command::JOG_SPEED, x_axis::command::MOVE_SPEED,
               x_axis::command::TOLERANCE_LIMIT,
-              x_axis::command::SOFT_LIMIT_NEG, x_axis::command::SOFT_LIMIT_POS,
+              x_axis::feedback::SOFT_LIMIT_NEG, x_axis::feedback::SOFT_LIMIT_POS,
               x_axis::feedback::MOVE_DONE, x_axis::feedback::ABS_MOVING,
               x_axis::feedback::REL_MOVING, x_axis::feedback::JOGGING,
               x_axis::feedback::TOLERANCE_FLAG, x_axis::feedback::TOLERANCE_TIMEOUT,
@@ -320,6 +326,12 @@ int main(int argc, char *argv[])
     GantryViewModel gantryVM_A(manager, "Machine_A");
     GantryViewModel gantryVM_B(manager, "Machine_B");
 
+    // ─────────────── 4d. 连接状态 ViewModel（★ P1/P2 新增）───────────────
+    // 每个分组一个 ConnectionViewModel，桥接基础设施层 TCP 连接状态到 QML
+    // 提供：连接状态指示灯（绿/红）+ 状态文本 + 手动重连按钮
+    ConnectionViewModel connectionVM_A(manager, "Machine_A");
+    ConnectionViewModel connectionVM_B(manager, "Machine_B");
+
     // ============================
     // 5. QML 引擎初始化与依赖注入
     // ============================
@@ -347,8 +359,55 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("gantryVM_A", &gantryVM_A);
     engine.rootContext()->setContextProperty("gantryVM_B", &gantryVM_B);
 
+    // 连接状态 ViewModel（★ P1/P2 新增）
+    engine.rootContext()->setContextProperty("connectionVM_A", &connectionVM_A);
+    engine.rootContext()->setContextProperty("connectionVM_B", &connectionVM_B);
+
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
         &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
+
+    // ============================
+    // 5b. ★ 游戏手柄输入管线初始化 ★
+    // 信号链: AndroidGamepadJoystick::changed()
+    //       → GamepadInputInterpreter::onGamepadChanged()
+    //       → emit inputEvent(InputEvent)
+    //       → AxisSelectionController::onInputEvent()
+    //       → AxisSelectionModel::selectLeft()/selectRight()
+    //       → qDebug "CurrentAxis = Y/Z/R"
+    // ============================
+    // ★ 关键：在 Qt 主线程首次触摸单例，确保 thread affinity 正确
+    // 否则 JNI 首次调用时单例在 Android Input 线程构造，该线程无 event loop，QueuedConnection 永不执行
+    (void)AndroidGamepadJoystick::instance();
+
+    // ★ 注册 InputEvent 为 Qt 元类型，确保跨线程 QueuedConnection 正常工作
+    qRegisterMetaType<InputEvent>();
+    LOG_INFO(LogLayer::APP, "System", "InputEvent metatype registered");
+
+    AxisSelectionModel axisModel;
+    GamepadInputInterpreter interpreter;
+
+    // ★ 右摇杆 → 点动控制器（必须在 AxisSelectionController 之前构造，因为 axisCtrl 需要引用它）
+    //   信号链: interpreter::inputEvent(Motion) → MotionController::onInputEvent()
+    //          → 当前轴 ViewModel::jogPositivePressed/Released 或 jogNegativePressed/Released
+    //   跨轴跳跃保护: axisModel::currentAxisChanged → MotionController::onCurrentAxisChanged()
+    MotionController motionCtrl(&interpreter, &axisModel);
+
+    AxisSelectionController axisCtrl(&interpreter, &axisModel);
+    axisCtrl.setMotionController(&motionCtrl);  // ★ 注入 MotionController，JOG 活跃时阻止左摇杆选轴
+    interpreter.start();
+
+    // 注册 Machine_A 轴 → ViewModel 映射（默认选轴列表: Y/Z/R/X）
+    // ★ 注意：registerAxis 使用 AxisId 作为 key，同 key 会覆盖，切勿为多分组重复注册相同 AxisId
+    motionCtrl.registerAxis(AxisId::Y, &qtVM_A_Y);
+    motionCtrl.registerAxis(AxisId::Z, &qtVM_A_Z);
+    motionCtrl.registerAxis(AxisId::R, &qtVM_A_R);
+    motionCtrl.registerAxis(AxisId::X, &qtVM_A_X);
+
+    // ★ 暴露 AxisSelectionModel 给 QML，让摇杆切换轴能更新 UI
+    engine.rootContext()->setContextProperty("axisSelectionModel", &axisModel);
+
+    // ★ 暴露 MotionController 给 QML，让 QML 的模式切换器与 C++ 同步
+    engine.rootContext()->setContextProperty("motionController", &motionCtrl);
 
     engine.loadFromModule("servoV6", "Main");
 
@@ -398,7 +457,11 @@ int main(int argc, char *argv[])
         gantryVM_A.tick();
         gantryVM_B.tick();
 
-        // 6e. UDP 消息处理（收包 → 分发 → 回包）
+        // 6e. 连接状态 ViewModel 推进（★ P1/P2 新增 — 每帧刷新 TCP 连接状态投影）
+        connectionVM_A.tick();
+        connectionVM_B.tick();
+
+        // 6f. UDP 消息处理（收包 → 分发 → 回包）
         udpServer.tick();
     });
     systemClock.start(10);  // 10ms 物理心跳

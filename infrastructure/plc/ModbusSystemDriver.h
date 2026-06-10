@@ -96,6 +96,14 @@ public:
     CommunicationResult send(const SystemCommand& cmd) override;
     void pollFeedback(SystemContext& ctx) override;
 
+    // ===== 连接状态监控与手动重连（★ P1/P2 新增）=====
+
+    /// @brief 查询当前连接状态快照
+    ConnectionState getConnectionState() const override;
+
+    /// @brief 触发手动重连（委托给 IModbusClient::requestReconnect）
+    void reconnect() override;
+
     // =========================================================================
     // PendingEdge 队列管理
     // =========================================================================
@@ -380,9 +388,9 @@ inline const protocol::RegisterInfo& ModbusSystemDriver::regFbRelZeroRecord(Axis
 
 inline const protocol::RegisterInfo& ModbusSystemDriver::regFbSoftLimitPos(AxisId id) const {
     switch (id) {
-        case AxisId::X:  [[fallthrough]];
-        case AxisId::X1: [[fallthrough]];
-        case AxisId::X2: return reg::x_axis::feedback::X1_SOFT_LIMIT_POS;
+        case AxisId::X:  return reg::x_axis::feedback::SOFT_LIMIT_POS;
+        case AxisId::X1: return reg::x_axis::feedback::X1_SOFT_LIMIT_POS;
+        case AxisId::X2: return reg::x_axis::feedback::X2_SOFT_LIMIT_POS;
         case AxisId::Y:  return reg::y_axis::feedback::SOFT_LIMIT_POS;
         case AxisId::Z:  return reg::z_axis::feedback::SOFT_LIMIT_POS;
         case AxisId::R:  return reg::x_axis::feedback::X1_SOFT_LIMIT_POS; // R has no specific SOFT_LIMIT_POS in z_axis, fallthrough placeholder; per register table, use a reasonable default
@@ -392,9 +400,9 @@ inline const protocol::RegisterInfo& ModbusSystemDriver::regFbSoftLimitPos(AxisI
 
 inline const protocol::RegisterInfo& ModbusSystemDriver::regFbSoftLimitNeg(AxisId id) const {
     switch (id) {
-        case AxisId::X:  [[fallthrough]];
-        case AxisId::X1: [[fallthrough]];
-        case AxisId::X2: return reg::x_axis::feedback::X1_SOFT_LIMIT_NEG;
+        case AxisId::X:  return reg::x_axis::feedback::SOFT_LIMIT_NEG;
+        case AxisId::X1: return reg::x_axis::feedback::X1_SOFT_LIMIT_NEG;
+        case AxisId::X2: return reg::x_axis::feedback::X2_SOFT_LIMIT_NEG;
         case AxisId::Y:  return reg::y_axis::feedback::SOFT_LIMIT_NEG;
         case AxisId::Z:  return reg::z_axis::feedback::SOFT_LIMIT_NEG;
         case AxisId::R:  return reg::x_axis::feedback::X1_SOFT_LIMIT_NEG; // R has no specific SOFT_LIMIT_NEG, use a fallthrough placeholder
@@ -611,12 +619,49 @@ inline CommunicationResult ModbusSystemDriver::send(const SystemCommand& cmd) {
     }, cmd);
 }
 
+// ---------- ISystemDriver 连接状态与重连（★ P1/P2 新增） ----------
+
+inline ConnectionState ModbusSystemDriver::getConnectionState() const {
+    ConnectionState state;
+    if (m_modbusClient) {
+        state.connected = m_modbusClient->isConnected();
+    }
+    // 诊断信息在 pollFeedback 中更新
+    return state;
+}
+
+inline void ModbusSystemDriver::reconnect() {
+    if (m_modbusClient) {
+        LOG_INFO(LogLayer::HAL, "ModbusSystemDriver",
+            "reconnect() -- triggering manual reconnect via IModbusClient::requestReconnect()");
+        m_modbusClient->requestReconnect();
+    } else {
+        LOG_WARN(LogLayer::HAL, "ModbusSystemDriver",
+            "reconnect() -- no IModbusClient bound, cannot reconnect");
+    }
+}
+
 // ---------- ISystemDriver::pollFeedback ----------
 
 inline void ModbusSystemDriver::pollFeedback(SystemContext& ctx) {
     servicePendingEdgeTriggers();
 
     if (!m_modbusClient || !m_poller) {
+        return;
+    }
+
+    // ★ P1 断连优化：断连时跳过无效轮询，避免高频 promise/future 创建和 asio::post 调度
+    // 与自动重连竞争 io_context 线程
+    if (!m_modbusClient->isConnected()) {
+        const auto now = m_clock->now();
+        const uint64_t timestamp = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                now.time_since_epoch()).count());
+        auto untrusted = protocol::PlcPoller::untrusted(timestamp);
+        if (m_device) { m_device->updateSnapshot(std::move(untrusted)); }
+
+        LOG_WARN_EVERY_MS(1000, LogLayer::HAL, "ModbusSystemDriver",
+            "pollFeedback skipped -- not connected (waiting for auto/manual reconnect)");
         return;
     }
 

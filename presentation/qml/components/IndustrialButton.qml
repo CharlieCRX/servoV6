@@ -11,6 +11,10 @@ Rectangle {
     property color activeColor: Theme.textMain // 按下时的颜色，默认纯白
     property bool isCircle: true // 默认为圆形大按钮
     property int buttonSize: 120 * Theme.scale // 默认尺寸
+
+    /// @brief 外部驱动激活状态：摇杆/MotionController 等可通过此属性点亮按钮
+    /// true = 该按钮对应的操作正在活跃中（视觉上等同按下）
+    property bool isActive: false
     
     // --- 开放的信号接口 ---
     signal clicked()
@@ -24,8 +28,11 @@ Rectangle {
     border.color: Theme.borderMain
     border.width: 3 * Theme.scale
 
+    // 按下判定：鼠标按下 或 外部 isActive 为 true
+    readonly property bool isPressed: mouseArea.pressed || isActive
+
     // 背景色状态机：按下 -> Hover -> 默认
-    color: mouseArea.pressed ? activeColor : 
+    color: isPressed ? activeColor :
            (mouseArea.containsMouse ? Qt.lighter(Theme.panelBg, 1.5) : baseColor)
 
     // 内部文本
@@ -33,7 +40,7 @@ Rectangle {
         anchors.centerIn: parent
         text: root.text
         // 如果背景被点亮成了白色，文字就反转成深色
-        color: mouseArea.pressed ? Theme.bgDark : Theme.textMain
+        color: isPressed ? Theme.bgDark : Theme.textMain
         font.pixelSize: Theme.fontNormal
         font.bold: true
     }
