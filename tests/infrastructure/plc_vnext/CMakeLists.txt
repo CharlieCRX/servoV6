@@ -5,7 +5,12 @@
 
 add_executable(plc_vnext_tests
     test_plc_vnext_smoke.cpp            # Step 0：构建/测试通道冒烟验证
-    # …… 每一步显式追加对应测试文件（如 Step 1 起追加 contracts/test_plc_axis_slot.cpp 等）
+    # ============ Step 1：contracts ============
+    contracts/test_plc_axis_slot.cpp
+    contracts/test_plc_group_index.cpp
+    contracts/test_communication_result.cpp
+    contracts/test_read_result.cpp
+    # …… 每一步显式追加对应测试文件（如 Step 2 起追加 codec/test_register_codec.cpp 等）
 )
 
 target_include_directories(plc_vnext_tests
