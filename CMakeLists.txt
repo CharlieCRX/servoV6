@@ -60,6 +60,7 @@ if(NOT ANDROID)
 
     enable_testing()
     add_subdirectory(external/googletest)
+    add_subdirectory(infrastructure/plc_vnext)   # 定义独立 STATIC 库 plc_vnext
     add_subdirectory(tests)
 
 endif()

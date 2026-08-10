@@ -70,6 +70,34 @@
             "detail": "多线程编译 unit_tests（含耗时统计）"
         },
         {
+            "label": "cmake-build-plc-vnext",
+            "type": "shell",
+            "command": "${config:servo.cmakePath}",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build",
+                "--target",
+                "plc_vnext_tests",
+                "--parallel",
+                "${config:servo.cmakeBuildParallel}"
+            ],
+            "options": {
+                "env": {
+                    "PATH": "${config:servo.mingwBinDir};${config:servo.qtBinDir};${env:PATH}"
+                }
+            },
+            "group": {
+                "kind": "build"
+            },
+            "dependsOn": [
+                "cmake-configure"
+            ],
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "detail": "只编译独立测试 target plc_vnext_tests（含其依赖 plc_vnext 库）"
+        },
+        {
             "label": "cmake-clean",
             "type": "shell",
             "command": "cmd",

@@ -86,3 +86,9 @@ set_target_properties(unit_tests
 )
 
 gtest_discover_tests(unit_tests)
+
+# ==========================================
+# plc_vnext 独立测试通道（不复用旧 unit_tests）
+# 每个 Step 在 tests/infrastructure/plc_vnext/CMakeLists.txt 中显式追加测试文件
+# ==========================================
+add_subdirectory(infrastructure/plc_vnext)
