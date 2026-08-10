@@ -386,24 +386,43 @@ N_GROUPS = 2
 def read_standard_axis(client: ModbusTcpClient) -> Dict[str, object]:
     """读取并解析标准 16 轴 D 区（3.1）。"""
     result: Dict[str, object] = {}
-    for name, base, count, dtype, unit in STANDARD_AXIS_BLOCKS:
+    for name, base, element_count, dtype, unit in STANDARD_AXIS_BLOCKS:
+        word_width = _word_width(dtype)
+        register_count = element_count * word_width
         try:
-            regs = client.read_holding_registers(base, count)
+            # element_count 是轴/数组元素数量；FC03 的 count 必须是寄存器数量。
+            # 例如 16 个 REAL = 16 * 2 = 32 个 D 寄存器，覆盖 D0..D31。
+            regs = client.read_holding_registers(base, register_count)
         except Exception as e:
             result[name] = {"_error": str(e)}
             continue
-        width = 2 if dtype in ("REAL", "DINT") else 1
-        n_items = count // width
+
+        if len(regs) != register_count:
+            result[name] = {
+                "_error": f"寄存器数量不足: 期望 {register_count}, 实际 {len(regs)}"
+            }
+            continue
+
         values = []
-        for i in range(n_items):
-            off = i * width
+        for i in range(element_count):
+            off = i * word_width
             if dtype == "REAL":
                 values.append(_real32(regs[off], regs[off + 1]))
+            elif dtype == "DINT":
+                values.append(_dint32(regs[off], regs[off + 1]))
             elif dtype == "INT":
                 values.append(_to_int16(regs[off]))
             else:  # WORD
                 values.append(regs[off] & 0xFFFF)
-        result[name] = {"dtype": dtype, "unit": unit, "values": values}
+        result[name] = {
+            "dtype": dtype,
+            "unit": unit,
+            "base": base,
+            "element_count": element_count,
+            "word_width": word_width,
+            "register_count": register_count,
+            "values": values,
+        }
     return result
 
 
@@ -518,6 +537,13 @@ def _fmt_axis_block(name: str, info: object) -> List[str]:
     dtype = info["dtype"]
     unit = info["unit"]
     vals = info["values"]
+    word_width = info["word_width"]
+    base = info["base"]
+    register_count = info["register_count"]
+    lines.append(
+        f"  FC03 D{base}..D{base + register_count - 1} "
+        f"({info['element_count']} 项 × {word_width} D/{dtype})"
+    )
     for i, v in enumerate(vals):
         suffix = ""
         if dtype == "INT" and name.startswith("运动状态"):
@@ -528,14 +554,29 @@ def _fmt_axis_block(name: str, info: object) -> List[str]:
             bits = [ALARM_BITS[b] for b in sorted(ALARM_BITS) if v & (1 << b)]
             suffix = "  {" + "; ".join(bits) + "}" if bits else ""
         unit_s = f" [{unit}]" if unit else ""
-        lines.append(f"  i={i:>2}  D{_addr_of(name, i):>4}: {v}{unit_s}{suffix}")
+        address = base + i * word_width
+        lines.append(
+            f"  i={i:>2}  {_d_range(address, word_width):<13}: "
+            f"{v}{unit_s}{suffix}"
+        )
     return lines
+
+
+def _word_width(dtype: str) -> int:
+    """返回一个数组元素占用的 holding-register 数量。"""
+    return 2 if dtype in ("REAL", "DINT") else 1
+
+
+def _d_range(start: int, width: int = 1, bit: int | None = None) -> str:
+    """格式化 0 基址 D 地址；多字值明确打印完整范围。"""
+    text = f"D{start}" if width == 1 else f"D{start}..D{start + width - 1}"
+    return f"{text}.bit{bit}" if bit is not None else text
 
 
 def _addr_of(name: str, i: int) -> int:
     """根据块名与下标计算 D 原始地址（用于显示，参考 2.1 公式）。"""
     base = next((b[1] for b in STANDARD_AXIS_BLOCKS if b[0] == name), 0)
-    width = 2 if next((b[3] for b in STANDARD_AXIS_BLOCKS if b[0] == name), "") in ("REAL", "DINT") else 1
+    width = _word_width(next((b[3] for b in STANDARD_AXIS_BLOCKS if b[0] == name), ""))
     return base + i * width
 
 
@@ -559,56 +600,88 @@ def print_coils(coils: Dict[str, object]) -> None:
 def print_topology(topo: Dict[str, object]) -> None:
     print("[AxisTopology] D1400..D1577")
     h = topo["head"]
-    print(f"  Magic=0x{h['Magic']:08X}  SchemaVersion={h['SchemaVersion']}  "
-          f"Revision={h['Revision']}  ConfigCRC=0x{h['ConfigCRC']:08X}")
-    print(f"  ConfigValid={h['ConfigValid']}  ConfigErrorCode={h['ConfigErrorCode']}")
+    print(f"  Magic[{_d_range(1400, 2)}]=0x{h['Magic']:08X}  "
+          f"SchemaVersion[{_d_range(1402)}]={h['SchemaVersion']}  "
+          f"Revision[{_d_range(1404, 2)}]={h['Revision']}")
+    print(f"  ConfigCRC[{_d_range(1574, 2)}]=0x{h['ConfigCRC']:08X}  "
+          f"ConfigValid[{_d_range(1576, bit=0)}]={h['ConfigValid']}  "
+          f"ConfigErrorCode[{_d_range(1577)}]={h['ConfigErrorCode']}")
     for g, gf in enumerate(topo["groups"]):
-        print(f"  Group[{g}] Valid={gf['Valid']} HmiVisible={gf['HmiVisible']} "
-              f"GroupCode={gf['GroupCode']}({GROUPCODE_TEXT.get(gf['GroupCode'],'?')})")
+        group_base = GROUP_BASE + g * GROUP_STRIDE
+        print(f"  Group[{g}] D{group_base}..D{group_base + GROUP_STRIDE - 1}  "
+              f"Valid[{_d_range(group_base, bit=0)}]={gf['Valid']}  "
+              f"HmiVisible[{_d_range(group_base, bit=1)}]={gf['HmiVisible']}  "
+              f"GroupCode[{_d_range(group_base + 1)}]={gf['GroupCode']}"
+              f"({GROUPCODE_TEXT.get(gf['GroupCode'],'?')})")
         for r, rf in enumerate(gf["roles"]):
-            if not rf["Valid"]:
-                continue
-            print(f"    Role[{r}] PlcAxisIndex={rf['PlcAxisIndex']} MotorNo={rf['MotorNo']} "
-                  f"AxisClass={rf['AxisClass']}({AXIS_CLASS_TEXT.get(rf['AxisClass'],'?')}) "
-                  f"UnitType={rf['UnitType']}({UNIT_TYPE_TEXT.get(rf['UnitType'],'?')}) "
-                  f"MotionMode={rf['MotionMode']}({MOTION_MODE_TEXT.get(rf['MotionMode'],'?')})")
+            role_base = group_base + ROLE_BASE_IN_GROUP + r * ROLE_STRIDE
+            print(f"    Role[{r}] D{role_base}..D{role_base + ROLE_STRIDE - 1}  "
+                  f"Valid[{_d_range(role_base, bit=0)}]={rf['Valid']}  "
+                  f"HmiVisible[{_d_range(role_base, bit=1)}]={rf['HmiVisible']}")
+            print(f"      PlcAxisIndex[{_d_range(role_base + 1)}]={rf['PlcAxisIndex']}  "
+                  f"MotorNo[{_d_range(role_base + 2)}]={rf['MotorNo']}  "
+                  f"AxisClass[{_d_range(role_base + 3, 2)}]={rf['AxisClass']}"
+                  f"({AXIS_CLASS_TEXT.get(rf['AxisClass'],'?')})")
+            print(f"      UnitType[{_d_range(role_base + 5, 2)}]={rf['UnitType']}"
+                  f"({UNIT_TYPE_TEXT.get(rf['UnitType'],'?')})  "
+                  f"MotionMode[{_d_range(role_base + 7, 2)}]={rf['MotionMode']}"
+                  f"({MOTION_MODE_TEXT.get(rf['MotionMode'],'?')})  "
+                  f"Reserved[{_d_range(role_base + 9)}]={rf['Reserved']}")
     print()
 
 
 def print_gantry_param(params: Dict[str, object]) -> None:
     for g, p in params.items():
-        print(f"[GantryParam[{g}]] D{1600 + 22*g}..D{1621 + 22*g}")
-        print(f"  Valid={p['Valid']}  DirectionX1={p['DirectionX1']}  DirectionX2={p['DirectionX2']}")
-        print(f"  Ratio X1={p['RatioNumeratorX1']}/{p['RatioDenominatorX1']}  "
-              f"X2={p['RatioNumeratorX2']}/{p['RatioDenominatorX2']}")
-        print(f"  OffsetX1={p['PositionOffsetX1']:.4f}  OffsetX2={p['PositionOffsetX2']:.4f}")
-        print(f"  CoupleSkewLimit={p['CoupleSkewLimit']:.4f}  RunningSkewLimit={p['RunningSkewLimit']:.4f}")
-        print(f"  SkewDelayMs={p['SkewDelayMs']}  CoupleTimeoutMs={p['CoupleTimeoutMs']}  "
-              f"DecoupleTimeoutMs={p['DecoupleTimeoutMs']}")
+        base = 1600 + 22 * g
+        print(f"[GantryParam[{g}]] D{base}..D{base + 21}")
+        print(f"  Valid[{_d_range(base, bit=0)}]={p['Valid']}  "
+              f"DirectionX1[{_d_range(base + 1)}]={p['DirectionX1']}  "
+              f"DirectionX2[{_d_range(base + 2)}]={p['DirectionX2']}")
+        print(f"  Ratio X1[{_d_range(base + 3)}]={p['RatioNumeratorX1']}"
+              f"/[{_d_range(base + 4)}]={p['RatioDenominatorX1']}  "
+              f"X2[{_d_range(base + 5)}]={p['RatioNumeratorX2']}"
+              f"/[{_d_range(base + 6)}]={p['RatioDenominatorX2']}")
+        print(f"  OffsetX1[{_d_range(base + 7, 2)}]={p['PositionOffsetX1']:.4f}  "
+              f"OffsetX2[{_d_range(base + 9, 2)}]={p['PositionOffsetX2']:.4f}")
+        print(f"  CoupleSkewLimit[{_d_range(base + 11, 2)}]={p['CoupleSkewLimit']:.4f}  "
+              f"RunningSkewLimit[{_d_range(base + 13, 2)}]={p['RunningSkewLimit']:.4f}")
+        print(f"  SkewDelayMs[{_d_range(base + 15, 2)}]={p['SkewDelayMs']}  "
+              f"CoupleTimeoutMs[{_d_range(base + 17, 2)}]={p['CoupleTimeoutMs']}  "
+              f"DecoupleTimeoutMs[{_d_range(base + 19, 2)}]={p['DecoupleTimeoutMs']}")
         print()
 
 
 def print_gantry_command(cmds: Dict[str, object]) -> None:
     for g, c in cmds.items():
-        print(f"[GantryCommand[{g}]] Command={c['Command']}({CMD_TEXT.get(c['Command'],'?')})  "
-              f"RequestSeq={c['RequestSeq']}  Reserved={c['Reserved']}")
+        base = 180 + 4 * g
+        print(f"[GantryCommand[{g}]] D{base}..D{base + 3}  "
+              f"Command[{_d_range(base)}]={c['Command']}({CMD_TEXT.get(c['Command'],'?')})  "
+              f"RequestSeq[{_d_range(base + 1, 2)}]={c['RequestSeq']}  "
+              f"Reserved[{_d_range(base + 3)}]={c['Reserved']}")
     print()
 
 
 def print_gantry_status(sts: Dict[str, object]) -> None:
     for g, s in sts.items():
-        print(f"[GantryStatus[{g}]] D{190 + 18*g}..D{207 + 18*g}")
-        print(f"  State={s['State']}({STATE_TEXT.get(s['State'],'?')})  InternalStep={s['InternalStep']}")
-        print(f"  AckSeq={s['AckSeq']}  CommandResult={s['CommandResult']}"
+        base = 190 + 18 * g
+        print(f"[GantryStatus[{g}]] D{base}..D{base + 17}")
+        print(f"  State[{_d_range(base)}]={s['State']}({STATE_TEXT.get(s['State'],'?')})  "
+              f"InternalStep[{_d_range(base + 1)}]={s['InternalStep']}")
+        print(f"  AckSeq[{_d_range(base + 2, 2)}]={s['AckSeq']}  "
+              f"CommandResult[{_d_range(base + 4)}]={s['CommandResult']}"
               f"({CMD_RESULT_TEXT.get(s['CommandResult'],'?')})  "
-              f"CommandErrorCode={s['CommandErrorCode']}")
-        print(f"  ReadyToCouple={s['ReadyToCouple']}  ReadyToDecouple={s['ReadyToDecouple']}  "
-              f"MemberControlAllowed={s['MemberControlAllowed']}  "
-              f"LogicalControlAllowed={s['LogicalControlAllowed']}")
-        print(f"  X1InGear={s['X1InGear']}  X2InGear={s['X2InGear']}")
-        print(f"  X1Position={s['X1Position']:.4f}  X2Position={s['X2Position']:.4f}  "
-              f"LogicalPosition={s['LogicalPosition']:.4f}  Skew={s['Skew']:.4f}")
-        print(f"  Fault={s['Fault']}  FaultCode={s['FaultCode']}")
+              f"CommandErrorCode[{_d_range(base + 5)}]={s['CommandErrorCode']}")
+        print(f"  Flags[D{base + 6}.bit0..bit5]: ReadyToCouple={s['ReadyToCouple']}  "
+              f"ReadyToDecouple={s['ReadyToDecouple']}  MemberControlAllowed={s['MemberControlAllowed']}  "
+              f"LogicalControlAllowed={s['LogicalControlAllowed']}  "
+              f"X1InGear={s['X1InGear']}  X2InGear={s['X2InGear']}")
+        print(f"  X1Position[{_d_range(base + 7, 2)}]={s['X1Position']:.4f}  "
+              f"X2Position[{_d_range(base + 9, 2)}]={s['X2Position']:.4f}")
+        print(f"  LogicalPosition[{_d_range(base + 11, 2)}]={s['LogicalPosition']:.4f}  "
+              f"Skew[{_d_range(base + 13, 2)}]={s['Skew']:.4f}")
+        print(f"  Fault[{_d_range(base + 15, bit=0)}]={s['Fault']}  "
+              f"FaultCode[{_d_range(base + 16)}]={s['FaultCode']}  "
+              f"Reserved[{_d_range(base + 17)}]={s['Reserved']}")
         print()
 
 
@@ -652,7 +725,16 @@ def _run_selftest() -> None:
     # (3) INT16 有符号
     _assert("INT16 有符号", _to_int16(0x8000) == -32768 and _to_int16(0x0001) == 1)
 
-    # (4) 构建 AxisTopology 仿真寄存器，验证 group/role 偏移公式
+    # (4) 标准 16 槽位 REAL 数组：元素数与 FC03 寄存器数必须分开计算。
+    manual = next(b for b in STANDARD_AXIS_BLOCKS if b[0] == "手动速度")
+    _assert("16个 REAL 读取32个D",
+            manual[2] == 16 and _word_width(manual[3]) == 2
+            and manual[2] * _word_width(manual[3]) == 32)
+    _assert("REAL slot15 使用最后一对D",
+            _addr_of("手动速度", 15) == 30
+            and _d_range(_addr_of("手动速度", 15), 2) == "D30..D31")
+
+    # (5) 构建 AxisTopology 仿真寄存器，验证 group/role 偏移公式
     topo = [0] * 178
     # 头: D1400..1401 Magic=0x11223344, D1402 SchemaVersion=1, D1404..1405 Revision=7
     topo[0], topo[1] = 0x3344, 0x1122
@@ -694,7 +776,7 @@ def _run_selftest() -> None:
     _assert("B组 Valid 默认 FALSE", p["groups"][1]["Valid"] is False)
 
 
-    # (5) GantryStatus 仿真：State=3(已联动), AckSeq=9, InGear 全 TRUE
+    # (6) GantryStatus 仿真：State=3(已联动), AckSeq=9, InGear 全 TRUE
     st = [0] * 18
     st[0] = 3            # State
     st[1] = 80           # InternalStep=80 已联动
@@ -773,4 +855,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
