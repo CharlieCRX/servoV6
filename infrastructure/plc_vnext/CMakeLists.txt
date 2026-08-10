@@ -11,6 +11,9 @@
 
 add_library(plc_vnext STATIC
     PlcVnextAnchor.cpp
+    # ============ Step 2：codec ============
+    codec/RegisterCodec.cpp
+    codec/RawRegisterBlock.cpp
     # …… 每一步显式追加对应编译单元
 )
 

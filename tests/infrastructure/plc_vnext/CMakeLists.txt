@@ -10,7 +10,11 @@ add_executable(plc_vnext_tests
     contracts/test_plc_group_index.cpp
     contracts/test_communication_result.cpp
     contracts/test_read_result.cpp
-    # …… 每一步显式追加对应测试文件（如 Step 2 起追加 codec/test_register_codec.cpp 等）
+    # ============ Step 2：codec ============
+    codec/test_register_codec.cpp
+    codec/test_endian_policy.cpp
+    codec/test_raw_register_block.cpp
+    # …… 每一步显式追加对应测试文件（如 Step 3 起追加 layout/test_axis_slot_register_layout.cpp 等）
 )
 
 target_include_directories(plc_vnext_tests
