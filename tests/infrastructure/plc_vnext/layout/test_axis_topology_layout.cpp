@@ -34,6 +34,8 @@ TEST(AxisTopologyLayoutTest, RoleBase_Formula) {
 TEST(AxisTopologyLayoutTest, HeadFields_Offsets) {
     EXPECT_EQ(topologyMagic().value(), 1400);
     EXPECT_EQ(topologySchemaVersion().value(), 1402);
+    EXPECT_EQ(topologyRevision().value(), 1404);       // D1404..D1405 DINT
+    EXPECT_EQ(topologyConfigCRC().value(), 1574);      // D1574..D1575 DINT
     EXPECT_EQ(topologyConfigValid().value(), 1576);
     EXPECT_EQ(topologyConfigErrorCode().value(), 1577);
 }

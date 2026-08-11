@@ -47,6 +47,46 @@ TEST(AxisSlotRegisterLayoutTest, MotionState_Base128_Stride1) {
     }
 }
 
+TEST(AxisSlotRegisterLayoutTest, RelPosition_Base96_Stride2) {
+    EXPECT_EQ(relPosition(0).value(), 96);
+    EXPECT_EQ(relPosition(15).value(), 126);
+    for (int i = 0; i <= 15; ++i) {
+        EXPECT_EQ(relPosition(i).value(), 96 + 2 * i);
+    }
+}
+
+TEST(AxisSlotRegisterLayoutTest, MotionLimit_Base144_Stride1) {
+    EXPECT_EQ(motionLimit(0).value(), 144);
+    EXPECT_EQ(motionLimit(15).value(), 159);
+    for (int i = 0; i <= 15; ++i) {
+        EXPECT_EQ(motionLimit(i).value(), 144 + 1 * i);
+    }
+}
+
+TEST(AxisSlotRegisterLayoutTest, AlarmWord_Base160_Stride1) {
+    EXPECT_EQ(alarmWord(0).value(), 160);
+    EXPECT_EQ(alarmWord(15).value(), 175);
+    for (int i = 0; i <= 15; ++i) {
+        EXPECT_EQ(alarmWord(i).value(), 160 + 1 * i);
+    }
+}
+
+TEST(AxisSlotRegisterLayoutTest, AbsPosTarget_Base1096_Stride2) {
+    EXPECT_EQ(absPosTarget(0).value(), 1096);
+    EXPECT_EQ(absPosTarget(15).value(), 1126);
+    for (int i = 0; i <= 15; ++i) {
+        EXPECT_EQ(absPosTarget(i).value(), 1096 + 2 * i);
+    }
+}
+
+TEST(AxisSlotRegisterLayoutTest, RelPosTarget_Base1128_Stride2) {
+    EXPECT_EQ(relPosTarget(0).value(), 1128);
+    EXPECT_EQ(relPosTarget(15).value(), 1158);
+    for (int i = 0; i <= 15; ++i) {
+        EXPECT_EQ(relPosTarget(i).value(), 1128 + 2 * i);
+    }
+}
+
 TEST(AxisSlotRegisterLayoutTest, Slot0AndSlot15_Boundary) {
     // 槽位 0 与槽位 15 的各字段首地址互不重叠（字段连续排布）
     EXPECT_LT(manualSpeed(15).value(), positioningSpeed(0).value());
