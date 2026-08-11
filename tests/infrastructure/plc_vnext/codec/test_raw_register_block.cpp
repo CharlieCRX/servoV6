@@ -6,6 +6,8 @@
 // 不承载任何业务语义。
 // ============================================================================
 #include <cstdint>
+#include <limits>
+#include <stdexcept>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -61,6 +63,64 @@ TEST(RawRegisterBlockTest, Accessors_ExposeBounds) {
     EXPECT_EQ(block.wordCount(), 2);
     EXPECT_EQ(block.bitStart(), 100);
     EXPECT_EQ(block.bitCount(), 16);
+}
+
+TEST(RawRegisterBlockTest, Constructor_RejectsNegativeBitCount) {
+    EXPECT_THROW(
+        RawRegisterBlock(0, {}, 0, std::vector<uint8_t>{0x00}, -1),
+        std::invalid_argument);
+}
+
+TEST(RawRegisterBlockTest, Constructor_RejectsBitCountExceedingBuffer) {
+    // bitCount=16 但只提供 1 字节（容量 8 位）：越界，必须拒绝
+    EXPECT_THROW(
+        RawRegisterBlock(0, {}, 0, std::vector<uint8_t>{0x03}, 16),
+        std::invalid_argument);
+    // 空缓冲却要求 1 位同样非法
+    EXPECT_THROW(RawRegisterBlock(0, {}, 0, {}, 1), std::invalid_argument);
+}
+
+TEST(RawRegisterBlockTest, Constructor_AcceptsExactBoundaryCapacity) {
+    // bitCount == bits.size()*8：恰好容纳，合法
+    RawRegisterBlock block(0, {}, 0, std::vector<uint8_t>{0x03, 0x00}, 16);
+    EXPECT_EQ(block.bitCount(), 16);
+}
+
+TEST(RawRegisterBlockTest, GetBit_BoundaryWithinCapacity) {
+    // bitStart=100，bitCount=8（1 字节）：最高有效位为 offset 7
+    RawRegisterBlock block(0, {}, 100, std::vector<uint8_t>{0x00, 0x00}, 8);
+    // offset 7 在界内
+    EXPECT_TRUE(block.getBit(100 + 7).has_value());
+    // offset 8 越界（bitCount=8 只覆盖 100..107）
+    EXPECT_FALSE(block.getBit(100 + 8).has_value());
+}
+
+TEST(RawRegisterBlockTest, GetWords_NearIntMax_NoOverflow) {
+    // wordStart 接近 INT_MAX：旧实现 wordStart_ + words_.size() 用 int 会溢出，
+    // 新实现用宽整数计算仍应正确返回 / 判定越界，且测试自身不产生整数溢出。
+    const int kStart = std::numeric_limits<int>::max() - 1;
+    RawRegisterBlock block(kStart, std::vector<uint16_t>{0x1111, 0x2222},
+                           0, {}, 0);
+    // 合法：地址 kStart..kStart+1，upper = INT_MAX+1（宽整数，不溢出）
+    auto span = block.getWords(kStart, 2);
+    ASSERT_TRUE(span.has_value());
+    EXPECT_EQ((*span)[0], 0x1111);
+    EXPECT_EQ((*span)[1], 0x2222);
+    // 长度越界仍返回 nullopt，且不发生整数溢出
+    EXPECT_FALSE(block.getWords(kStart + 1, 2).has_value());
+    // 起点在起始地址之前
+    EXPECT_FALSE(block.getWords(kStart - 1, 1).has_value());
+}
+
+TEST(RawRegisterBlockTest, GetBit_NearIntMax_NoOverflow) {
+    // bitStart 接近 INT_MAX：旧实现 bitStart_ + bitCount_ 用 int 会溢出（wrap 为负），
+    // 使界内位被误判为越界；新实现用宽整数计算边界，界内位应正常返回。
+    // bitCount=2 只覆盖 kStart 与 kStart+1 两个地址，二者都可用 int 表示。
+    const int kStart = std::numeric_limits<int>::max() - 1;
+    RawRegisterBlock block(0, {}, kStart, std::vector<uint8_t>{0x03}, 2);
+    EXPECT_TRUE(block.getBit(kStart).has_value());
+    EXPECT_TRUE(block.getBit(kStart + 1).has_value());
+    EXPECT_FALSE(block.getBit(kStart - 1).has_value());
 }
 
 }  // namespace

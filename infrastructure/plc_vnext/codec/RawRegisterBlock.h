@@ -24,6 +24,10 @@ public:
     /// wordStart: 这批 Holding 寄存器在 PLC 协议地址空间中的起始地址（0 基址）
     /// bitStart : 这批 Coil 位在 PLC 协议地址空间中的起始地址
     /// bitCount : 位缓冲覆盖的总位数
+    ///
+    /// 一致性校验：bitCount 必须 >= 0 且 <= bits.size() * 8（ceil(bitCount/8) 字节
+    /// 必须能由 bits 缓冲容纳）。违例视为编程契约错误，抛 std::invalid_argument，
+    /// 避免后续 getBit 越界访问 bits_。
     RawRegisterBlock(int wordStart,
                      std::vector<uint16_t> words,
                      int bitStart,

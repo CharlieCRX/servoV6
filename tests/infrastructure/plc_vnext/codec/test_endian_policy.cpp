@@ -6,6 +6,7 @@
 // 验证四种 (ByteOrder, WordOrder) 组合对应的标准寄存器布局，与旧 RegisterCodec
 // 测试中的 ABCD / CDAB / DCBA / BADC 语义完全一致。
 // ============================================================================
+#include <array>
 #include <cstdint>
 
 #include <gtest/gtest.h>
@@ -60,6 +61,42 @@ TEST(EndianPolicyTest, Badc_LittleEndianHighWordFirst) {
     ASSERT_EQ(r.size(), 2u);
     EXPECT_EQ(r[0], 0x3412);
     EXPECT_EQ(r[1], 0x7856);
+}
+
+TEST(EndianPolicyTest, Dcba_DecodeKnownVector) {
+    // DCBA = LittleEndian + LowWordFirst
+    const std::array<uint16_t, 2> regs{0x7856, 0x3412};
+    int32_t out = 0;
+    auto err = RegisterCodec::decodeInt32(regs, kDCBA, out);
+    EXPECT_FALSE(err.has_value());
+    EXPECT_EQ(out, static_cast<int32_t>(0x12345678u));
+}
+
+TEST(EndianPolicyTest, Badc_DecodeKnownVector) {
+    // BADC = LittleEndian + HighWordFirst
+    const std::array<uint16_t, 2> regs{0x3412, 0x7856};
+    int32_t out = 0;
+    auto err = RegisterCodec::decodeInt32(regs, kBADC, out);
+    EXPECT_FALSE(err.has_value());
+    EXPECT_EQ(out, static_cast<int32_t>(0x12345678u));
+}
+
+TEST(EndianPolicyTest, Dcba_RoundTrip) {
+    constexpr int32_t kValue = static_cast<int32_t>(0x12345678u);
+    auto regs = RegisterCodec::encodeInt32(kValue, kDCBA);
+    int32_t out = 0;
+    auto err = RegisterCodec::decodeInt32(regs, kDCBA, out);
+    EXPECT_FALSE(err.has_value());
+    EXPECT_EQ(out, kValue);
+}
+
+TEST(EndianPolicyTest, Badc_RoundTrip) {
+    constexpr int32_t kValue = static_cast<int32_t>(0x12345678u);
+    auto regs = RegisterCodec::encodeInt32(kValue, kBADC);
+    int32_t out = 0;
+    auto err = RegisterCodec::decodeInt32(regs, kBADC, out);
+    EXPECT_FALSE(err.has_value());
+    EXPECT_EQ(out, kValue);
 }
 
 TEST(EndianPolicyTest, PolicyEquality_ValueSemantics) {

@@ -8,10 +8,10 @@
 //   - WordOrder::LowWordFirst  表示"多寄存器中低位字在前"
 //
 // 四种组合对应已知厂商布局（汇川 H5U 默认 = BigEndian + LowWordFirst，即 CDAB）：
-//   ABCD = BigEndian + HighWordFirst
-//   CDAB = BigEndian + LowWordFirst
-//   DCBA = LittleEndian + HighWordFirst
-//   BADC = LittleEndian + LowWordFirst
+//   ABCD = BigEndian   + HighWordFirst
+//   CDAB = BigEndian   + LowWordFirst
+//   DCBA = LittleEndian + LowWordFirst
+//   BADC = LittleEndian + HighWordFirst
 //
 // 纯基础类型：不依赖 Modbus / Qt / Domain；不出现任何地址常量或业务名称。
 // ============================================================================

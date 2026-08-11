@@ -9,6 +9,7 @@
 // ============================================================================
 #include <array>
 #include <cstdint>
+#include <limits>
 
 #include <gtest/gtest.h>
 
@@ -86,6 +87,48 @@ TEST(RegisterCodecTest, Int16_Signed_RoundTrip) {
     auto err = RegisterCodec::decodeInt16(regs, out);
     EXPECT_FALSE(err.has_value());
     EXPECT_EQ(out, kValue);
+}
+
+TEST(RegisterCodecTest, Dint_Min_RoundTrip) {
+    // INT32_MIN = 0x80000000：A=0x80，最高位为 1，是验证"无符号拼装"的关键用例。
+    // 若实现对 int32_t 做 (A<<24) 会触发有符号左移溢出（UB）。
+    constexpr int32_t kMin = std::numeric_limits<int32_t>::min();
+    auto regs = RegisterCodec::encodeInt32(kMin, kCDAB);
+    ASSERT_EQ(regs.size(), 2u);
+    EXPECT_EQ(regs[0], 0x0000);  // 低字在前：低 16 位 0x0000
+    EXPECT_EQ(regs[1], 0x8000);  // 高 16 位 0x8000
+
+    int32_t out = 0;
+    auto err = RegisterCodec::decodeInt32(regs, kCDAB, out);
+    EXPECT_FALSE(err.has_value());
+    EXPECT_EQ(out, kMin);
+}
+
+TEST(RegisterCodecTest, Dint_NegativeOne_RoundTrip) {
+    // -1 = 0xFFFFFFFF
+    constexpr int32_t kValue = -1;
+    auto regs = RegisterCodec::encodeInt32(kValue, kCDAB);
+    ASSERT_EQ(regs.size(), 2u);
+    EXPECT_EQ(regs[0], 0xFFFF);
+    EXPECT_EQ(regs[1], 0xFFFF);
+
+    int32_t out = 0;
+    auto err = RegisterCodec::decodeInt32(regs, kCDAB, out);
+    EXPECT_FALSE(err.has_value());
+    EXPECT_EQ(out, kValue);
+}
+
+TEST(RegisterCodecTest, Real_NegativeOne_RoundTrip) {
+    // -1.0f = 0xBF800000，位模式含符号位，覆盖负 REAL 的端序路径
+    auto regs = RegisterCodec::encodeFloat(-1.0f, kCDAB);
+    ASSERT_EQ(regs.size(), 2u);
+    EXPECT_EQ(regs[0], 0x0000);
+    EXPECT_EQ(regs[1], 0xBF80);
+
+    float out = 0.0f;
+    auto err = RegisterCodec::decodeFloat(regs, kCDAB, out);
+    EXPECT_FALSE(err.has_value());
+    EXPECT_FLOAT_EQ(out, -1.0f);
 }
 
 TEST(RegisterCodecTest, Bool_TrueIsNonZero) {

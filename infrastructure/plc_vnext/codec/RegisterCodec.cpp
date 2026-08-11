@@ -102,8 +102,13 @@ std::optional<DecodeError> RegisterCodec::decodeInt32(
         C = static_cast<uint8_t>(lowWord & 0xFFu);
     }
 
-    out = (static_cast<int32_t>(A) << 24) | (static_cast<int32_t>(B) << 16) |
-          (static_cast<int32_t>(C) << 8) | static_cast<int32_t>(D);
+    // 先用 uint32_t 拼装位模式再转 int32_t：避免对 int32_t 做 (A<<24) 时，
+    // 当 A 的最高位为 1（负 DINT / 负 REAL 的位模式）触发有符号左移溢出（UB）。
+    const uint32_t raw = (static_cast<uint32_t>(A) << 24) |
+                         (static_cast<uint32_t>(B) << 16) |
+                         (static_cast<uint32_t>(C) << 8) |
+                         static_cast<uint32_t>(D);
+    out = static_cast<int32_t>(raw);
     return std::nullopt;
 }
 
