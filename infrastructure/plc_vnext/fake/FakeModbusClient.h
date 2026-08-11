@@ -64,6 +64,9 @@ public:
     std::optional<uint16_t> readRegister(uint16_t address) const;
     std::optional<bool> readCoil(uint16_t address) const;
 
+    /// 读操作调用计数（供断言"只提交不读回"等契约）。FC01/FC03 均计入。
+    unsigned readCount() const;
+
     // —— IModbusClient ——
     contracts::CommunicationResult readCoils(uint16_t startAddress, uint16_t count,
                                              std::vector<uint8_t>& payload) override;
@@ -94,6 +97,7 @@ private:
 
     bool m_connected = true;
     unsigned m_reconnectCount = 0;
+    unsigned m_readCount = 0;
 
     std::vector<contracts::CommunicationResult::Status> m_faultQueue;
     std::string m_faultDiag;

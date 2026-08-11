@@ -100,9 +100,7 @@ infrastructure/
    ├─ command/                                # 协议写入；不决定“是否应该运动”
    │  ├─ PlcAxisCommandWriter.h/.cpp          # 槽位参数、目标、停止、使能、点动的编码和写入
    │  ├─ PlcGantryCommandWriter.h/.cpp        # Command 后 RequestSeq 的有序写入
-   │  ├─ EdgeTriggerWriter.h/.cpp             # 必须脉冲的命令：ON -> 记录待关断 -> OFF
-   │  ├─ PendingEdge.h                        # 待完成脉冲；仅协议级生命周期数据
-   │  └─ CommandWritePolicy.h                 # 幂等/不可重放分类，禁止断线后重放触发
+   │  └─ CommandWritePolicy.h                 # 保持电平 / PLC 自复位分类（触发由 PLC 自动复位）
    │
    ├─ diagnostics/                            # 可观察性 DTO/格式化，logger 实现在外部复用
    │  ├─ PlcDiagnosticEvent.h                 # 地址、操作、耗时、错误、Revision 等结构化事件
@@ -182,12 +180,12 @@ sequenceDiagram
     PLC-->>W: 正常/异常响应
     W-->>APP: CommunicationResult
     APP->>GW: writeAxis(slot, TriggerAbsMove)
-    GW->>W: 发送触发（若 PLC 要求则边沿ON/OFF）
+    GW->>W: 发送触发（PLC 自动复位，只写 ON）
     W->>PLC: 写触发寄存器
     W-->>APP: CommunicationResult
 ```
 
-目标和触发永远是两次独立调用。`CommunicationResult::ok()` 仅表示 PLC 通讯已确认写入，不表示运动已发生；运动结果必须从下一轮 `RuntimeSnapshot` 读取。
+目标和触发永远是两次独立调用。`CommunicationResult::ok()` 仅表示 PLC 通讯已确认写入，**不表示运动已发生，也不表示 PLC 已执行并自动复位触发线圈**；触发/终止/清除线圈的"读回确认"由 Step 10/11 的 telemetry/ack reader 异步读取 `RuntimeSnapshot` 完成，命令 writer 只负责提交，不做读回。
 
 ### 4.4 联动命令
 
@@ -262,7 +260,7 @@ public:
 3. `layout`：16 槽位全部地址公式、相邻字段不重叠、两组联动地址测试。
 4. `topology`：有效拓扑、无效角色、重复槽位、版本不匹配、Revision 两次读取变化测试。
 5. `telemetry`：连续区间合并、完整快照、部分失败、不可信/过期快照测试。
-6. `command`：目标/触发分离、写入顺序、边沿 OFF、断线后不重放测试。
+6. `command`：目标/触发分离、写入顺序、自复位只写 ON、断线后不重放测试。
 7. `PlcRuntimeGateway`：FakeModbus 端到端测试；仍不连接 `SystemContext`。
 8. 真实 PLC 只读验收：先拓扑、再运行快照、最后再引入单项写入验收。
 

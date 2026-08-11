@@ -107,6 +107,11 @@ std::optional<bool> FakeModbusClient::readCoil(uint16_t address) const {
     return it->second;
 }
 
+unsigned FakeModbusClient::readCount() const {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    return m_readCount;
+}
+
 // ============================================================
 //  内部故障判定
 // ============================================================
@@ -151,6 +156,7 @@ CommunicationResult FakeModbusClient::readCoils(uint16_t startAddress,
                                                 uint16_t count,
                                                 std::vector<uint8_t>& payload) {
     std::lock_guard<std::mutex> lock(m_mtx);
+    ++m_readCount;
     if (auto r = ensureConnected(); !r.ok()) return r;
     if (auto r = ensureValidRange(startAddress, count); !r.ok()) return r;
     auto fault = consumeScriptedFault();
@@ -174,6 +180,7 @@ CommunicationResult FakeModbusClient::readCoils(uint16_t startAddress,
 CommunicationResult FakeModbusClient::readHoldingRegisters(
     uint16_t startAddress, uint16_t count, std::vector<uint16_t>& payload) {
     std::lock_guard<std::mutex> lock(m_mtx);
+    ++m_readCount;
     if (auto r = ensureConnected(); !r.ok()) return r;
     if (auto r = ensureValidRange(startAddress, count); !r.ok()) return r;
     auto fault = consumeScriptedFault();

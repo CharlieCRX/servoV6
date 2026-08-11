@@ -571,36 +571,27 @@ infrastructure/plc_vnext/telemetry/SnapshotQuality.h
 | `WriteCoil_EnableAxis` | `M(0+i)` 保持电平写 ON/OFF |
 | `WriteCommand_ReportsCommResult` | 返回 `CommunicationResult`，不伪造执行成功 |
 
-`tests/infrastructure/plc_vnext/command/test_edge_trigger_writer.cpp`：
-
-| 用例 | 断言 |
-| --- | --- |
-| `PulseWrites_ThenOff` | 需要脉冲的命令 ON → 记录待关断 → 后续 OFF |
-| `Disconnect_DoesNotReplayPulse` | 断线后不重放触发（禁止重放） |
-| `EdgeComplete_MarksDone` | `PendingEdge` 生命周期闭环 |
-
 `tests/infrastructure/plc_vnext/command/test_command_write_policy.cpp`：
 
 | 用例 | 断言 |
 | --- | --- |
 | `LevelHold_Classified` | 保持电平命令可重复写（使能/点动/心跳） |
-| `PulseTrigger_Classified` | 触发类命令不可重放、需边沿 |
-| `SelfReset_Classified` | PLC 自复位命令只写 ON |
+| `SelfReset_Classified` | PLC 自复位命令只写 ON（触发/终止/清除） |
 
 ### 8.2 绿 —— 实现
 
 ```text
 infrastructure/plc_vnext/contracts/PlcCommand.h
 infrastructure/plc_vnext/command/PlcAxisCommandWriter.h / .cpp
-infrastructure/plc_vnext/command/EdgeTriggerWriter.h / .cpp
-infrastructure/plc_vnext/command/PendingEdge.h
 infrastructure/plc_vnext/command/CommandWritePolicy.h
 ```
 
 ### 8.3 重构 / 完成条件（受控切换）
 
 - 先只对**一个安全命令类别**（例如"手动速度"参数写）从旧路径受控切到新 writer。
-- 完成条件：写入顺序、边沿、断线重放禁止三项测试全绿；`--selftest` 对拍。
+- 完成条件：写入顺序、自复位只写 ON、断线后不重放测试全绿；`--selftest` 对拍。
+- 触发/终止线圈（M48/M64/M144/M160）由 PLC 当前版本自动复位：客户端只写 ON、无需配对 OFF，不实现客户端 ON→OFF 边沿脉冲。
+- **职责边界**：`PlcAxisCommandWriter` 只负责提交——`CommunicationResult::ok()` 仅证明写请求到达 PLC，**不证明 PLC 已执行并自动复位**。触发/终止/清除线圈的"读回确认"由 Step 10/11 的 telemetry/ack reader 异步完成，不属于 writer 职责；writer 层测试只验证"提交一次/断线无重放/无读回"，不实现读回确认。
 - **禁止**：任何运动触发双写；跨类别一次性全量切换。
 
 ---
