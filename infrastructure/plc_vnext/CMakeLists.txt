@@ -14,6 +14,8 @@ add_library(plc_vnext STATIC
     # ============ Step 2：codec ============
     codec/RegisterCodec.cpp
     codec/RawRegisterBlock.cpp
+    # ============ Step 4：ReadPlanBuilder ============
+    layout/ReadPlanBuilder.cpp
     # …… 每一步显式追加对应编译单元
 )
 

@@ -18,6 +18,8 @@ add_executable(plc_vnext_tests
     layout/test_axis_slot_register_layout.cpp
     layout/test_axis_topology_layout.cpp
     layout/test_gantry_layout.cpp
+    # ============ Step 4：ReadPlanBuilder ============
+    layout/test_read_plan_builder.cpp
     # …… 每一步显式追加对应测试文件
 )
 

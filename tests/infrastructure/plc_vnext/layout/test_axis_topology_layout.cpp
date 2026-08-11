@@ -1,8 +1,6 @@
 // ============================================================================
 // test_axis_topology_layout.cpp —— Step 3 layout: AxisTopology 头部/组/角色地址
 // ============================================================================
-// 红：本文件引用的 infrastructure/plc_vnext/layout/AxisTopologyLayout.h 尚不存在，
-//     预期编译失败；实现后应全绿。
 // 与 tools/plc_read_validate.py 的 TOPOLOGY_BASE / GROUP_BASE / GROUP_STRIDE /
 // ROLE_BASE_IN_GROUP / ROLE_STRIDE 及地址表 §5 完全一致。
 // ============================================================================

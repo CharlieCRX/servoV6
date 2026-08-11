@@ -1,8 +1,6 @@
 // ============================================================================
 // test_axis_slot_register_layout.cpp —— Step 3 layout: 槽位 0..15 地址公式
 // ============================================================================
-// 红：本文件引用的 infrastructure/plc_vnext/layout/AxisSlotRegisterLayout.h
-//     尚不存在，预期编译失败；实现后应全绿。
 // 地址公式与《PLC变量协议_Modbus最终地址表.md》§3.1 及
 // tools/plc_read_validate.py STANDARD_AXIS_BLOCKS 完全一致：
 //   REAL 每项占 2 D，INT/WORD 每项占 1 D；0 基址。

@@ -1,8 +1,6 @@
 // ============================================================================
 // test_communication_result.cpp —— Step 1 contracts: CommunicationResult
 // ============================================================================
-// 红：本文件引用的 infrastructure/plc_vnext/contracts/CommunicationResult.h
-//     尚不存在，预期编译失败；实现后应全绿。
 // 语义与旧 infrastructure/ISystemDriver.h 的 CommunicationResult 逐字段一致，
 // 但零 include 依赖。
 // ============================================================================

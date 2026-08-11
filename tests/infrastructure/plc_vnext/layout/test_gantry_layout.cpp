@@ -1,8 +1,6 @@
 // ============================================================================
 // test_gantry_layout.cpp —— Step 3 layout: 龙门 Command/Status/Param 组级布局
 // ============================================================================
-// 红：本文件引用的 infrastructure/plc_vnext/layout/GantryLayout.h 尚不存在，
-//     预期编译失败；实现后应全绿。
 // 与 tools/plc_read_validate.py read_gantry_command/status/param 及地址表 §6/7/8 一致：
 //   GantryCommand 基址 D180、步长 4；GantryStatus 基址 D190、步长 18；
 //   GantryParam 基址 D1600、步长 22。
