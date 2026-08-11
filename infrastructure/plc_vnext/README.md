@@ -1,6 +1,6 @@
 # plc_vnext —— PLC 通讯基础设施层（重构新实现）
 
-> 状态：Step 0 脚手架、Step 1 (contracts) 与 Step 2 (codec) 已完成。后续自 Step 3 (layout) 起逐步加入。
+> 状态：Step 0 脚手架、Step 1 (contracts)、Step 2 (codec) 与 Step 3 (layout) 已完成。后续自 Step 4 (ReadPlan) 起逐步加入。
 > 依据：《docs/refactor/PLC通讯基础设施层重构——TDD实施文档.md》与《PLC通讯基础设施层重构设计.md》。
 
 ## 模块边界

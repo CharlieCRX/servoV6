@@ -14,7 +14,11 @@ add_executable(plc_vnext_tests
     codec/test_register_codec.cpp
     codec/test_endian_policy.cpp
     codec/test_raw_register_block.cpp
-    # …… 每一步显式追加对应测试文件（如 Step 3 起追加 layout/test_axis_slot_register_layout.cpp 等）
+    # ============ Step 3：layout ============
+    layout/test_axis_slot_register_layout.cpp
+    layout/test_axis_topology_layout.cpp
+    layout/test_gantry_layout.cpp
+    # …… 每一步显式追加对应测试文件
 )
 
 target_include_directories(plc_vnext_tests
