@@ -16,6 +16,10 @@ add_library(plc_vnext STATIC
     codec/RawRegisterBlock.cpp
     # ============ Step 4：ReadPlanBuilder ============
     layout/ReadPlanBuilder.cpp
+    # ============ Step 5：transport / Fake ============
+    transport/ModbusIoExecutor.cpp
+    transport/ConnectionMonitor.cpp
+    fake/FakeModbusClient.cpp
     # …… 每一步显式追加对应编译单元
 )
 

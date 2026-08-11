@@ -20,6 +20,10 @@ add_executable(plc_vnext_tests
     layout/test_gantry_layout.cpp
     # ============ Step 4：ReadPlanBuilder ============
     layout/test_read_plan_builder.cpp
+    # ============ Step 5：transport / Fake ============
+    transport/test_imodbus_client_contract.cpp
+    transport/test_modbus_io_executor.cpp
+    transport/test_connection_monitor.cpp
     # …… 每一步显式追加对应测试文件
 )
 
