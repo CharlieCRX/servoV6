@@ -24,6 +24,11 @@ add_executable(plc_vnext_tests
     transport/test_imodbus_client_contract.cpp
     transport/test_modbus_io_executor.cpp
     transport/test_connection_monitor.cpp
+    # ============ Step 6：topology ============
+    topology/test_topology_decoder.cpp
+    topology/test_topology_validator.cpp
+    topology/test_topology_reader.cpp
+    topology/test_plc_topology_real_dump.cpp
     # …… 每一步显式追加对应测试文件
 )
 

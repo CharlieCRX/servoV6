@@ -20,6 +20,10 @@ add_library(plc_vnext STATIC
     transport/ModbusIoExecutor.cpp
     transport/ConnectionMonitor.cpp
     fake/FakeModbusClient.cpp
+    # ============ Step 6：topology ============
+    topology/TopologyDecoder.cpp
+    topology/TopologyValidator.cpp
+    topology/PlcTopologyReader.cpp
     # …… 每一步显式追加对应编译单元
 )
 
