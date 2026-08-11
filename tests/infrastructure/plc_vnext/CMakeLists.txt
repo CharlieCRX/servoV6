@@ -29,6 +29,10 @@ add_executable(plc_vnext_tests
     topology/test_topology_validator.cpp
     topology/test_topology_reader.cpp
     topology/test_plc_topology_real_dump.cpp
+    # ============ Step 7：telemetry ============
+    telemetry/test_axis_snapshot_decoder.cpp
+    telemetry/test_gantry_status_reader.cpp
+    telemetry/test_snapshot_reader.cpp
     # …… 每一步显式追加对应测试文件
 )
 

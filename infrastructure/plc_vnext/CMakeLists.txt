@@ -24,6 +24,10 @@ add_library(plc_vnext STATIC
     topology/TopologyDecoder.cpp
     topology/TopologyValidator.cpp
     topology/PlcTopologyReader.cpp
+    # ============ Step 7：telemetry ============
+    telemetry/AxisSnapshotDecoder.cpp
+    telemetry/GantryStatusReader.cpp
+    telemetry/PlcSnapshotReader.cpp
     # …… 每一步显式追加对应编译单元
 )
 
