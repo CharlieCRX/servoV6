@@ -34,6 +34,8 @@ add_library(plc_vnext STATIC
     command/PlcGantryCommandWriter.cpp
     # ============ Step 10：PlcRuntimeGateway（组合门面）============
     PlcRuntimeGateway.cpp
+    # ============ Step 11：fake 收尾（应用层高层假实现）============
+    fake/FakePlcRuntimeGateway.cpp
     # …… 每一步显式追加对应编译单元
 )
 

@@ -42,6 +42,9 @@ add_executable(plc_vnext_tests
     command/test_gantry_request.cpp
     # ============ Step 10：PlcRuntimeGateway（组合门面）============
     integration/test_plc_runtime_gateway.cpp
+    # ============ Step 11：fake 收尾 ============
+    fake/test_plc_fixture_builder.cpp
+    fake/test_fake_plc_runtime_gateway.cpp
     # …… 每一步显式追加对应测试文件
 )
 

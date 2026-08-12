@@ -1,8 +1,9 @@
 # plc_vnext —— PLC 通讯基础设施层（重构新实现）
 
-> 状态：Step 0 脚手架、Step 1 (contracts)、Step 2 (codec)、Step 3 (layout)、Step 4 (ReadPlanBuilder)、Step 5 (transport/Fake)、Step 6 (topology)、Step 7 (telemetry)、Step 8 (command，单轴写路径离线 TDD)、Step 9 (command，龙门请求写路径离线 TDD) 与 Step 10 (PlcRuntimeGateway 组合门面) 已完成。后续自 Step 11 (fake 收尾 + 真实 PLC 只读验收) 起逐步加入。
+> 状态：Step 0 脚手架、Step 1 (contracts)、Step 2 (codec)、Step 3 (layout)、Step 4 (ReadPlanBuilder)、Step 5 (transport/Fake)、Step 6 (topology)、Step 7 (telemetry)、Step 8 (command，单轴写路径离线 TDD)、Step 9 (command，龙门请求写路径离线 TDD)、Step 10 (PlcRuntimeGateway 组合门面) 与 Step 11 (fake 收尾 + 真实 PLC 只读验收准备) 已完成。后续自 Step 12 (影子迁移与交接准备) 起逐步加入。
 > 注：Step 8 仅开放 Fake 下的写入设计（测试注入 `FakeModbusClient`）；**真机写入保持关闭**——未接入 `AsioModbusTcpClient` 的写路径，不对运行设备产生任何写操作。真实 PLC 写验收属于受控上线活动（Step 8/9/11 完成条件）。触发/终止线圈由 PLC 当前版本自动复位：客户端只写 ON、无需配对 OFF，已移除客户端 ON→OFF 边沿脉冲机制。`PlcAxisCommandWriter` 只负责提交（`CommunicationResult::ok()` 仅证明写到达）；"读回确认"由 Step 10/11 的 telemetry/ack reader 异步完成，writer 不做读回。
 > 注（Step 10）：Gateway 内部创建唯一 `ModbusIoExecutor`（实现 `IModbusClient`）作为所有 reader/writer 的共享串行化通道；龙门提交经 `executeGroup` 把 `Command→RequestSeq` 包成全局临界区，单轴写 / telemetry 读 / 其它龙门提交不会插入其间。Gateway 缺省 `groupGate` 只放行 Group 0（B 组默认拒绝）。龙门 writer 新增 `submitDetailed()`、Gateway 新增 `submitGantryRequestDetailed()`，返回 `GantrySubmitResult`（阶段 + 本次 requestSeq），其中 RequestSeq 写失败 → `CommitUncertain`（Command 可能已写、PLC 可能已收也可能没收），由 ack reader 按 `AckSeq == requestSeq` 判定，禁止据此立即重发；`submitGantryRequest()` 保留为兼容入口（仅返回底层通讯结果）。
+> 注（Step 11）：补齐应用层 TDD 用的高层假实现 `fake/FakePlcRuntimeGateway`（实现 `IPlcRuntimeGateway`，直接产出已解码 contracts DTO，可脚本化故障、记录写入）与 `fake/PlcFixtureBuilder.h`（构造有效/无效拓扑快照与 16 槽位+龙门状态运行快照）。**真实 PLC 只读验收**（readTopology 对拍 `plc_read_validate.py --only topology`、readRuntime 对拍 `--only axis/status`）仍需在维护窗口现场执行并把读数固化为脱敏 fixture（TDD 文档 §11.2）；本步骤离线交付的是假实现、夹具与测试。
 
 > 依据：《docs/refactor/PLC通讯基础设施层重构——TDD实施文档.md》与《PLC通讯基础设施层重构设计.md》。
 
