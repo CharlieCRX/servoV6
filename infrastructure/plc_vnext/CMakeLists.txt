@@ -32,6 +32,8 @@ add_library(plc_vnext STATIC
     command/PlcAxisCommandWriter.cpp
     # ============ Step 9：command（龙门请求，仅 Fake 离线 TDD）============
     command/PlcGantryCommandWriter.cpp
+    # ============ Step 10：PlcRuntimeGateway（组合门面）============
+    PlcRuntimeGateway.cpp
     # …… 每一步显式追加对应编译单元
 )
 

@@ -626,6 +626,8 @@ infrastructure/plc_vnext/command/PlcGantryCommandWriter.h / .cpp
 
 - 按 PLC 契约使用两次**有序事务**：先写 `Command`，待正常 Modbus 响应后再写 `RequestSeq`。不能用一次 FC10 把二者合并，因为它无法表达“序号最后提交”的提交屏障。
 - writer 不维护跨请求的序号状态；序号属于 application/session 的请求身份。基础设施仅保证传入的序号与写入顺序正确。
+- `None=0` 是 PLC 寄存器的“无命令状态”，不是有效事务：writer 本地拒绝（`isCommandCodeValid` 仅接受 1..3），零写入，不得提交带新序号的 `None`。
+- **提交不确定性**：`submit()` 保留返回 `CommunicationResult`（兼容旧契约）；新增 `submitDetailed()` 返回 `GantrySubmitResult{GantrySubmitState}`。其中 RequestSeq 写失败 → `CommitUncertain`（PLC 可能已收 Command 也可能没收到），由上层/ack reader 按 AckSeq 判定最终结果；断线期间绝不自动重发。
 - `plc_read_validate.py` 当前为只读工具，没有 `--command` 参数；真实 PLC 的命令验收必须使用单独的、维护模式下的受控写入工具和操作记录，不能伪称由该脚本对拍。
 - **禁止**：写 `GearIn/GearOut`、写控制许可、判定联动成功。
 
@@ -649,6 +651,8 @@ infrastructure/plc_vnext/command/PlcGantryCommandWriter.h / .cpp
 | `ConnectionState_Exposed` | `connectionState()` 返回连接状态 |
 | `RequestReconnect_Delegated` | `requestReconnect()` 委托 transport |
 | `DoesNotTouchSystemContext` | 接口签名不含 `SystemContext`/`Axis`/ViewModel |
+| `SubmitGantryRequest_Group1_DefaultRejected` | 缺省 gate 只放行 Group 0（B 组默认拒绝、零写入） |
+| `ConcurrentIo_DoesNotInterleaveGantryCommit` | 单轴写/telemetry 读并发时，`Command` 后必须紧跟 `RequestSeq`（共享通道成组原子） |
 
 ### 10.2 绿 —— 实现
 
@@ -671,6 +675,8 @@ public:
         contracts::PlcAxisSlot slot, const contracts::PlcAxisCommand& cmd) = 0;
     virtual contracts::CommunicationResult submitGantryRequest(
         contracts::PlcGroupIndex g, const contracts::GantryRequest& req) = 0;
+    virtual contracts::GantrySubmitResult submitGantryRequestDetailed(
+        contracts::PlcGroupIndex g, const contracts::GantryRequest& req) = 0;
     virtual contracts::ConnectionState connectionState() const = 0;
     virtual void requestReconnect() = 0;
 };
@@ -680,6 +686,8 @@ public:
 ### 10.3 重构 / 完成条件
 
 - FakeModbus 下全链路端到端通过。
+- **共享串行化通道**：所有 reader/writer 统一注入同一个 `transport::ModbusIoExecutor`（实现 `IModbusClient`）；龙门提交用 `executeGroup` 把 `Command→RequestSeq` 包成全局临界区，单轴写 / telemetry 读 / 其它龙门提交不得插入其间（跨组件成组原子）。
+- **B 组默认拒绝**：Gateway 缺省 `groupGate` 只放行 Group 0，除非调用方显式注入其它策略——“当前 B 组禁用”不得只依赖调用方记得传 gate。
 - **禁止**：在 Gateway 内出现联动业务编排、重试策略、超时判定、ViewModel。
 
 ---

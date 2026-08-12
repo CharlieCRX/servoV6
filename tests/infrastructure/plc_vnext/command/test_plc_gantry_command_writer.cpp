@@ -25,6 +25,7 @@
 
 #include "infrastructure/plc_vnext/command/PlcGantryCommandWriter.h"
 #include "infrastructure/plc_vnext/contracts/GantryRequest.h"
+#include "infrastructure/plc_vnext/contracts/GantrySubmitResult.h"
 #include "infrastructure/plc_vnext/contracts/PlcGroupIndex.h"
 #include "infrastructure/plc_vnext/fake/FakeModbusClient.h"
 #include "infrastructure/plc_vnext/layout/GantryLayout.h"
@@ -375,6 +376,53 @@ TEST(PlcGantryCommandWriterTest, ConcurrentSubmits_CommandSeqNeverInterleave) {
         EXPECT_NE(log[i], log[i + 1])
             << "interleaved Command/RequestSeq at log index " << i;
     }
+}
+
+// ─────────────────────────────────────────────
+// None=0 是 PLC 寄存器的"无命令状态"，不是有效事务：必须本地拒绝、零写入
+// ─────────────────────────────────────────────
+TEST(PlcGantryCommandWriterTest, NoneCommand_IsRejectedWithoutAnyWrite) {
+    auto fake = std::make_shared<fake::FakeModbusClient>();
+    auto client = std::make_shared<OrderLoggingClient>(fake);
+    command::PlcGantryCommandWriter writer(client);
+
+    // 默认构造：command=None(0)、requestSeq=0。
+    contracts::GantryRequest none;
+    auto detail = writer.submitDetailed(kG0, none);
+
+    EXPECT_EQ(detail.state, contracts::GantrySubmitState::RejectedLocally);
+    EXPECT_FALSE(detail.ok());
+    EXPECT_EQ(detail.result.status, CommunicationResult::Status::ProtocolError);
+
+    // 零写入：没有任何 I/O 发出（日志为空），也不写 RequestSeq。
+    EXPECT_EQ(client->log(), (std::vector<char>{}));
+    EXPECT_TRUE(fake->writtenRegisters().empty());
+    EXPECT_TRUE(fake->writtenMulti().empty());
+}
+
+// ─────────────────────────────────────────────
+// Command 成功、RequestSeq 失败 → CommitUncertain：
+// PLC 可能已收 Command 也可能没收到，绝不能据此生成新序号重发
+// ─────────────────────────────────────────────
+TEST(PlcGantryCommandWriterTest, SeqFailure_ReportsCommitUncertain) {
+    auto fake = std::make_shared<fake::FakeModbusClient>();
+    command::PlcGantryCommandWriter writer(fake);
+
+    // Command(D180) 成功；RequestSeq(D181) 起失败（响应丢失/超时语义）。
+    fake->setFailureThreshold(static_cast<uint16_t>(
+        layout::gantryCommand(0).requestSeq.value()));  // 181
+
+    auto detail = writer.submitDetailed(kG0, GantryRequest::couple(1));
+
+    // 提交阶段必须是 CommitUncertain（Command 已写、RequestSeq 结果未知）。
+    EXPECT_EQ(detail.state, contracts::GantrySubmitState::CommitUncertain);
+    EXPECT_FALSE(detail.ok());
+    EXPECT_TRUE(detail.committedUnknown());
+    EXPECT_FALSE(detail.result.ok());
+
+    // 只写了一次 Command；RequestSeq 未落盘；不自动重发 Command。
+    EXPECT_EQ(fake->writtenRegisters().size(), 1u);
+    EXPECT_TRUE(fake->writtenMulti().empty());
 }
 
 }  // namespace

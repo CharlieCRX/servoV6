@@ -12,7 +12,8 @@ contracts::CommunicationResult ModbusIoExecutor::execute(
     const ModbusRequest& request, ModbusResponse& response) {
     // 整笔事务在互斥锁临界区内完成：从发起请求到填好响应之间，
     // 其它线程的任何 I/O 请求都必须等待，从根本上杜绝事务交叉。
-    std::lock_guard<std::mutex> lock(m_ioMutex);
+    // recursive_mutex：允许 executeGroup 组锁内重入单笔 execute。
+    std::lock_guard<std::recursive_mutex> lock(m_ioMutex);
 
     // 复位响应，避免上一次读回的数据残留被误当作本次结果。
     response = ModbusResponse{};
@@ -91,6 +92,14 @@ contracts::CommunicationResult ModbusIoExecutor::writeMultipleRegisters(
     ModbusResponse resp;
     return execute(ModbusRequest::writeMultipleRegisters(startAddress, values),
                    resp);
+}
+
+bool ModbusIoExecutor::isConnected() const {
+    return m_client && m_client->isConnected();
+}
+
+void ModbusIoExecutor::requestReconnect() {
+    if (m_client) m_client->requestReconnect();
 }
 
 }  // namespace plc_vnext::transport

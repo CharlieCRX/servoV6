@@ -40,6 +40,8 @@ add_executable(plc_vnext_tests
     # ============ Step 9：command（龙门请求，仅 Fake 离线 TDD）============
     command/test_plc_gantry_command_writer.cpp
     command/test_gantry_request.cpp
+    # ============ Step 10：PlcRuntimeGateway（组合门面）============
+    integration/test_plc_runtime_gateway.cpp
     # …… 每一步显式追加对应测试文件
 )
 

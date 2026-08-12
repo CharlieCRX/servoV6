@@ -29,6 +29,7 @@
 
 #include "infrastructure/plc_vnext/contracts/CommunicationResult.h"
 #include "infrastructure/plc_vnext/contracts/GantryRequest.h"
+#include "infrastructure/plc_vnext/contracts/GantrySubmitResult.h"
 #include "infrastructure/plc_vnext/contracts/PlcGroupIndex.h"
 #include "infrastructure/plc_vnext/transport/IModbusClient.h"
 
@@ -45,10 +46,18 @@ public:
                                     GroupGate groupGate = {});
 
     /// 提交一条龙门请求（组事务）。成功 = 两次有序写入均到达 PLC。
+    /// 保留返回 contracts::CommunicationResult 的旧契约（等价 submitDetailed().result）。
     contracts::CommunicationResult submit(contracts::PlcGroupIndex g,
                                           const contracts::GantryRequest& req);
 
-    /// 协议完整性：Command 仅允许 0/1/2/3（地址表 §7）。
+    /// 提交一条龙门请求，并返回更丰富的提交阶段（RejectedLocally /
+    /// CommandNotWritten / CommitUncertain / Submitted）。上层（Gateway / ack
+    /// reader）应优先使用本入口，以区分"确定未提交"与"提交结果未知"。
+    contracts::GantrySubmitResult submitDetailed(
+        contracts::PlcGroupIndex g, const contracts::GantryRequest& req);
+
+    /// 协议完整性：Command 仅允许 1/2/3（地址表 §7）。
+    /// None=0 是 PLC 寄存器的"无命令状态"，不是有效事务，必须本地拒绝、零写入。
     [[nodiscard]] static bool isCommandCodeValid(int16_t code);
 
 private:
