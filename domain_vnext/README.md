@@ -1,6 +1,6 @@
 # domain_vnext —— PLC 领域层（重构新实现）
 
-> 状态：**P1 model 已完成**（2026-08-12）。
+> 状态：**P1 model 已完成**、**P2 state 已完成**（2026-08-12）。
 > 依据：《docs/refactor/domain_vnext/Domain层重构设计——domain_vnext.md》。
 
 ## 目标
@@ -23,7 +23,7 @@
 | 目录 | 职责 |
 | --- | --- |
 | `model/` | 纯值对象 / 领域 DTO（AxisKey/AxisFunction/AxisState/AxisParameterSet/AxisCommand/GantryStatus/GantryParam/SafetyState） |
-| `state/` | 状态机（P2 起） |
+| `state/` | 状态机（CommandOutbox/AxisStateMachine/SafetyStateMachine/GantryCouplingStateMachine） |
 | `system/` | 组合根（P3 起） |
 | `command/` | 命令产出边界（P4 起） |
 | `gateway/` | 领域依赖的驱动抽象（P4 起） |
@@ -41,6 +41,15 @@
 | `model/GantryStatus.h` | GantryCouplingState 映射 + GantryStatusModel |
 | `model/GantryParam.h` | GantryParamModel（纯配置，只读） |
 | `model/SafetyState.h` | 急停五态 |
+
+## P2 state 交付清单
+
+| 文件 | 内容 |
+| --- | --- |
+| `state/CommandOutbox.h` | 批量意图槽位：参数按字段去重 + 运动保序（seq）+ 脉冲队列；drain 一次取走 |
+| `state/AxisStateMachine.h` | 单轴「意图->校验->命令入 Outbox」：系统锁定/龙门同步/轴忙校验，四接口解耦 |
+| `state/SafetyStateMachine.h` | 急停五态（M224/M225）+ EStopCommand + SafetyRejection |
+| `state/GantryCouplingStateMachine.h` | 龙门联动状态机：GantryStatus 映射 + RequestSeq 事务 + 多条件闭环 |
 
 ## 构建与测试（独立通道）
 

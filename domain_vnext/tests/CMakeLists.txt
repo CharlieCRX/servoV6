@@ -1,5 +1,5 @@
 # ==========================================
-# domain_vnext 独立测试通道（P1 model）
+# domain_vnext 独立测试通道（P1 model + P2 state）
 # ==========================================
 # 不复用旧 unit_tests；每个 Phase 在此显式追加对应测试文件（禁止 GLOB_RECURSE）。
 #
@@ -19,7 +19,12 @@ add_executable(domain_vnext_tests
     model/test_gantry_status.cpp
     model/test_gantry_param.cpp
     model/test_safety_state.cpp
-    # ============ P2 state（后续追加）============
+    # ============ P2 state ============
+    state/test_command_outbox.cpp
+    state/test_axis_state_machine.cpp
+    state/test_safety_state_machine.cpp
+    state/test_gantry_coupling_state_machine.cpp
+    # ============ P3 system（后续追加）============
     # …… 每个 Phase 在此显式追加对应测试文件
 )
 
