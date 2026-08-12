@@ -30,6 +30,8 @@ add_library(plc_vnext STATIC
     telemetry/PlcSnapshotReader.cpp
     # ============ Step 8：command（单轴写路径，仅 Fake 离线 TDD）============
     command/PlcAxisCommandWriter.cpp
+    # ============ Step 9：command（龙门请求，仅 Fake 离线 TDD）============
+    command/PlcGantryCommandWriter.cpp
     # …… 每一步显式追加对应编译单元
 )
 

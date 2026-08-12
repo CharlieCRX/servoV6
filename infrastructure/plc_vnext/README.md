@@ -1,6 +1,6 @@
 # plc_vnext —— PLC 通讯基础设施层（重构新实现）
 
-> 状态：Step 0 脚手架、Step 1 (contracts)、Step 2 (codec)、Step 3 (layout)、Step 4 (ReadPlanBuilder)、Step 5 (transport/Fake)、Step 6 (topology)、Step 7 (telemetry) 与 Step 8 (command，单轴写路径离线 TDD) 已完成。后续自 Step 9 (command 龙门请求) 起逐步加入。
+> 状态：Step 0 脚手架、Step 1 (contracts)、Step 2 (codec)、Step 3 (layout)、Step 4 (ReadPlanBuilder)、Step 5 (transport/Fake)、Step 6 (topology)、Step 7 (telemetry)、Step 8 (command，单轴写路径离线 TDD) 与 Step 9 (command，龙门请求写路径离线 TDD) 已完成。后续自 Step 10 (Gateway) 起逐步加入。
 > 注：Step 8 仅开放 Fake 下的写入设计（测试注入 `FakeModbusClient`）；**真机写入保持关闭**——未接入 `AsioModbusTcpClient` 的写路径，不对运行设备产生任何写操作。真实 PLC 写验收属于受控上线活动（Step 8/9/11 完成条件）。触发/终止线圈由 PLC 当前版本自动复位：客户端只写 ON、无需配对 OFF，已移除客户端 ON→OFF 边沿脉冲机制。`PlcAxisCommandWriter` 只负责提交（`CommunicationResult::ok()` 仅证明写到达）；"读回确认"由 Step 10/11 的 telemetry/ack reader 异步完成，writer 不做读回。
 > 依据：《docs/refactor/PLC通讯基础设施层重构——TDD实施文档.md》与《PLC通讯基础设施层重构设计.md》。
 
