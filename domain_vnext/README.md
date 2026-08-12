@@ -1,6 +1,6 @@
 # domain_vnext —— PLC 领域层（重构新实现）
 
-> 状态：**P1 model 已完成**、**P2 state 已完成**（2026-08-12）。
+> 状态：**P1 model 已完成**、**P2 state 已完成**、**P3 system 已完成**（2026-08-12）。
 > 依据：《docs/refactor/domain_vnext/Domain层重构设计——domain_vnext.md》。
 
 ## 目标
@@ -24,7 +24,7 @@
 | --- | --- |
 | `model/` | 纯值对象 / 领域 DTO（AxisKey/AxisFunction/AxisState/AxisParameterSet/AxisCommand/GantryStatus/GantryParam/SafetyState） |
 | `state/` | 状态机（CommandOutbox/AxisStateMachine/SafetyStateMachine/GantryCouplingStateMachine） |
-| `system/` | 组合根（P3 起） |
+| `system/` | 组合根（P3：AxisRegistry/GroupModel/AxisSystem/SystemBoot） |
 | `command/` | 命令产出边界（P4 起） |
 | `gateway/` | 领域依赖的驱动抽象（P4 起） |
 | `tests/` | TDD（target: `domain_vnext_tests`） |
@@ -50,6 +50,16 @@
 | `state/AxisStateMachine.h` | 单轴「意图->校验->命令入 Outbox」：系统锁定/龙门同步/轴忙校验，四接口解耦 |
 | `state/SafetyStateMachine.h` | 急停五态（M224/M225）+ EStopCommand + SafetyRejection |
 | `state/GantryCouplingStateMachine.h` | 龙门联动状态机：GantryStatus 映射 + RequestSeq 事务 + 多条件闭环 |
+
+## P3 system 交付清单
+
+| 文件 | 内容 |
+| --- | --- |
+| `system/AxisRegistry.h` | 全局 16 槽位 -> `Axis` 实体；`Axis` = 统一单轴（key/slot/角色）+ P2 状态机 + CommandOutbox |
+| `system/GroupModel.h` | 分组功能视图 `(AxisFunction->Axis&)` + 龙门控制器 + HmiVisible；`isReady()` 有效且未降级才可开放控制 |
+| `system/AxisSystem.h` | 组合根：注册表 + `GroupModel[2]` + 全局急停；`find(AxisKey)/findBySlot` |
+| `system/SystemBoot.h` | `TopologySnapshot -> AxisSystem` 动态建轴 / A/B 分组 / HmiVisible 判定 / 重复或非法配置降级锁定 |
+| `tests/system/test_system_boot.cpp` | P3 验证点：建轴、分组、HmiVisible、降级锁定 |
 
 ## 构建与测试（独立通道）
 
