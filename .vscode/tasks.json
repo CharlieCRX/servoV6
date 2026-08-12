@@ -98,6 +98,34 @@
             "detail": "只编译独立测试 target plc_vnext_tests（含其依赖 plc_vnext 库）"
         },
         {
+            "label": "cmake-build-domain-vnext",
+            "type": "shell",
+            "command": "${config:servo.cmakePath}",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build",
+                "--target",
+                "domain_vnext_tests",
+                "--parallel",
+                "${config:servo.cmakeBuildParallel}"
+            ],
+            "options": {
+                "env": {
+                    "PATH": "${config:servo.mingwBinDir};${config:servo.qtBinDir};${env:PATH}"
+                }
+            },
+            "group": {
+                "kind": "build"
+            },
+            "dependsOn": [
+                "cmake-configure"
+            ],
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "detail": "只编译独立测试 target domain_vnext_tests（含其依赖 domain_vnext 库）"
+        },
+        {
             "label": "cmake-clean",
             "type": "shell",
             "command": "cmd",
