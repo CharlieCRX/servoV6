@@ -62,6 +62,7 @@ if(NOT ANDROID)
     add_subdirectory(external/googletest)
     add_subdirectory(infrastructure/plc_vnext)   # 定义独立 STATIC 库 plc_vnext
     add_subdirectory(domain_vnext)               # 定义独立 STATIC 库 domain_vnext
+    add_subdirectory(application_vnext)          # P5 app：SystemManager 迁移到 domain_vnext
     add_subdirectory(tests)
 
 endif()

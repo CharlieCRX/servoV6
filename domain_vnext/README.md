@@ -1,6 +1,7 @@
 # domain_vnext —— PLC 领域层（重构新实现）
 
-> 状态：**P1 model 已完成**、**P2 state 已完成**、**P3 system 已完成**、**P4 link 已完成**（2026-08-12）。
+> 状态：**P1 model 已完成**、**P2 state 已完成**、**P3 system 已完成**、**P4 link 已完成**、
+> **P5 app 已完成**（SystemManager 迁移到 application_vnext，2026-08-12）。
 > 依据：《docs/refactor/domain_vnext/Domain层重构设计——domain_vnext.md》。
 
 ## 目标
@@ -28,6 +29,10 @@
 | `command/` | 命令产出边界（P4：SystemCommand/CommandMapper） |
 | `gateway/` | 领域依赖的驱动抽象（P4：IPlcDriver） |
 | `tests/` | TDD（target: `domain_vnext_tests`） |
+
+> P5 起，应用层迁移目标为独立库 `application_vnext/`（见其 README），
+> 不在本 domain_vnext 库内新增 app 目录。
+
 
 ## P1 model 交付清单
 

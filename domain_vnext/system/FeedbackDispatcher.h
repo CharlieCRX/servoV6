@@ -46,9 +46,18 @@ public:
     }
 
     /// 注入龙门状态 -> 该组联动状态机（GantryStatusSnapshot -> GantryStatusModel）。
+    /// 同时把联动状态同步到组内各轴的 AxisStateMachine::gantry_（§5.1），否则
+    /// 龙门同步轴（X1/X2/X 逻辑轴）的 requiresGantrySync 校验永远停在
+    /// Unconfigured，导致运动意图被 RejectedGantryLocked 拒绝。
     static void dispatchGantry(
         GroupModel& gm, const plc_vnext::contracts::GantryStatusSnapshot& snap) {
         gm.gantryCoupling().applyFeedback(model::gantryStatusModelFromSnapshot(snap));
+        const auto state = gm.gantryCoupling().state();
+        for (const auto fn : gm.boundFunctions()) {
+            if (Axis* a = gm.find(fn); a) {
+                a->stateMachine().setGantryState(state);
+            }
+        }
     }
 
     /// 注入急停反馈（M224 读回）-> 全局安全状态机。首次调用完成同步。
