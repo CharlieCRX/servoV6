@@ -34,6 +34,16 @@ enum class PlcAxisCommandKind {
     ClearAbsPosition,     // M(32+i)   绝对位置清零
     ClearRelZero,         // M(16+i)   相对原点清除
     SetRelZero,           // M(176+i)  相对原点设置
+
+    // ---- PLC 自复位（后续地址表补充，见《Domain层重构设计》§7.1）----
+    ResetAlarm,           // M(112+i)  报警解除触发（当前 PLC 未实现；映射层按能力拒绝）
+    ClearAlarmWord,       // M(208+i)  告警码置零
+
+    // ---- RW 参数区写（后续地址表补充，见《Domain层重构设计》§7.1）----
+    SetRelZeroRecord,     // D(1064+2s)  相对原点记录
+    SetSoftNegLimit,      // D(1160+2s)  软件负限位
+    SetSoftPosLimit,      // D(1192+2s)  软件正限位
+    SetSoftLimitControl,  // D(1228+s)   软限位控制（WORD，bit0正 bit1负）
 };
 
 /// 协议无关的单轴写入意图。槽位（0..15）由调用方单独以 contracts::PlcAxisSlot 传入。
@@ -92,6 +102,30 @@ struct PlcAxisCommand {
     }
     static PlcAxisCommand makeSetRelZero() {
         return {PlcAxisCommandKind::SetRelZero, 0.0f, false};
+    }
+
+    // ---- 后续地址表补充命令（见《Domain层重构设计》§7.1）----
+    static PlcAxisCommand makeResetAlarm() {
+        return {PlcAxisCommandKind::ResetAlarm, 0.0f, false};
+    }
+    static PlcAxisCommand makeClearAlarmWord() {
+        return {PlcAxisCommandKind::ClearAlarmWord, 0.0f, false};
+    }
+    static PlcAxisCommand makeSetRelZeroRecord(float v) {
+        return {PlcAxisCommandKind::SetRelZeroRecord, v, false};
+    }
+    static PlcAxisCommand makeSetSoftNegLimit(float v) {
+        return {PlcAxisCommandKind::SetSoftNegLimit, v, false};
+    }
+    static PlcAxisCommand makeSetSoftPosLimit(float v) {
+        return {PlcAxisCommandKind::SetSoftPosLimit, v, false};
+    }
+    /// 软限位控制字（D1228，WORD bit0正 bit1负）。realValue 承载原始 WORD 值。
+    static PlcAxisCommand makeSetSoftLimitControl(bool positiveEnabled,
+                                                  bool negativeEnabled) {
+        const float raw = static_cast<float>(
+            (positiveEnabled ? 0x01u : 0u) | (negativeEnabled ? 0x02u : 0u));
+        return {PlcAxisCommandKind::SetSoftLimitControl, raw, false};
     }
 };
 

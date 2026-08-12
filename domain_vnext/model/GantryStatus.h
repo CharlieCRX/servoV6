@@ -10,6 +10,8 @@
 
 #include <cstdint>
 
+#include "infrastructure/plc_vnext/contracts/GantryStatusSnapshot.h"
+
 namespace domain_vnext::model {
 
 /// 龙门领域联动状态。
@@ -72,5 +74,30 @@ struct GantryStatusModel {
     /// 本次读取是否可信。
     bool trusted = false;
 };
+
+/// 从 plc_vnext::contracts::GantryStatusSnapshot 映射为领域 GantryStatusModel（§4.5）。
+inline GantryStatusModel gantryStatusModelFromSnapshot(
+    const plc_vnext::contracts::GantryStatusSnapshot& s) {
+    GantryStatusModel m;
+    m.coupling = gantryCouplingStateFromRaw(s.state);
+    m.rawState = s.state;
+    m.ackSeq = s.ackSeq;
+    m.commandResult = s.commandResult;
+    m.commandErrorCode = s.commandErrorCode;
+    m.readyToCouple = s.readyToCouple;
+    m.readyToDecouple = s.readyToDecouple;
+    m.memberControlAllowed = s.memberControlAllowed;
+    m.logicalControlAllowed = s.logicalControlAllowed;
+    m.x1InGear = s.x1InGear;
+    m.x2InGear = s.x2InGear;
+    m.x1Position = s.x1Position;
+    m.x2Position = s.x2Position;
+    m.logicalPosition = s.logicalPosition;
+    m.skew = s.skew;
+    m.fault = s.fault;
+    m.faultCode = s.faultCode;
+    m.trusted = s.trusted;
+    return m;
+}
 
 }  // namespace domain_vnext::model

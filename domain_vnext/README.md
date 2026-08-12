@@ -1,6 +1,6 @@
 # domain_vnext —— PLC 领域层（重构新实现）
 
-> 状态：**P1 model 已完成**、**P2 state 已完成**、**P3 system 已完成**（2026-08-12）。
+> 状态：**P1 model 已完成**、**P2 state 已完成**、**P3 system 已完成**、**P4 link 已完成**（2026-08-12）。
 > 依据：《docs/refactor/domain_vnext/Domain层重构设计——domain_vnext.md》。
 
 ## 目标
@@ -24,9 +24,9 @@
 | --- | --- |
 | `model/` | 纯值对象 / 领域 DTO（AxisKey/AxisFunction/AxisState/AxisParameterSet/AxisCommand/GantryStatus/GantryParam/SafetyState） |
 | `state/` | 状态机（CommandOutbox/AxisStateMachine/SafetyStateMachine/GantryCouplingStateMachine） |
-| `system/` | 组合根（P3：AxisRegistry/GroupModel/AxisSystem/SystemBoot） |
-| `command/` | 命令产出边界（P4 起） |
-| `gateway/` | 领域依赖的驱动抽象（P4 起） |
+| `system/` | 组合根（P3：AxisRegistry/GroupModel/AxisSystem/SystemBoot；P4：FeedbackDispatcher） |
+| `command/` | 命令产出边界（P4：SystemCommand/CommandMapper） |
+| `gateway/` | 领域依赖的驱动抽象（P4：IPlcDriver） |
 | `tests/` | TDD（target: `domain_vnext_tests`） |
 
 ## P1 model 交付清单
@@ -60,6 +60,23 @@
 | `system/AxisSystem.h` | 组合根：注册表 + `GroupModel[2]` + 全局急停；`find(AxisKey)/findBySlot` |
 | `system/SystemBoot.h` | `TopologySnapshot -> AxisSystem` 动态建轴 / A/B 分组 / HmiVisible 判定 / 重复或非法配置降级锁定 |
 | `tests/system/test_system_boot.cpp` | P3 验证点：建轴、分组、HmiVisible、降级锁定 |
+
+## P4 link 交付清单
+
+| 文件 | 内容 |
+| --- | --- |
+| `system/AxisRegistry.h` | `Axis` 追加反馈存储（`AxisParameterSet`）+ `applyFeedback`（前 7 项）/ `applyParameters`（8~13 项） |
+| `system/FeedbackDispatcher.h` | `RuntimeSnapshot(+AxisParameterSnapshot) -> AxisSystem` 实体注入：轴反馈 / 龙门状态 / 急停反馈（§5.1） |
+| `command/SystemCommand.h` | 统一命令 `variant<AxisCommandEnvelope, GantryAction, EStopCommand>` |
+| `command/CommandMapper.h` | domain command -> `PlcAxisCommand`（14 触发 + 参数写，§4.2）；`ResetAlarm` 按 PLC 能力拒绝；A 组使能入口路由（§4.6a） |
+| `gateway/IPlcDriver.h` | 领域侧读/写门面抽象（读拓扑/读运行/写轴/提交龙门），实现委托 `IPlcRuntimeGateway`（§6） |
+| `tests/command/test_command_mapper.cpp` | P4 验证点：命令 kind 映射、value/level 透传、ResetAlarm 能力拒绝、信封槽位、使能入口路由 |
+| `tests/system/test_feedback_dispatcher.cpp` | P4 验证点：RuntimeSnapshot 实体注入、龙门状态机、急停同步、参数区注入 |
+
+> P4 依赖 plc_vnext 前置契约（§7，本次已一并补齐，纯 DTO / 纯增量，不改旧行为）：
+> - `contracts/AxisParameterSnapshot.h`（参数区 8~13 快照，§7.2）；
+> - `contracts/PlcCommand.h` 增补 `ResetAlarm / ClearAlarmWord / SetRelZeroRecord /
+>   SetSoftNegLimit / SetSoftPosLimit / SetSoftLimitControl`（§7.1）。
 
 ## 构建与测试（独立通道）
 

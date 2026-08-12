@@ -14,6 +14,7 @@ add_library(domain_vnext STATIC
     # ============ P1 model：纯头文件值对象（无 .cpp 编译单元）============
     # ============ P2 state：纯头文件状态机（无 .cpp 编译单元）============
     # ============ P3 system：纯头文件组合根（无 .cpp 编译单元）============
+    # ============ P4 link：纯头文件（command/gateway/FeedbackDispatcher）============
     # …… 每个 Phase 在此显式追加对应编译单元
 )
 

@@ -1,5 +1,5 @@
 # ==========================================
-# domain_vnext 独立测试通道（P1 model + P2 state + P3 system）
+# domain_vnext 独立测试通道（P1 model + P2 state + P3 system + P4 link）
 # ==========================================
 # 不复用旧 unit_tests；每个 Phase 在此显式追加对应测试文件（禁止 GLOB_RECURSE）。
 #
@@ -26,8 +26,9 @@ add_executable(domain_vnext_tests
     state/test_gantry_coupling_state_machine.cpp
     # ============ P3 system ============
     system/test_system_boot.cpp
-    # ============ P4 link（后续追加）============
-    # …… 每个 Phase 在此显式追加对应测试文件
+    # ============ P4 link ============
+    system/test_feedback_dispatcher.cpp
+    command/test_command_mapper.cpp
 )
 
 target_include_directories(domain_vnext_tests
@@ -38,6 +39,7 @@ target_include_directories(domain_vnext_tests
 target_link_libraries(domain_vnext_tests
     PRIVATE
         domain_vnext
+        plc_vnext
         GTest::gtest
         GTest::gtest_main
 )

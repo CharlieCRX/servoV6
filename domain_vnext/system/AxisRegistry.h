@@ -18,8 +18,11 @@
 #include <vector>
 
 #include "domain_vnext/model/AxisKey.h"
+#include "domain_vnext/model/AxisParameterSet.h"
 #include "domain_vnext/state/AxisStateMachine.h"
 #include "domain_vnext/state/CommandOutbox.h"
+#include "infrastructure/plc_vnext/contracts/AxisParameterSnapshot.h"
+#include "infrastructure/plc_vnext/contracts/AxisRuntimeSnapshot.h"
 #include "infrastructure/plc_vnext/contracts/PlcAxisSlot.h"
 
 namespace domain_vnext::system {
@@ -47,6 +50,31 @@ public:
     state::CommandOutbox& outbox() { return outbox_; }
     const state::CommandOutbox& outbox() const { return outbox_; }
 
+    // --- 反馈注入（P4，由 FeedbackDispatcher 接入）---
+    /// 注入运行反馈前 7 项（来自 AxisRuntimeSnapshot，只读）。trusted 由该快照决定。
+    void applyFeedback(const plc_vnext::contracts::AxisRuntimeSnapshot& snap) {
+        feedback_.manualSpeed = snap.manualSpeed;
+        feedback_.positioningSpeed = snap.positioningSpeed;
+        feedback_.absPosition = snap.absPosition;
+        feedback_.relPosition = snap.relPosition;
+        feedback_.motionState = snap.motionState;
+        feedback_.motionLimit = snap.motionLimit;
+        feedback_.alarmWord = snap.alarmWord;
+        feedback_.trusted = snap.trusted;
+    }
+    /// 注入参数区 8~13（来自 AxisParameterSnapshot，只读）。trusted 与运行反馈做与。
+    void applyParameters(const plc_vnext::contracts::AxisParameterSnapshot& snap) {
+        feedback_.relZeroRecord = snap.relZeroRecord;
+        feedback_.absMoveDistance = snap.absMoveDistance;
+        feedback_.relMoveDistance = snap.relMoveDistance;
+        feedback_.softNegLimit = snap.softNegLimit;
+        feedback_.softPosLimit = snap.softPosLimit;
+        feedback_.softLimitControl = snap.softLimitControl;
+        feedback_.trusted = feedback_.trusted && snap.trusted;
+    }
+    model::AxisParameterSet& feedback() { return feedback_; }
+    const model::AxisParameterSet& feedback() const { return feedback_; }
+
 private:
     model::AxisKey key_;
     plc_vnext::contracts::PlcAxisSlot slot_;
@@ -56,6 +84,7 @@ private:
     bool hmiVisible_;
     state::AxisStateMachine sm_;
     state::CommandOutbox outbox_;
+    model::AxisParameterSet feedback_;
 };
 
 /// 全局 16 槽位轴实体注册表。
