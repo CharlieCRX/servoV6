@@ -36,6 +36,7 @@ add_executable(plc_vnext_tests
     telemetry/test_gantry_status_reader.cpp
     telemetry/test_snapshot_reader.cpp
     telemetry/test_safety_state_reader.cpp      # 阶段 2：急停只读器（TDD）
+    telemetry/test_axis_parameter_reader.cpp    # 阶段 3：参数区读回（TDD）
     # ============ Step 8：command（单轴写路径，仅 Fake 离线 TDD）============
     command/test_plc_axis_command_writer.cpp
     command/test_command_write_policy.cpp
@@ -48,6 +49,9 @@ add_executable(plc_vnext_tests
     # ============ Step 11：fake 收尾 ============
     fake/test_plc_fixture_builder.cpp
     fake/test_fake_plc_runtime_gateway.cpp
+    # ============ 阶段3：单轴物理调试（写入闸门 + 心跳会话）============
+    commissioning/test_physical_axis_commissioning_service.cpp
+    commissioning/test_jog_session.cpp
     # …… 每一步显式追加对应测试文件
 )
 
@@ -59,6 +63,7 @@ target_include_directories(plc_vnext_tests
 target_link_libraries(plc_vnext_tests
     PRIVATE
         plc_vnext
+        application_vnext   # 阶段3：单轴调试服务 / JogSession
         GTest::gtest
         GTest::gtest_main
         GTest::gmock
