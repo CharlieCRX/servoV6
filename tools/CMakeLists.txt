@@ -8,3 +8,9 @@ add_executable(plc_vnext_readonly_probe plc_vnext_readonly_probe.cpp)
 target_include_directories(plc_vnext_readonly_probe PRIVATE ${CMAKE_SOURCE_DIR})
 # plc_vnext 以 PUBLIC 链接 asio（header-only），并传递 Windows ws2_32 依赖
 target_link_libraries(plc_vnext_readonly_probe PRIVATE plc_vnext)
+
+# plc_vnext_physical_axis_probe: 阶段3 单轴受控写入探针（物理 slot 0/1）。
+# 写入闸门 + 点动心跳会话在 PhysicalAxisCommissioningService / JogSession 内实现。
+add_executable(plc_vnext_physical_axis_probe plc_vnext_physical_axis_probe.cpp)
+target_include_directories(plc_vnext_physical_axis_probe PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(plc_vnext_physical_axis_probe PRIVATE application_vnext plc_vnext)
