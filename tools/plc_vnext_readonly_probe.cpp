@@ -1,37 +1,43 @@
 // ============================================================================
-// plc_vnext_readonly_probe.cpp —— 基于新 C++ 客户端 + PlcRuntimeGateway 的真实
-// PLC 只读探针（阶段 1 补验 / 阶段 2 最小落地入口）
+// plc_vnext_readonly_probe.cpp —— 阶段 2“真实只读影子运行”落地探针
 // ============================================================================
-// 目的：用与正式链路相同的对象组装（AsioModbusTcpClient → PlcRuntimeGateway →
-// readTopology/readRuntime）连接真实 PLC，**只读**输出，并与
-// tools/plc_read_validate.py 结果对拍。证明：
-//   - 不仅 Python 原生 socket 能读 PLC，plc_vnext::AsioModbusTcpClient 与
-//     PlcRuntimeGateway 也能在真实 PLC 上正确读取。
+// 目的：用与正式链路相同的对象组装（AsioModbusTcpClient → PlcRuntimeGateway）
+// 连接真实 PLC，**只读**输出拓扑 / 运行快照 / 急停 M224/M225 / 连接状态，并按
+// 方案 §10.2 判定“普通控制是否保持锁定”。可与 tools/plc_read_validate.py 对拍。
+//   - readTopology() / readRuntime()：拓扑与 16 槽位 + 龙门运行快照（含质量）。
+//   - readSafety()：急停 M224/M225 只读，经与拓扑/运行**同一共享串行 I/O 通道**
+//     （方案 §4.4；gateway 内统一注入同一 ModbusIoExecutor）。
+//   - printLockAssessment()：连接 / 拓扑 / 运行 / 急停全部可信且非急停时
+//     lockOrdinaryControl=false（允许解除锁定），否则列出锁定原因（§10.2 通过标准）。
+//   - 拓扑输出含 A/B 组（groupCode 0/1）与 role 绑定展示；运行输出含快照质量。
 //
 // 只读约束（禁止）：
 //   - 不调用 writeAxis() / submitGantryRequest()；
 //   - 不调用任何 FC05/FC06/FC10 写；
 //   - 不接入 UI / UDP / 摇杆。
-// M224/M225 经同一 AsioModbusTcpClient 用 readCoils(224,2) 只读（方案 §4.4）。
 //
 // 用法：
 //   plc_vnext_readonly_probe [--host IP] [--port 502] [--unit 1]
 //       [--timeout 1000] [--reconnect 2000] [--poll N] [--interval MS]
 //       [--wait-ms 3000] [--json]
 // ============================================================================
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "application_vnext/ShadowRunAssessor.h"
 #include "infrastructure/logger/Logger.h"
 #include "infrastructure/plc_vnext/PlcRuntimeGateway.h"
 #include "infrastructure/plc_vnext/contracts/RuntimeSnapshot.h"
+#include "infrastructure/plc_vnext/contracts/SafetySnapshot.h"
 #include "infrastructure/plc_vnext/contracts/SnapshotQuality.h"
 #include "infrastructure/plc_vnext/contracts/TopologySnapshot.h"
 #include "infrastructure/plc_vnext/transport/AsioModbusTcpClient.h"
@@ -64,8 +70,12 @@ int usage(const char* prog) {
     return 0;
 }
 
-// 简易命令行解析；未知参数返回 false
-bool parseArgs(int argc, char** argv, Args& a) {
+// 命令行解析结果：Ok=继续执行；Help=已识别 --help（调用方打印 usage 后 exit 0）；
+// Error=参数非法（调用方打印 usage 后 exit 1）。
+enum class ParseOutcome { Ok, Help, Error };
+
+// 简易命令行解析
+ParseOutcome parseArgs(int argc, char** argv, Args& a) {
     for (int i = 1; i < argc; ++i) {
         auto next = [&]() -> std::optional<std::string> {
             if (i + 1 < argc) return std::string(argv[++i]);
@@ -73,48 +83,47 @@ bool parseArgs(int argc, char** argv, Args& a) {
         };
         if (std::strcmp(argv[i], "--host") == 0) {
             auto v = next();
-            if (!v) return false;
+            if (!v) return ParseOutcome::Error;
             a.host = *v;
         } else if (std::strcmp(argv[i], "--port") == 0) {
             auto v = next();
-            if (!v) return false;
+            if (!v) return ParseOutcome::Error;
             a.port = static_cast<uint16_t>(std::stoi(*v));
         } else if (std::strcmp(argv[i], "--unit") == 0) {
             auto v = next();
-            if (!v) return false;
+            if (!v) return ParseOutcome::Error;
             a.unit = static_cast<uint8_t>(std::stoi(*v));
         } else if (std::strcmp(argv[i], "--timeout") == 0) {
             auto v = next();
-            if (!v) return false;
+            if (!v) return ParseOutcome::Error;
             a.timeoutMs = static_cast<uint32_t>(std::stoul(*v));
         } else if (std::strcmp(argv[i], "--reconnect") == 0) {
             auto v = next();
-            if (!v) return false;
+            if (!v) return ParseOutcome::Error;
             a.reconnectMs = static_cast<uint32_t>(std::stoul(*v));
         } else if (std::strcmp(argv[i], "--poll") == 0) {
             auto v = next();
-            if (!v) return false;
+            if (!v) return ParseOutcome::Error;
             a.poll = static_cast<unsigned>(std::stoul(*v));
         } else if (std::strcmp(argv[i], "--interval") == 0) {
             auto v = next();
-            if (!v) return false;
+            if (!v) return ParseOutcome::Error;
             a.intervalMs = static_cast<unsigned>(std::stoul(*v));
         } else if (std::strcmp(argv[i], "--wait-ms") == 0) {
             auto v = next();
-            if (!v) return false;
+            if (!v) return ParseOutcome::Error;
             a.waitMs = static_cast<unsigned>(std::stoul(*v));
         } else if (std::strcmp(argv[i], "--json") == 0) {
             a.json = true;
         } else if (std::strcmp(argv[i], "-h") == 0 ||
                    std::strcmp(argv[i], "--help") == 0) {
-            usage(argv[0]);
-            return false;  // 已打印 usage，调用方直接退出
+            return ParseOutcome::Help;  // --help → exit 0（usage 由 main 打印）
         } else {
             std::printf("unknown option: %s\n", argv[i]);
-            return false;
+            return ParseOutcome::Error;
         }
     }
-    return true;
+    return ParseOutcome::Ok;
 }
 
 bool waitConnected(AsioModbusTcpClient& client, unsigned waitMs) {
@@ -160,6 +169,8 @@ const char* qualityText(plc_vnext::contracts::SnapshotQuality q) {
     return "?";
 }
 using TopoResult = plc_vnext::contracts::ReadResult<plc_vnext::contracts::TopologySnapshot>;
+using RuntimeResult = plc_vnext::contracts::ReadResult<plc_vnext::contracts::RuntimeSnapshot>;
+using SafetyResult = plc_vnext::contracts::ReadResult<plc_vnext::contracts::SafetySnapshot>;
 const char* failureKindText(typename TopoResult::FailureKind k) {
     switch (k) {
         case TopoResult::FailureKind::Transport: return "Transport";
@@ -194,9 +205,13 @@ void printTopology(const TopoResult& r, bool json) {
                    g, gr.groupCode, gr.valid ? "true" : "false");
             for (size_t i = 0; i < gr.roles.size(); ++i) {
                 const auto& role = gr.roles[i];
-                printf("{\"valid\":%s,\"plcAxisIndex\":%d,\"motionMode\":%d,\"axisClass\":%d}",
-                       role.valid ? "true" : "false", role.plcAxisIndex,
-                       role.motionMode, role.axisClass);
+                if (!role.valid) {
+                    printf("{\"valid\":false,\"plcAxisIndex\":%d,\"ignored\":true}",
+                           role.plcAxisIndex);
+                } else {
+                    printf("{\"valid\":true,\"plcAxisIndex\":%d,\"motionMode\":%d,\"axisClass\":%d}",
+                           role.plcAxisIndex, role.motionMode, role.axisClass);
+                }
                 if (i + 1 < gr.roles.size()) printf(",");
             }
             printf("]}");
@@ -215,8 +230,15 @@ void printTopology(const TopoResult& r, bool json) {
                    gr.valid ? 1 : 0, gr.hmiVisible ? 1 : 0);
             for (size_t i = 0; i < gr.roles.size(); ++i) {
                 const auto& role = gr.roles[i];
-                printf("    role[%zu]: valid=%d plcAxisIndex=%d motorNo=%d motionMode=%d axisClass=%d\n",
-                       i, role.valid ? 1 : 0, role.plcAxisIndex, role.motorNo,
+                if (!role.valid) {
+                    // 无效 role 的 motionMode/axisClass 等是 PLC 残留脏字段，不参与上层，
+                    // 显示层忽略，避免误判为协议异常。
+                    printf("    role[%zu]: valid=false (ignored) plcAxisIndex=%d\n",
+                           i, role.plcAxisIndex);
+                    continue;
+                }
+                printf("    role[%zu]: valid=true plcAxisIndex=%d motorNo=%d motionMode=%d axisClass=%d\n",
+                       i, role.plcAxisIndex, role.motorNo,
                        role.motionMode, role.axisClass);
             }
         }
@@ -298,20 +320,90 @@ void printRuntime(const ReadResult<RuntimeSnapshot>& r, bool json) {
     }
 }
 
-// M224/M225 只读：经同一 client（同一串行通道）读取，方案 §4.4。
-void printSafety(AsioModbusTcpClient& client, bool json) {
-    std::vector<uint8_t> bits;
-    auto res = client.readCoils(224, 2, bits);
-    bool ok = res.ok() && bits.size() >= 1;
-    bool m224 = ok && ((bits[0] & 0x01) != 0);
-    bool m225 = ok && ((bits[0] & 0x02) != 0);
+// M224/M225 只读：经 gateway.readSafety()（同一共享串行 I/O 通道）读取，方案 §4.4。
+void printSafety(const SafetyResult& r, bool json) {
+    if (!r.hasValue()) {
+        if (json) {
+            printf("  \"safety\": {\"ok\":false,\"diagnostic\":\"%s\"},\n",
+                   r.diagnostic().c_str());
+        } else {
+            printf("[safety] ok=false diagnostic=%s\n", r.diagnostic().c_str());
+        }
+        return;
+    }
+    const auto& s = r.value();
     if (json) {
-        printf("  \"safety\": {\"ok\":%s,\"M224_emergencyStop\":%s,\"M225_release\":%s},\n",
-               ok ? "true" : "false", m224 ? "true" : "false", m225 ? "true" : "false");
+        printf("  \"safety\": {\"ok\":true,\"M224_emergencyStop\":%s,\"M225_release\":%s},\n",
+               s.emergencyStop ? "true" : "false", s.releaseRequest ? "true" : "false");
     } else {
-        printf("[safety] M224(emergencyStop)=%d M225(release)=%d (read=%s %s)\n",
-               m224 ? 1 : 0, m225 ? 1 : 0, ok ? "ok" : "fail",
-               ok ? "" : res.diagnostic.c_str());
+        printf("[safety] M224(emergencyStop)=%d M225(release)=%d (trusted=%d)\n",
+               s.emergencyStop ? 1 : 0, s.releaseRequest ? 1 : 0, s.trusted ? 1 : 0);
+    }
+}
+
+// 只读影子运行锁定判定（方案 §10.2 通过标准）：连接 / 拓扑 / 运行 / 急停全部
+// 可信且非急停时 lockOrdinaryControl=false（允许解除锁定）；否则列出锁定原因。
+void printLockAssessment(const plc_vnext::contracts::ConnectionState& conn,
+                         const TopoResult& topo, const RuntimeResult& runtime,
+                         const SafetyResult& safety, bool json) {
+    auto d = application_vnext::ShadowRunAssessor::evaluate(conn, topo, runtime, safety);
+    if (json) {
+        printf("  \"lock\": {\"lockOrdinaryControl\":%s,\"reasons\":[",
+               d.lockOrdinaryControl ? "true" : "false");
+        for (size_t i = 0; i < d.reasons.size(); ++i) {
+            printf("\"%s\"", d.reasons[i].c_str());
+            if (i + 1 < d.reasons.size()) printf(",");
+        }
+        printf("]}\n");
+    } else {
+        printf("[lock] lockOrdinaryControl=%d reasons=[",
+               d.lockOrdinaryControl ? 1 : 0);
+        for (size_t i = 0; i < d.reasons.size(); ++i) {
+            printf("%s%s", i ? ", " : "", d.reasons[i].c_str());
+        }
+        printf("]\n");
+    }
+}
+
+// 观察窗口汇总统计：供阶段 2“真实只读影子运行”验收评估（Trusted 稳定性 /
+// 偶发 Partial/TransportFailed / 采样耗时 min·avg·max / 断连次数）。
+struct ShadowStats {
+    unsigned polls = 0;
+    unsigned topoOk = 0, topoFail = 0;
+    unsigned runtimeTrusted = 0, runtimeNotTrusted = 0;
+    unsigned safetyOk = 0, safetyFail = 0;
+    unsigned disconnected = 0;
+    unsigned durationCount = 0;
+    int64_t durationMin = std::numeric_limits<int64_t>::max();
+    int64_t durationMax = 0;
+    int64_t durationSum = 0;
+};
+
+void printSummary(const ShadowStats& s, bool json) {
+    if (json) {
+        // 汇总写到 stderr，不破坏 stdout 的结构化 JSON 对拍输出。
+        std::fprintf(stderr,
+                     "#summary polls=%u topo(ok=%u fail=%u) runtime(trusted=%u notTrusted=%u) "
+                     "safety(ok=%u fail=%u) disconnected=%u durationMin=%lld durationAvg=%lld "
+                     "durationMax=%lld durationN=%u\n",
+                     s.polls, s.topoOk, s.topoFail, s.runtimeTrusted, s.runtimeNotTrusted,
+                     s.safetyOk, s.safetyFail, s.disconnected,
+                     static_cast<long long>(s.durationMin),
+                     s.durationCount
+                         ? static_cast<long long>(s.durationSum / s.durationCount)
+                         : 0,
+                     static_cast<long long>(s.durationMax), s.durationCount);
+        return;
+    }
+    printf("[summary] polls=%u topo(ok=%u fail=%u) runtime(trusted=%u notTrusted=%u) "
+           "safety(ok=%u fail=%u) disconnected=%u\n",
+           s.polls, s.topoOk, s.topoFail, s.runtimeTrusted, s.runtimeNotTrusted,
+           s.safetyOk, s.safetyFail, s.disconnected);
+    if (s.durationCount > 0) {
+        printf("[summary] runtime durationMs: min=%lld avg=%lld max=%lld (n=%u)\n",
+               static_cast<long long>(s.durationMin),
+               static_cast<long long>(s.durationSum / s.durationCount),
+               static_cast<long long>(s.durationMax), s.durationCount);
     }
 }
 
@@ -331,7 +423,9 @@ int main(int argc, char** argv) {
 
     Args a;
     if (argc > 1) {
-        if (!parseArgs(argc, argv, a)) return 1;  // parseArgs 已打印 usage / 未知参数
+        const ParseOutcome outcome = parseArgs(argc, argv, a);
+        if (outcome == ParseOutcome::Help) { usage(argv[0]); return 0; }  // --help → exit 0
+        if (outcome == ParseOutcome::Error) { usage(argv[0]); return 1; } // 非法参数 → exit 1
     }
 
     AsioModbusTcpClient::Config cfg;
@@ -356,11 +450,14 @@ int main(int argc, char** argv) {
     plc_vnext::PlcRuntimeGateway gateway(client);
 
     bool first = true;
+    ShadowStats st;  // 观察窗口汇总统计（阶段 2 影子运行验收）
     for (unsigned i = 0; i < a.poll; ++i) {
         if (!first) std::this_thread::sleep_for(std::chrono::milliseconds(a.intervalMs));
         first = false;
 
         auto cs = gateway.connectionState();
+        st.polls++;
+        if (!cs.connected) st.disconnected++;
         if (a.json) {
             if (i == 0) printf("{\n");
             printf("  \"poll\":%u,\"connection\":{\"connected\":%s},\n",
@@ -369,13 +466,30 @@ int main(int argc, char** argv) {
             std::printf("[poll %u] connection connected=%d\n", i, cs.connected ? 1 : 0);
         }
 
-        printTopology(gateway.readTopology(), a.json);
-        printRuntime(gateway.readRuntime(), a.json);
-        printSafety(*client, a.json);
+        auto topo = gateway.readTopology();
+        auto runtime = gateway.readRuntime();
+        auto safety = gateway.readSafety();
+        if (topo.hasValue()) { st.topoOk++; } else { st.topoFail++; }
+        if (runtime.hasValue()) {
+            st.runtimeTrusted++;
+            const int64_t d = runtime.value().durationMs;
+            st.durationCount++;
+            st.durationMin = std::min(st.durationMin, d);
+            st.durationMax = std::max(st.durationMax, d);
+            st.durationSum += d;
+        } else {
+            st.runtimeNotTrusted++;
+        }
+        if (safety.hasValue()) { st.safetyOk++; } else { st.safetyFail++; }
+        printTopology(topo, a.json);
+        printRuntime(runtime, a.json);
+        printSafety(safety, a.json);
+        printLockAssessment(cs, topo, runtime, safety, a.json);
 
         if (a.json && i + 1 == a.poll) printf("}\n");
     }
 
+    printSummary(st, a.json);
     client->stop();
     return 0;
 }

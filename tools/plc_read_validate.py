@@ -27,6 +27,7 @@ PLC 变量协议 · Modbus 最终地址表 —— 只读校验脚本
 from __future__ import annotations
 
 import argparse
+import json
 import socket
 import struct
 import sys
@@ -696,6 +697,98 @@ def print_legacy(legacy: Dict[str, object]) -> None:
     print()
 
 # ---------------------------------------------------------------------------
+# 7.1 vnext 对拍投影：把本脚本已解析的 legacy 数据投影为与
+#     tools/plc_vnext_readonly_probe --json 一致的字段名，供
+#     tools/plc_shadow_compare.py 逐字段对拍（阶段 2 影子运行验收）。
+#     值类型与探针一致（magic/revision 为 int、位置为 float、标志为 bool）。
+# ---------------------------------------------------------------------------
+
+def _project_topology(topo: Dict[str, object]) -> Dict[str, object]:
+    h = topo["head"]
+    groups = []
+    for g, gf in enumerate(topo["groups"]):
+        roles = []
+        for rf in gf["roles"]:
+            roles.append({
+                "valid": rf["Valid"],
+                "hmiVisible": rf["HmiVisible"],
+                "plcAxisIndex": rf["PlcAxisIndex"],
+                "motorNo": rf["MotorNo"],
+                "axisClass": rf["AxisClass"],
+                "unitType": rf["UnitType"],
+                "motionMode": rf["MotionMode"],
+            })
+        groups.append({
+            "index": g,
+            "valid": gf["Valid"],
+            "hmiVisible": gf["HmiVisible"],
+            "groupCode": gf["GroupCode"],
+            "roles": roles,
+        })
+    return {
+        "head": {
+            "magic": h["Magic"],
+            "schemaVersion": h["SchemaVersion"],
+            "revision": h["Revision"],
+            "configValid": h["ConfigValid"],
+            "configErrorCode": h["ConfigErrorCode"],
+        },
+        "groups": groups,
+    }
+
+
+def _project_axis(axis: Dict[str, object]) -> Dict[str, object]:
+    # 关键块若读取失败（含 "_error"），整个 axis 投影标错，由对拍脚本 SKIP。
+    critical = ["手动速度", "定位速度", "绝对位置", "相对位置",
+                "运动状态", "运动限制", "告警码"]
+    for name in critical:
+        info = axis.get(name)
+        if info is None or "_error" in info:
+            return {"_error": f"块[{name}]读取失败: {info.get('_error') if info else '缺失'}"}
+    n = 16
+    return [
+        {
+            "slot": i,
+            "absPosition": axis["绝对位置"]["values"][i],
+            "relPosition": axis["相对位置"]["values"][i],
+            "motionState": axis["运动状态"]["values"][i],
+            "motionLimit": axis["运动限制"]["values"][i],
+            "alarmWord": axis["告警码"]["values"][i],
+            "manualSpeed": axis["手动速度"]["values"][i],
+            "positioningSpeed": axis["定位速度"]["values"][i],
+        }
+        for i in range(n)
+    ]
+
+
+def _project_safety(coils: Dict[str, object]) -> Dict[str, object]:
+    estop = coils.get("设备急停", {}).get("on_indices", [])
+    release = coils.get("设备急停解除", {}).get("on_indices", [])
+    return {
+        "M224_emergencyStop": 0 in estop,
+        "M225_release": 0 in release,
+    }
+
+
+def _project_gantry(gantry: Dict[str, object]) -> Dict[str, object]:
+    return [
+        {
+            "index": g,
+            "state": s["State"],
+            "ackSeq": s["AckSeq"],
+            "commandResult": s["CommandResult"],
+            "commandErrorCode": s["CommandErrorCode"],
+            "memberControlAllowed": s["MemberControlAllowed"],
+            "logicalControlAllowed": s["LogicalControlAllowed"],
+            "x1InGear": s["X1InGear"],
+            "x2InGear": s["X2InGear"],
+            "fault": s["Fault"],
+        }
+        for g, s in gantry.items()
+    ]
+
+
+# ---------------------------------------------------------------------------
 # 8. 离线自测（不连 PLC，验证解析逻辑）
 # ---------------------------------------------------------------------------
 
@@ -816,12 +909,28 @@ def _parse_args():
     ap.add_argument("--only", choices=["axis", "coils", "legacy", "topology",
                                        "param", "command", "status"],
                     help="只读取某个区域")
+    ap.add_argument("--json", action="store_true",
+                    help="以机器可读 JSON 输出（字段名与 vnext 探针对齐，供对拍）")
     return ap.parse_args()
 
 
 def _run_online(args) -> int:
     with ModbusTcpClient(args.host, args.port, args.unit, args.timeout) as client:
         only = args.only
+        if args.json:
+            # 机器可读对拍输出：只投影 --only 选中的区域（默认全量）。
+            proj: Dict[str, object] = {}
+            if only is None or only == "topology":
+                proj["topology"] = _project_topology(read_topology(client))
+            if only is None or only == "axis":
+                proj["axis"] = _project_axis(read_standard_axis(client))
+            if only is None or only == "coils":
+                proj["safety"] = _project_safety(read_coils(client))
+            if only is None or only == "status":
+                proj["gantry"] = _project_gantry(read_gantry_status(client))
+            print(json.dumps(proj, ensure_ascii=False, indent=2))
+            return 0
+        # 文本输出（原逻辑）
         if only is None or only == "axis":
             print("== 标准 16 轴 D 区 (3.1) ==")
             print_axis(read_standard_axis(client))

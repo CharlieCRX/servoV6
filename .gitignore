@@ -84,3 +84,11 @@ settings.json
 .uic/
 /build*/
 /external/asio/
+
+# 阶段2 现场对拍 / 观察窗口运行时产物（不提交）
+/legacy.json
+/vnext.json
+/shadow.json
+/summary.txt
+/verify_summary.txt
+/shadow_evidence/
