@@ -17,6 +17,9 @@
 add_library(application_vnext STATIC
     AppVnextAnchor.cpp
     # ============ P5 app：纯头文件门面（无 .cpp 编译单元）============
+    # ============ 阶段3：单轴物理调试服务（写入闸门 + 心跳会话）============
+    commissioning/JogSession.cpp
+    commissioning/PhysicalAxisCommissioningService.cpp
 )
 
 # 顶层目录作 include 根，便于以 "application_vnext/..." 方式引用头文件。
