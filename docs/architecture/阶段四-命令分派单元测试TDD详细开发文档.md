@@ -41,7 +41,7 @@
 | 组级命令 | `GantryCouplingCommand` / `GantryPowerCommand` / `EmergencyStopCommand` | 龙门状态机（那是 `GantryCouplingController` 的职责） |
 | 向后兼容 | `MoveCommand`（deprecated）的双步路由 | `MoveCommand` 的 Domain 层逻辑（已废弃） |
 | 错误路径 | 设备未初始化（`m_device == nullptr`）时的返回值 | Modbus 网络超时重试（阶段五/六的职责） |
-| 命令类型 | Level 型 vs EdgeTrigger 型的正确区分 | EdgeTrigger 的 ON→OFF 生命周期（阶段二已验证） |
+| 命令类型 | Level 型 vs EdgeTrigger 型的正确区分 | EdgeTrigger 的 ON→OFF 生命周期（旧 legacy；PLC_re 已改为触发型 PLC 自复位、只写 ON，不实现客户端回写 OFF） |
 
 ### 1.3 当前代码状态
 

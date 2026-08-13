@@ -413,7 +413,7 @@ class ISystemDriver {
 
 1. **寄存器选择器**：19 个命令寄存器 + 20 个反馈寄存器的 `AxisId → RegisterInfo` 映射
 2. **系统命令分发**：通过双层 `std::visit` 将 `SystemCommand` 拆解为具体的 Modbus 写操作
-3. **边沿触发协议**：`PendingEdge` 队列管理"写 ON → 等待 150ms → 写 OFF"的时序
+3. **边沿触发协议（旧 legacy）**：`PendingEdge` 队列管理"写 ON → 等待 150ms → 写 OFF"的时序。⚠️ PLC_re 新协议已改为：触发型线圈由 **PLC 自动复位**，上位机**只写 ON、不回写 OFF**。
 4. **反馈轮询**：`pollFeedback()` 执行全量寄存器读取 → 状态推导 → 分发到各领域实体
 5. **状态推导**：`AxisStateDeriver` 融合多个 PLC 信号位推导最终 `AxisState`
 
@@ -814,9 +814,11 @@ QUdpSocket::writeDatagram() → 回包
 - **端序三态决议**：寄存器级 > Profile 全局 > 拒绝
 - **可信度标记**：PlcSnapshot 携带 `trusted` 标志，业务层据此决定是否使用数据
 
-### 10.7 边沿触发协议
+### 10.7 边沿触发协议（旧 legacy，PLC_re 已取代）
 
-PLC 的触发位寄存器需要"写 ON → 保持 150ms → 写 OFF"的时序。`PendingEdge` 队列管理此协议：
+> ⚠️ **PLC_re 新协议**：触发型线圈（绝对/相对定位触发、定位终止、清零、原点、告警等）由 **PLC 自动复位**，上位机**只写 ON、不回写 OFF**。`PendingEdge` 的"写 ON → 保持 150ms → 写 OFF"为旧 legacy 驱动（`ModbusSystemDriver`）行为，仅供回滚路径参考，新链路不得实现手动回写 OFF。
+
+旧描述（保留作 legacy 参考）：PLC 的触发位寄存器需要"写 ON → 保持 150ms → 写 OFF"的时序。`PendingEdge` 队列管理此协议：
 - `enqueueEdge()` 注册边沿
 - `servicePendingEdgeTriggers()` 在每次 pollFeedback 时检查并关闭到期的边沿
 

@@ -306,7 +306,8 @@ systemClock.start(10);  // 10ms 物理心跳
 ```cpp
 void ModbusSystemDriver::pollFeedback(SystemContext& ctx) {
     // ============================================
-    // Step 0: 服务边沿触发队列（写 OFF 回已超时的 ON 信号）
+    // Step 0: 服务边沿触发队列（写 OFF 回已超时的 ON 信号；旧 legacy 边沿协议，
+    //          PLC_re 已改为触发型线圈 PLC 自复位、只写 ON 不回写 OFF）
     // ============================================
     servicePendingEdgeTriggers();
 
