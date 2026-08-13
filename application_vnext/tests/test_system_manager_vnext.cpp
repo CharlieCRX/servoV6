@@ -160,15 +160,37 @@ TEST_F(SystemManagerVnextTest, Jog_WriteCoilLevel) {
     EXPECT_TRUE(written[0].cmd.boolValue);
 }
 
-TEST_F(SystemManagerVnextTest, MoveAbs_SetTargetThenTrigger_InOrder) {
+// §4.2 解耦铁律：setAbsTarget 与 triggerAbsMove 是独立接口——设置目标不触发，
+// 触发也不依赖先前的 set 调用。下例验证二者可分别、独立提交。
+TEST_F(SystemManagerVnextTest, SetAbsTarget_WritesTargetOnly_NoAutoTrigger) {
     bootSixAxis();
-    ASSERT_TRUE(appResultOk(mgr_->moveAbs(AxisFunction::X, 250.f)));
+    ASSERT_TRUE(appResultOk(mgr_->setAbsTarget(AxisFunction::X, 250.f)));
     const auto written = gw_.writtenAxis();
-    // 先写目标，再触发（§4.2 解耦铁律：写入失败不得继续触发）。
-    ASSERT_EQ(written.size(), 2u);
+    // 只写目标，绝不附带触发。
+    ASSERT_EQ(written.size(), 1u);
     EXPECT_EQ(written[0].cmd.kind, plc_vnext::contracts::PlcAxisCommandKind::SetAbsTarget);
     EXPECT_FLOAT_EQ(written[0].cmd.realValue, 250.f);
-    EXPECT_EQ(written[1].cmd.kind, plc_vnext::contracts::PlcAxisCommandKind::TriggerAbsMove);
+}
+
+TEST_F(SystemManagerVnextTest, TriggerAbsMove_IndependentOfSet) {
+    bootSixAxis();
+    // 未先 setAbsTarget 也能独立触发（触发仅提交 TriggerAbsMove 一笔）。
+    ASSERT_TRUE(appResultOk(mgr_->triggerAbsMove(AxisFunction::X)));
+    const auto written = gw_.writtenAxis();
+    ASSERT_EQ(written.size(), 1u);
+    EXPECT_EQ(written[0].cmd.kind, plc_vnext::contracts::PlcAxisCommandKind::TriggerAbsMove);
+}
+
+TEST_F(SystemManagerVnextTest, SetRelTarget_Then_TriggerRelMove_InOrder) {
+    bootSixAxis();
+    // 相对定位同样解耦：设置距离与相对触发是独立接口。
+    ASSERT_TRUE(appResultOk(mgr_->setRelTarget(AxisFunction::X, 50.f)));
+    ASSERT_TRUE(appResultOk(mgr_->triggerRelMove(AxisFunction::X)));
+    const auto written = gw_.writtenAxis();
+    ASSERT_EQ(written.size(), 2u);
+    EXPECT_EQ(written[0].cmd.kind, plc_vnext::contracts::PlcAxisCommandKind::SetRelTarget);
+    EXPECT_FLOAT_EQ(written[0].cmd.realValue, 50.f);
+    EXPECT_EQ(written[1].cmd.kind, plc_vnext::contracts::PlcAxisCommandKind::TriggerRelMove);
 }
 
 // ---------- 错误聚合 ----------

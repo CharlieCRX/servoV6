@@ -56,10 +56,6 @@ public:
     AppVnextResult setRelTarget(domain_vnext::model::AxisFunction fn, float v);
     AppVnextResult triggerAbsMove(domain_vnext::model::AxisFunction fn);
     AppVnextResult triggerRelMove(domain_vnext::model::AxisFunction fn);
-    /// 绝对定位：先写目标，再触发（写入失败不得继续触发，§4.2 解耦铁律）。
-    AppVnextResult moveAbs(domain_vnext::model::AxisFunction fn, float target);
-    /// 相对定位：先写距离，再触发。
-    AppVnextResult moveRel(domain_vnext::model::AxisFunction fn, float dist);
     /// 停止：发出绝对/相对终止（PLC 自复位，只写 ON）。
     AppVnextResult stop(domain_vnext::model::AxisFunction fn);
     AppVnextResult clearRelZero(domain_vnext::model::AxisFunction fn);
@@ -279,14 +275,6 @@ inline AppVnextResult SystemManagerVnext::triggerAbsMove(domain_vnext::model::Ax
 }
 inline AppVnextResult SystemManagerVnext::triggerRelMove(domain_vnext::model::AxisFunction fn) {
     return submitPulse(0, fn, domain_vnext::model::AxisCommandKind::TriggerRelMove);
-}
-inline AppVnextResult SystemManagerVnext::moveAbs(domain_vnext::model::AxisFunction fn, float target) {
-    auto s = setAbsTarget(fn, target);
-    return appResultOk(s) ? triggerAbsMove(fn) : s;
-}
-inline AppVnextResult SystemManagerVnext::moveRel(domain_vnext::model::AxisFunction fn, float dist) {
-    auto s = setRelTarget(fn, dist);
-    return appResultOk(s) ? triggerRelMove(fn) : s;
 }
 inline AppVnextResult SystemManagerVnext::stop(domain_vnext::model::AxisFunction fn) {
     auto a = submitPulse(0, fn, domain_vnext::model::AxisCommandKind::StopAbsMove);
