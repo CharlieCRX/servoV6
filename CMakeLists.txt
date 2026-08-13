@@ -64,6 +64,7 @@ if(NOT ANDROID)
     add_subdirectory(domain_vnext)               # 定义独立 STATIC 库 domain_vnext
     add_subdirectory(application_vnext)          # P5 app：SystemManager 迁移到 domain_vnext
     add_subdirectory(tests)
+    add_subdirectory(tools)                      # 只读探针等开发/验收工具（阶段 1 补验）
 
 endif()
 
