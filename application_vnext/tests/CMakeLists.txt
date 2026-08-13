@@ -10,6 +10,8 @@ include(GoogleTest)
 add_executable(application_vnext_tests
     # ============ P5 app ============
     test_system_manager_vnext.cpp
+    # ============ 阶段 2：只读影子运行 ============
+    test_shadow_run_assessor.cpp
 )
 
 target_include_directories(application_vnext_tests

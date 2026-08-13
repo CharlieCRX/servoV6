@@ -22,7 +22,9 @@
 | `SystemManagerVnext.h` | 组合根门面：boot / poll / 单轴用例 / 急停 / 龙门；完整链路「find → 领域意图 submit → Outbox drain → CommandMapper 映射 → 使能入口路由 → writeAxis」 |
 | `PlcRuntimeDriverAdapter.h` | 实现 `gateway::IPlcDriver`，委托 `plc_vnext::IPlcRuntimeGateway` |
 | `AppVnextError.h` | 应用层错误聚合（monostate=成功；含未 boot/未注册/状态拒绝/映射不支持/通讯失败/安全拒绝/龙门拒绝） |
+| `ShadowRunAssessor.h` | 阶段 2“真实只读影子运行”锁定判定（纯函数）：连接/拓扑/运行/急停全部可信且非急停时允许解除普通控制锁定，否则列出原因（§10.2 通过标准） |
 | `tests/test_system_manager_vnext.cpp` | 集成测试：boot/poll、使能入口路由、点动、moveAbs 先后序、错误聚合、急停五态、龙门事务 |
+| `tests/test_shadow_run_assessor.cpp` | 阶段 2 锁定判定 TDD：断连/拓扑失败/Revision 变化/配置无效/运行不可信/急停未知/急停触发/多原因聚合 |
 
 ## 单轴用例链路（§5.2）
 
