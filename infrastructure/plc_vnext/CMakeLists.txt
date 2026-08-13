@@ -19,6 +19,7 @@ add_library(plc_vnext STATIC
     # ============ Step 5：transport / Fake ============
     transport/ModbusIoExecutor.cpp
     transport/ConnectionMonitor.cpp
+    transport/AsioModbusTcpClient.cpp   # 阶段 1：真实通讯客户端
     fake/FakeModbusClient.cpp
     # ============ Step 6：topology ============
     topology/TopologyDecoder.cpp
@@ -44,3 +45,8 @@ target_include_directories(plc_vnext
     PUBLIC
         ${CMAKE_SOURCE_DIR}
 )
+
+# 真实客户端使用 Standalone Asio（header-only）+ 旧 Logger（header-only）。
+# asio INTERFACE 目标在顶层 CMakeLists 定义（含 Windows ws2_32 依赖），
+# PUBLIC 使下游（plc_vnext_tests）自动获得 asio include 与 ws2_32。
+target_link_libraries(plc_vnext PUBLIC asio)

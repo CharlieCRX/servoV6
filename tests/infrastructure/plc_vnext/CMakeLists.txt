@@ -24,6 +24,8 @@ add_executable(plc_vnext_tests
     transport/test_imodbus_client_contract.cpp
     transport/test_modbus_io_executor.cpp
     transport/test_connection_monitor.cpp
+    transport/test_asio_modbus_tcp_client.cpp   # 阶段 1：真实通讯客户端（TDD）
+    transport/support/FakeModbusTcpServer.cpp   # 阶段 1：本地 Modbus TCP 测试服务器
     # ============ Step 6：topology ============
     topology/test_topology_decoder.cpp
     topology/test_topology_validator.cpp
