@@ -35,6 +35,7 @@ add_executable(plc_vnext_tests
     telemetry/test_axis_snapshot_decoder.cpp
     telemetry/test_gantry_status_reader.cpp
     telemetry/test_snapshot_reader.cpp
+    telemetry/test_safety_state_reader.cpp      # 阶段 2：急停只读器（TDD）
     # ============ Step 8：command（单轴写路径，仅 Fake 离线 TDD）============
     command/test_plc_axis_command_writer.cpp
     command/test_command_write_policy.cpp

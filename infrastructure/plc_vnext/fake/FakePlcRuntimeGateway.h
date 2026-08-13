@@ -35,6 +35,7 @@
 #include "infrastructure/plc_vnext/contracts/PlcGroupIndex.h"
 #include "infrastructure/plc_vnext/contracts/ReadResult.h"
 #include "infrastructure/plc_vnext/contracts/RuntimeSnapshot.h"
+#include "infrastructure/plc_vnext/contracts/SafetySnapshot.h"
 #include "infrastructure/plc_vnext/contracts/TopologySnapshot.h"
 
 namespace plc_vnext::fake {
@@ -46,6 +47,8 @@ public:
     void setTopologySnapshot(contracts::TopologySnapshot snap);
     /// 设置 readRuntime() 默认返回的快照（覆盖之前脚本）。
     void setRuntimeSnapshot(contracts::RuntimeSnapshot snap);
+    /// 设置 readSafety() 默认返回的快照（覆盖之前脚本）。
+    void setSafetySnapshot(contracts::SafetySnapshot snap);
     /// 驱动 connectionState() 的连接位。
     void setConnected(bool connected);
 
@@ -58,6 +61,11 @@ public:
         contracts::ReadResult<contracts::RuntimeSnapshot>::FailureKind kind,
         std::string diagnostic);
     void clearRuntimeReadFailure();
+    /// readSafety() 一律返回该失败状态；clearSafetyReadFailure() 恢复脚本快照。
+    void scriptSafetyReadFailure(
+        contracts::ReadResult<contracts::SafetySnapshot>::FailureKind kind,
+        std::string diagnostic);
+    void clearSafetyReadFailure();
     /// writeAxis() 一律返回该失败状态（ok()==false）；clearWriteAxisFailure() 恢复 sent。
     void scriptWriteAxisFailure(contracts::CommunicationResult::Status status,
                                 std::string diagnostic = {});
@@ -83,6 +91,7 @@ public:
     // ============ IPlcRuntimeGateway ============
     contracts::ReadResult<contracts::TopologySnapshot> readTopology() override;
     contracts::ReadResult<contracts::RuntimeSnapshot> readRuntime() override;
+    contracts::ReadResult<contracts::SafetySnapshot> readSafety() override;
     contracts::CommunicationResult writeAxis(
         contracts::PlcAxisSlot slot, const contracts::PlcAxisCommand& cmd) override;
     contracts::CommunicationResult submitGantryRequest(
@@ -102,6 +111,7 @@ private:
     // 状态脚本
     std::optional<contracts::TopologySnapshot> m_topology;
     std::optional<contracts::RuntimeSnapshot> m_runtime;
+    std::optional<contracts::SafetySnapshot> m_safety;
     bool m_connected = true;
     unsigned m_reconnectCount = 0;
 
@@ -112,6 +122,9 @@ private:
     std::optional<contracts::ReadResult<contracts::RuntimeSnapshot>::FailureKind>
         m_runtimeFailure;
     std::string m_runtimeDiag;
+    std::optional<contracts::ReadResult<contracts::SafetySnapshot>::FailureKind>
+        m_safetyFailure;
+    std::string m_safetyDiag;
     std::optional<contracts::CommunicationResult::Status> m_writeAxisFailure;
     std::string m_writeAxisDiag;
     std::optional<contracts::GantrySubmitState> m_gantryFailure;

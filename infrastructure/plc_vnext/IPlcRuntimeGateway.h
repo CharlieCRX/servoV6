@@ -25,6 +25,7 @@
 #include "infrastructure/plc_vnext/contracts/PlcGroupIndex.h"
 #include "infrastructure/plc_vnext/contracts/ReadResult.h"
 #include "infrastructure/plc_vnext/contracts/RuntimeSnapshot.h"
+#include "infrastructure/plc_vnext/contracts/SafetySnapshot.h"
 #include "infrastructure/plc_vnext/contracts/TopologySnapshot.h"
 
 namespace plc_vnext {
@@ -39,6 +40,11 @@ public:
     /// 执行读计划，产出 16 槽位 + 龙门状态的运行快照（只读）。
     /// 仅当快照可信（quality == Trusted）时返回 success；否则返回 Transport 失败。
     virtual contracts::ReadResult<contracts::RuntimeSnapshot> readRuntime() = 0;
+
+    /// 读取设备急停 M224/M225（只读，方案 §4.4）。经与 readTopology/readRuntime
+    /// 相同的共享串行 I/O 通道；失败（通讯/空数据）返回 Transport 失败，绝不把
+    /// “未知急停状态”当作“正常”。
+    virtual contracts::ReadResult<contracts::SafetySnapshot> readSafety() = 0;
 
     /// 提交单轴写入意图（参数写/使能/点动/触发/清除）。只提交，不做读回。
     virtual contracts::CommunicationResult writeAxis(

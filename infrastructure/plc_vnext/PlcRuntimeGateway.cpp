@@ -28,6 +28,7 @@ PlcRuntimeGateway::PlcRuntimeGateway(
       m_monitor(client),
       m_topology(m_io),
       m_telemetry(m_io),
+      m_safety(m_io),
       m_axisWriter(m_io),
       m_gantryWriter(m_io,
                      groupGate ? std::move(groupGate)
@@ -51,6 +52,21 @@ contracts::ReadResult<contracts::RuntimeSnapshot> PlcRuntimeGateway::readRuntime
         "PlcRuntimeGateway: runtime snapshot not trusted (quality=" +
             std::to_string(static_cast<int>(snap.quality)) + ")");
 }
+
+contracts::ReadResult<contracts::SafetySnapshot> PlcRuntimeGateway::readSafety() {
+    // 经共享 m_io 串行通道读取 M224/M225（与 readTopology/readRuntime 同一通道）。
+    auto snap = m_safety.read();
+    if (snap.trusted) {
+        return contracts::ReadResult<contracts::SafetySnapshot>::success(std::move(snap));
+    }
+    // 未知急停状态（通讯/空数据）→ 以 Transport 失败上报，绝不冒充“正常”。
+    return contracts::ReadResult<contracts::SafetySnapshot>::failure(
+        contracts::ReadResult<contracts::SafetySnapshot>::FailureKind::Transport,
+        snap.diagnostic.empty()
+            ? "PlcRuntimeGateway: safety snapshot not trusted"
+            : snap.diagnostic);
+}
+
 
 contracts::CommunicationResult PlcRuntimeGateway::writeAxis(
     contracts::PlcAxisSlot slot, const contracts::PlcAxisCommand& cmd) {

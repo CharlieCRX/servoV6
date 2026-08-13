@@ -22,6 +22,11 @@ void FakePlcRuntimeGateway::setRuntimeSnapshot(contracts::RuntimeSnapshot snap) 
     m_runtime = std::move(snap);
 }
 
+void FakePlcRuntimeGateway::setSafetySnapshot(contracts::SafetySnapshot snap) {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    m_safety = std::move(snap);
+}
+
 void FakePlcRuntimeGateway::setConnected(bool connected) {
     std::lock_guard<std::mutex> lock(m_mtx);
     m_connected = connected;
@@ -56,6 +61,20 @@ void FakePlcRuntimeGateway::clearRuntimeReadFailure() {
     std::lock_guard<std::mutex> lock(m_mtx);
     m_runtimeFailure.reset();
     m_runtimeDiag.clear();
+}
+
+void FakePlcRuntimeGateway::scriptSafetyReadFailure(
+    contracts::ReadResult<contracts::SafetySnapshot>::FailureKind kind,
+    std::string diagnostic) {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    m_safetyFailure = kind;
+    m_safetyDiag = std::move(diagnostic);
+}
+
+void FakePlcRuntimeGateway::clearSafetyReadFailure() {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    m_safetyFailure.reset();
+    m_safetyDiag.clear();
 }
 
 void FakePlcRuntimeGateway::scriptWriteAxisFailure(
@@ -149,6 +168,22 @@ contracts::ReadResult<contracts::RuntimeSnapshot> FakePlcRuntimeGateway::readRun
         contracts::ReadResult<contracts::RuntimeSnapshot>::FailureKind::Transport,
         "FakePlcRuntimeGateway: no runtime snapshot scripted");
 }
+
+contracts::ReadResult<contracts::SafetySnapshot> FakePlcRuntimeGateway::readSafety() {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    if (m_safetyFailure.has_value()) {
+        return contracts::ReadResult<contracts::SafetySnapshot>::failure(
+            *m_safetyFailure, m_safetyDiag);
+    }
+    if (m_safety.has_value() && m_safety->trusted) {
+        return contracts::ReadResult<contracts::SafetySnapshot>::success(*m_safety);
+    }
+    return contracts::ReadResult<contracts::SafetySnapshot>::failure(
+        contracts::ReadResult<contracts::SafetySnapshot>::FailureKind::Transport,
+        m_safety.has_value() ? "FakePlcRuntimeGateway: safety snapshot not trusted"
+                             : "FakePlcRuntimeGateway: no safety snapshot scripted");
+}
+
 
 contracts::CommunicationResult FakePlcRuntimeGateway::writeAxis(
     contracts::PlcAxisSlot slot, const contracts::PlcAxisCommand& cmd) {

@@ -20,6 +20,7 @@
 #include "infrastructure/plc_vnext/contracts/PlcGroupIndex.h"
 #include "infrastructure/plc_vnext/contracts/ReadResult.h"
 #include "infrastructure/plc_vnext/contracts/RuntimeSnapshot.h"
+#include "infrastructure/plc_vnext/contracts/SafetySnapshot.h"
 #include "infrastructure/plc_vnext/contracts/SnapshotQuality.h"
 #include "infrastructure/plc_vnext/contracts/TopologySnapshot.h"
 #include "infrastructure/plc_vnext/fake/FakePlcRuntimeGateway.h"
@@ -200,6 +201,52 @@ TEST(FakePlcRuntimeGatewayTest, SubmitGantryDetailed_ScriptedFailure_PreservesSe
 
     gw.clearGantrySubmitFailure();
     EXPECT_TRUE(gw.submitGantryRequestDetailed(*g0, GantryRequest::decouple(8)).ok());
+}
+
+// ─────────────────────────────────────────────
+// 阶段 2：readSafety —— 急停只读快照契约（M224/M225）
+// ─────────────────────────────────────────────
+TEST(FakePlcRuntimeGatewayTest, ReadSafety_ReturnsScriptedSnapshot) {
+    FakePlcRuntimeGateway gw;
+    contracts::SafetySnapshot s;
+    s.trusted = true;
+    s.emergencyStop = true;
+    s.releaseRequest = false;
+    gw.setSafetySnapshot(s);
+
+    auto res = gw.readSafety();
+    ASSERT_TRUE(res.hasValue());
+    EXPECT_TRUE(res.value().trusted);
+    EXPECT_TRUE(res.value().emergencyStop);
+    EXPECT_FALSE(res.value().releaseRequest);
+}
+
+TEST(FakePlcRuntimeGatewayTest, ReadSafety_NoSnapshot_ReturnsTransportFailure) {
+    FakePlcRuntimeGateway gw;
+    auto res = gw.readSafety();
+    ASSERT_FALSE(res.hasValue());
+    EXPECT_EQ(res.failureKind(),
+              contracts::ReadResult<contracts::SafetySnapshot>::FailureKind::Transport);
+    EXPECT_FALSE(res.diagnostic().empty());
+}
+
+TEST(FakePlcRuntimeGatewayTest, ReadSafety_ScriptedFailure_OverridesSnapshot) {
+    FakePlcRuntimeGateway gw;
+    contracts::SafetySnapshot s;
+    s.trusted = true;
+    gw.setSafetySnapshot(s);
+    gw.scriptSafetyReadFailure(
+        contracts::ReadResult<contracts::SafetySnapshot>::FailureKind::Transport,
+        "safety read broken");
+
+    auto res = gw.readSafety();
+    ASSERT_FALSE(res.hasValue());
+    EXPECT_EQ(res.failureKind(),
+              contracts::ReadResult<contracts::SafetySnapshot>::FailureKind::Transport);
+    EXPECT_EQ(res.diagnostic(), "safety read broken");
+
+    gw.clearSafetyReadFailure();
+    EXPECT_TRUE(gw.readSafety().hasValue());
 }
 
 // ─────────────────────────────────────────────

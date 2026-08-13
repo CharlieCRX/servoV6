@@ -27,6 +27,7 @@
 #include "infrastructure/plc_vnext/command/PlcAxisCommandWriter.h"
 #include "infrastructure/plc_vnext/command/PlcGantryCommandWriter.h"
 #include "infrastructure/plc_vnext/telemetry/PlcSnapshotReader.h"
+#include "infrastructure/plc_vnext/telemetry/SafetyStateReader.h"
 #include "infrastructure/plc_vnext/topology/PlcTopologyReader.h"
 #include "infrastructure/plc_vnext/transport/ConnectionMonitor.h"
 #include "infrastructure/plc_vnext/transport/IModbusClient.h"
@@ -45,6 +46,7 @@ public:
 
     contracts::ReadResult<contracts::TopologySnapshot> readTopology() override;
     contracts::ReadResult<contracts::RuntimeSnapshot> readRuntime() override;
+    contracts::ReadResult<contracts::SafetySnapshot> readSafety() override;
 
     contracts::CommunicationResult writeAxis(
         contracts::PlcAxisSlot slot, const contracts::PlcAxisCommand& cmd) override;
@@ -64,6 +66,7 @@ private:
     mutable transport::ConnectionMonitor m_monitor;
     topology::PlcTopologyReader m_topology;
     telemetry::PlcSnapshotReader m_telemetry;
+    telemetry::SafetyStateReader m_safety;   // 阶段 2：急停只读（共享 m_io 通道）
     command::PlcAxisCommandWriter m_axisWriter;
     command::PlcGantryCommandWriter m_gantryWriter;
 };

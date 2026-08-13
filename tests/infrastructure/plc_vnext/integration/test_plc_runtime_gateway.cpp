@@ -37,6 +37,7 @@
 #include "infrastructure/plc_vnext/contracts/PlcAxisSlot.h"
 #include "infrastructure/plc_vnext/contracts/PlcCommand.h"
 #include "infrastructure/plc_vnext/contracts/PlcGroupIndex.h"
+#include "infrastructure/plc_vnext/contracts/SafetySnapshot.h"
 #include "infrastructure/plc_vnext/contracts/SnapshotQuality.h"
 #include "infrastructure/plc_vnext/fake/FakeModbusClient.h"
 #include "infrastructure/plc_vnext/layout/AxisSlotRegisterLayout.h"
@@ -111,7 +112,9 @@ public:
 
     contracts::CommunicationResult readCoils(uint16_t a, uint16_t c,
                                              std::vector<uint8_t>& p) override {
-        return m_inner->readCoils(a, c, p);
+        auto r = m_inner->readCoils(a, c, p);
+        { std::lock_guard<std::mutex> l(m_logMtx); m_log.push_back('F'); }  // safety read
+        return r;
     }
     contracts::CommunicationResult readHoldingRegisters(
         uint16_t a, uint16_t c, std::vector<uint16_t>& p) override {
@@ -385,6 +388,59 @@ TEST(PlcRuntimeGatewayTest, SubmitGantryDetailed_PropagatesCommitUncertain) {
     // 兼容入口只返回底层通讯结果（不携带阶段），仍为失败。
     auto plain = gateway.submitGantryRequest(*g0, GantryRequest::couple(8));
     EXPECT_FALSE(plain.ok());
+}
+
+// ─────────────────────────────────────────────
+// 阶段 2：readSafety() 经共享串行 I/O 通道读取设备急停 M224/M225（方案 §4.4）。
+//   - 成功读取 → trusted 快照（bit0=M224 急停 / bit1=M225 解除）
+//   - 通讯失败 → Transport 失败，不提供“可信急停快照”
+//   - 与 readRuntime/readTopology 共用同一底层 client（同一 ModbusIoExecutor）
+// ─────────────────────────────────────────────
+TEST(PlcRuntimeGatewayTest, ReadSafety_ReadsM224AndM225) {
+    auto fake = std::make_shared<fake::FakeModbusClient>();
+    fake->setCoil(224, true);   // M224 设备急停
+    fake->setCoil(225, true);   // M225 解除请求
+
+    PlcRuntimeGateway gateway(fake);
+    auto res = gateway.readSafety();
+
+    ASSERT_TRUE(res.hasValue()) << res.diagnostic();
+    EXPECT_TRUE(res.value().trusted);
+    EXPECT_TRUE(res.value().emergencyStop);
+    EXPECT_TRUE(res.value().releaseRequest);
+}
+
+TEST(PlcRuntimeGatewayTest, ReadSafety_TransportFailure_ReturnsFailure) {
+    auto fake = std::make_shared<fake::FakeModbusClient>();
+    fake->setFailureThreshold(0);  // 全部读请求失败
+
+    PlcRuntimeGateway gateway(fake);
+    auto res = gateway.readSafety();
+
+    ASSERT_FALSE(res.hasValue());
+    EXPECT_EQ(res.failureKind(),
+              contracts::ReadResult<contracts::SafetySnapshot>::FailureKind::Transport);
+    EXPECT_FALSE(res.diagnostic().empty());
+}
+
+TEST(PlcRuntimeGatewayTest, ReadSafety_UsesSameSharedIoClient) {
+    auto inner = std::make_shared<fake::FakeModbusClient>();
+    inner->setCoil(224, true);
+    auto client = std::make_shared<OrderLoggingClient>(inner);
+    loadAxis(*inner, makeAxisBlock());
+    loadGantry(*inner, makeGantryBlock());
+
+    PlcRuntimeGateway gateway(client);
+
+    // 同一 gateway 内：急停读（'F'）、telemetry 读（'R'）、拓扑读都经同一底层
+    // client —— 证明 readSafety 与其它读取共享同一串行 I/O 通道（§4.4）。
+    auto safety = gateway.readSafety();
+    ASSERT_TRUE(safety.hasValue()) << safety.diagnostic();
+    ASSERT_TRUE(gateway.readRuntime().hasValue());
+
+    const auto log = client->log();
+    EXPECT_NE(std::count(log.begin(), log.end(), 'F'), 0) << "readSafety must issue FC01";
+    EXPECT_NE(std::count(log.begin(), log.end(), 'R'), 0) << "readRuntime must issue FC03";
 }
 
 }  // namespace

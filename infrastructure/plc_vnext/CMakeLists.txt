@@ -29,6 +29,7 @@ add_library(plc_vnext STATIC
     telemetry/AxisSnapshotDecoder.cpp
     telemetry/GantryStatusReader.cpp
     telemetry/PlcSnapshotReader.cpp
+    telemetry/SafetyStateReader.cpp       # 阶段 2：急停只读器（M224/M225）
     # ============ Step 8：command（单轴写路径，仅 Fake 离线 TDD）============
     command/PlcAxisCommandWriter.cpp
     # ============ Step 9：command（龙门请求，仅 Fake 离线 TDD）============
