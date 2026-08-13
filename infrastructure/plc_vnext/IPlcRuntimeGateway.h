@@ -16,6 +16,7 @@
 // ============================================================================
 #pragma once
 
+#include "infrastructure/plc_vnext/contracts/AxisParameterSnapshot.h"
 #include "infrastructure/plc_vnext/contracts/CommunicationResult.h"
 #include "infrastructure/plc_vnext/contracts/ConnectionState.h"
 #include "infrastructure/plc_vnext/contracts/GantryRequest.h"
@@ -45,6 +46,19 @@ public:
     /// 相同的共享串行 I/O 通道；失败（通讯/空数据）返回 Transport 失败，绝不把
     /// “未知急停状态”当作“正常”。
     virtual contracts::ReadResult<contracts::SafetySnapshot> readSafety() = 0;
+
+    /// 读取单槽位参数区（RW：相对原点记录 / 绝对定位距离 / 相对定位距离 /
+    /// 软负 / 软正 / 软限位控制）。经共享串行 I/O 通道；任一字段读取失败 →
+    /// Transport 失败，不得把字段置 0 冒充“正常”。阶段 3 参数写入/恢复读回用。
+    virtual contracts::ReadResult<contracts::AxisParameterSnapshot> readAxisParameters(
+        contracts::PlcAxisSlot slot) = 0;
+
+    /// 触发设备急停：写 M224=ON（锁存，测试/手动触发用）。只提交，不做读回。
+    virtual contracts::CommunicationResult triggerEmergencyStop() = 0;
+
+    /// 请求解除设备急停：写 M225=ON（PLC 自复位，只写 ON；解除后 M224/M225 自动
+    /// OFF，不自动恢复使能/运动）。只提交，不做读回。
+    virtual contracts::CommunicationResult requestEmergencyStopRelease() = 0;
 
     /// 提交单轴写入意图（参数写/使能/点动/触发/清除）。只提交，不做读回。
     virtual contracts::CommunicationResult writeAxis(

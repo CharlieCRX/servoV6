@@ -27,6 +27,11 @@ void FakePlcRuntimeGateway::setSafetySnapshot(contracts::SafetySnapshot snap) {
     m_safety = std::move(snap);
 }
 
+void FakePlcRuntimeGateway::setAxisParameterSnapshot(contracts::AxisParameterSnapshot snap) {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    m_param = std::move(snap);
+}
+
 void FakePlcRuntimeGateway::setConnected(bool connected) {
     std::lock_guard<std::mutex> lock(m_mtx);
     m_connected = connected;
@@ -90,6 +95,33 @@ void FakePlcRuntimeGateway::clearWriteAxisFailure() {
     m_writeAxisDiag.clear();
 }
 
+void FakePlcRuntimeGateway::scriptAxisParameterReadFailure(
+    contracts::ReadResult<contracts::AxisParameterSnapshot>::FailureKind kind,
+    std::string diagnostic) {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    m_paramFailure = kind;
+    m_paramDiag = std::move(diagnostic);
+}
+
+void FakePlcRuntimeGateway::clearAxisParameterReadFailure() {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    m_paramFailure.reset();
+    m_paramDiag.clear();
+}
+
+void FakePlcRuntimeGateway::scriptEmergencyStopWriteFailure(
+    contracts::CommunicationResult::Status status, std::string diagnostic) {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    m_estopWriteFailure = status;
+    m_estopWriteDiag = std::move(diagnostic);
+}
+
+void FakePlcRuntimeGateway::clearEmergencyStopWriteFailure() {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    m_estopWriteFailure.reset();
+    m_estopWriteDiag.clear();
+}
+
 void FakePlcRuntimeGateway::scriptGantrySubmitFailure(
     contracts::GantrySubmitState state, std::string diagnostic) {
     std::lock_guard<std::mutex> lock(m_mtx);
@@ -109,6 +141,12 @@ void FakePlcRuntimeGateway::clearGantrySubmitFailure() {
 std::vector<FakePlcRuntimeGateway::WrittenAxis> FakePlcRuntimeGateway::writtenAxis() const {
     std::lock_guard<std::mutex> lock(m_mtx);
     return m_writtenAxis;
+}
+
+std::vector<FakePlcRuntimeGateway::WrittenEmergencyCoil>
+FakePlcRuntimeGateway::emergencyCoilWrites() const {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    return m_emergencyCoils;
 }
 
 std::vector<FakePlcRuntimeGateway::GantrySubmission>
@@ -184,6 +222,40 @@ contracts::ReadResult<contracts::SafetySnapshot> FakePlcRuntimeGateway::readSafe
                              : "FakePlcRuntimeGateway: no safety snapshot scripted");
 }
 
+
+contracts::ReadResult<contracts::AxisParameterSnapshot>
+FakePlcRuntimeGateway::readAxisParameters(contracts::PlcAxisSlot slot) {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    if (m_paramFailure.has_value()) {
+        return contracts::ReadResult<contracts::AxisParameterSnapshot>::failure(
+            *m_paramFailure, m_paramDiag);
+    }
+    if (m_param.has_value() && m_param->slot == slot.value() && m_param->trusted) {
+        return contracts::ReadResult<contracts::AxisParameterSnapshot>::success(*m_param);
+    }
+    return contracts::ReadResult<contracts::AxisParameterSnapshot>::failure(
+        contracts::ReadResult<contracts::AxisParameterSnapshot>::FailureKind::Transport,
+        "FakePlcRuntimeGateway: no axis parameter snapshot for slot "
+        "scripted or not trusted");
+}
+
+contracts::CommunicationResult FakePlcRuntimeGateway::triggerEmergencyStop() {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    m_emergencyCoils.push_back(WrittenEmergencyCoil{true});
+    if (m_estopWriteFailure.has_value()) {
+        return failedResult(*m_estopWriteFailure, m_estopWriteDiag);
+    }
+    return contracts::CommunicationResult::sent();
+}
+
+contracts::CommunicationResult FakePlcRuntimeGateway::requestEmergencyStopRelease() {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    m_emergencyCoils.push_back(WrittenEmergencyCoil{false});
+    if (m_estopWriteFailure.has_value()) {
+        return failedResult(*m_estopWriteFailure, m_estopWriteDiag);
+    }
+    return contracts::CommunicationResult::sent();
+}
 
 contracts::CommunicationResult FakePlcRuntimeGateway::writeAxis(
     contracts::PlcAxisSlot slot, const contracts::PlcAxisCommand& cmd) {

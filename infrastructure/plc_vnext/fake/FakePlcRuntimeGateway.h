@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "infrastructure/plc_vnext/IPlcRuntimeGateway.h"
+#include "infrastructure/plc_vnext/contracts/AxisParameterSnapshot.h"
 #include "infrastructure/plc_vnext/contracts/CommunicationResult.h"
 #include "infrastructure/plc_vnext/contracts/ConnectionState.h"
 #include "infrastructure/plc_vnext/contracts/GantryRequest.h"
@@ -49,6 +50,8 @@ public:
     void setRuntimeSnapshot(contracts::RuntimeSnapshot snap);
     /// 设置 readSafety() 默认返回的快照（覆盖之前脚本）。
     void setSafetySnapshot(contracts::SafetySnapshot snap);
+    /// 设置 readAxisParameters() 默认返回的快照（覆盖之前脚本）。
+    void setAxisParameterSnapshot(contracts::AxisParameterSnapshot snap);
     /// 驱动 connectionState() 的连接位。
     void setConnected(bool connected);
 
@@ -70,6 +73,15 @@ public:
     void scriptWriteAxisFailure(contracts::CommunicationResult::Status status,
                                 std::string diagnostic = {});
     void clearWriteAxisFailure();
+    /// readAxisParameters() 一律返回该失败状态；clearAxisParameterReadFailure() 恢复脚本快照。
+    void scriptAxisParameterReadFailure(
+        contracts::ReadResult<contracts::AxisParameterSnapshot>::FailureKind kind,
+        std::string diagnostic = {});
+    void clearAxisParameterReadFailure();
+    /// triggerEmergencyStop()/requestEmergencyStopRelease() 一律返回该失败状态。
+    void scriptEmergencyStopWriteFailure(contracts::CommunicationResult::Status status,
+                                         std::string diagnostic = {});
+    void clearEmergencyStopWriteFailure();
     /// submitGantryRequestDetailed() 一律返回该提交阶段（非 Submitted）。
     void scriptGantrySubmitFailure(contracts::GantrySubmitState state,
                                    std::string diagnostic = {});
@@ -80,11 +92,16 @@ public:
         contracts::PlcAxisSlot slot;
         contracts::PlcAxisCommand cmd;
     };
+    /// 记录一次系统级急停线圈写（0=M224 触发 / 1=M225 解除）。
+    struct WrittenEmergencyCoil {
+        bool trigger;  // true=M224 触发；false=M225 解除
+    };
     struct GantrySubmission {
         contracts::PlcGroupIndex group;
         contracts::GantryRequest req;
     };
     std::vector<WrittenAxis> writtenAxis() const;
+    std::vector<WrittenEmergencyCoil> emergencyCoilWrites() const;
     std::vector<GantrySubmission> gantrySubmissions() const;
     unsigned requestReconnectCount() const;
 
@@ -92,6 +109,10 @@ public:
     contracts::ReadResult<contracts::TopologySnapshot> readTopology() override;
     contracts::ReadResult<contracts::RuntimeSnapshot> readRuntime() override;
     contracts::ReadResult<contracts::SafetySnapshot> readSafety() override;
+    contracts::ReadResult<contracts::AxisParameterSnapshot> readAxisParameters(
+        contracts::PlcAxisSlot slot) override;
+    contracts::CommunicationResult triggerEmergencyStop() override;
+    contracts::CommunicationResult requestEmergencyStopRelease() override;
     contracts::CommunicationResult writeAxis(
         contracts::PlcAxisSlot slot, const contracts::PlcAxisCommand& cmd) override;
     contracts::CommunicationResult submitGantryRequest(
@@ -112,6 +133,7 @@ private:
     std::optional<contracts::TopologySnapshot> m_topology;
     std::optional<contracts::RuntimeSnapshot> m_runtime;
     std::optional<contracts::SafetySnapshot> m_safety;
+    std::optional<contracts::AxisParameterSnapshot> m_param;
     bool m_connected = true;
     unsigned m_reconnectCount = 0;
 
@@ -125,6 +147,11 @@ private:
     std::optional<contracts::ReadResult<contracts::SafetySnapshot>::FailureKind>
         m_safetyFailure;
     std::string m_safetyDiag;
+    std::optional<contracts::ReadResult<contracts::AxisParameterSnapshot>::FailureKind>
+        m_paramFailure;
+    std::string m_paramDiag;
+    std::optional<contracts::CommunicationResult::Status> m_estopWriteFailure;
+    std::string m_estopWriteDiag;
     std::optional<contracts::CommunicationResult::Status> m_writeAxisFailure;
     std::string m_writeAxisDiag;
     std::optional<contracts::GantrySubmitState> m_gantryFailure;
@@ -132,6 +159,7 @@ private:
 
     // 记录
     std::vector<WrittenAxis> m_writtenAxis;
+    std::vector<WrittenEmergencyCoil> m_emergencyCoils;
     std::vector<GantrySubmission> m_gantrySubmissions;
 };
 

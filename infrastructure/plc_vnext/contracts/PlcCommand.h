@@ -77,8 +77,8 @@ struct PlcAxisCommand {
     static PlcAxisCommand makeJogBackward(bool v) {
         return {PlcAxisCommandKind::JogBackward, 0.0f, v};
     }
-    static PlcAxisCommand makeJogHeartbeat() {
-        return {PlcAxisCommandKind::JogHeartbeat, 0.0f, true};
+    static PlcAxisCommand makeJogHeartbeat(bool on) {
+        return {PlcAxisCommandKind::JogHeartbeat, 0.0f, on};
     }
 
     static PlcAxisCommand makeTriggerAbsMove() {

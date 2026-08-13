@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "infrastructure/plc_vnext/contracts/SnapshotQuality.h"
+#include "infrastructure/plc_vnext/layout/SystemCoilLayout.h"
 
 namespace plc_vnext {
 namespace {
@@ -29,6 +30,7 @@ PlcRuntimeGateway::PlcRuntimeGateway(
       m_topology(m_io),
       m_telemetry(m_io),
       m_safety(m_io),
+      m_paramReader(m_io),
       m_axisWriter(m_io),
       m_gantryWriter(m_io,
                      groupGate ? std::move(groupGate)
@@ -65,6 +67,32 @@ contracts::ReadResult<contracts::SafetySnapshot> PlcRuntimeGateway::readSafety()
         snap.diagnostic.empty()
             ? "PlcRuntimeGateway: safety snapshot not trusted"
             : snap.diagnostic);
+}
+
+contracts::ReadResult<contracts::AxisParameterSnapshot>
+PlcRuntimeGateway::readAxisParameters(contracts::PlcAxisSlot slot) {
+    // 阶段 3：参数区读回确认。经共享 m_io 串行通道读取单槽位参数区。
+    auto snap = m_paramReader.read(slot.value());
+    if (snap.trusted) {
+        return contracts::ReadResult<contracts::AxisParameterSnapshot>::success(
+            std::move(snap));
+    }
+    return contracts::ReadResult<contracts::AxisParameterSnapshot>::failure(
+        contracts::ReadResult<contracts::AxisParameterSnapshot>::FailureKind::Transport,
+        "PlcRuntimeGateway: axis parameter snapshot not trusted (slot=" +
+            std::to_string(slot.value()) + ")");
+}
+
+contracts::CommunicationResult PlcRuntimeGateway::triggerEmergencyStop() {
+    // 设备急停：M224=ON（锁存）。经共享 m_io 通道，只提交不做读回。
+    return m_io->writeSingleCoil(
+        static_cast<uint16_t>(layout::emergencyStop().value()), true);
+}
+
+contracts::CommunicationResult PlcRuntimeGateway::requestEmergencyStopRelease() {
+    // 解除急停：M225=ON（PLC 自复位，只写 ON；解除后 M224/M225 自动 OFF）。
+    return m_io->writeSingleCoil(
+        static_cast<uint16_t>(layout::emergencyStopRelease().value()), true);
 }
 
 

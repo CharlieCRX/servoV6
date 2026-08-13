@@ -52,8 +52,9 @@ contracts::CommunicationResult PlcAxisCommandWriter::write(
         case PlcAxisCommandKind::JogBackward:
             return writeLevelCoil(layout::jogBackward(s), cmd.boolValue);
         case PlcAxisCommandKind::JogHeartbeat:
-            // 心跳固定写 ON；PLC 每扫描周期清 OFF，见 §3.2。
-            return writeLevelCoil(layout::jogHeartbeat(s), true);
+            // 心跳写 ON/OFF：PLC 每扫描周期清 OFF，因此周期写 ON 维持；停止时
+            // 补写 OFF 便于状态收尾与测试确认（§阶段3 Step 3.1）。
+            return writeLevelCoil(layout::jogHeartbeat(s), cmd.boolValue);
 
         // ---- PLC 自复位（只写 ON；PLC 自动复位读回 OFF）----
         case PlcAxisCommandKind::TriggerAbsMove:

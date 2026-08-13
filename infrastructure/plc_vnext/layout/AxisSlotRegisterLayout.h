@@ -28,4 +28,15 @@ constexpr HoldingAddress alarmWord(int slot)        { return HoldingAddress(160 
 constexpr HoldingAddress absPosTarget(int slot)     { return HoldingAddress(1096 + 2 * slot); }  // D1096
 constexpr HoldingAddress relPosTarget(int slot)     { return HoldingAddress(1128 + 2 * slot); }  // D1128
 
+// ---- REAL 参数区字段（RW，读回确认用）：每项占 2 个 D ----
+// 与《PLC16槽位动态轴领域模型与职责配置协议.md》§3 一致（0 基址，低字在前 CDAB）：
+constexpr HoldingAddress relZeroRecord(int slot)    { return HoldingAddress(1064 + 2 * slot); }  // D1064
+constexpr HoldingAddress absMoveDistance(int slot)  { return HoldingAddress(1096 + 2 * slot); }  // D1096（同 absPosTarget）
+constexpr HoldingAddress relMoveDistance(int slot)  { return HoldingAddress(1128 + 2 * slot); }  // D1128（同 relPosTarget）
+constexpr HoldingAddress softNegLimit(int slot)     { return HoldingAddress(1160 + 2 * slot); }  // D1160
+constexpr HoldingAddress softPosLimit(int slot)     { return HoldingAddress(1192 + 2 * slot); }  // D1192
+
+// ---- WORD 参数区字段（RW，读回确认用）：占 1 个 D ----
+constexpr HoldingAddress softLimitControl(int slot) { return HoldingAddress(1228 + slot); }      // D1228（bit0 正 / bit1 负）
+
 }  // namespace plc_vnext::layout
