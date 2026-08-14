@@ -41,7 +41,15 @@ public:
 
     // ---- boot / poll ----
     bool boot();  // 读拓扑 -> 动态建轴/分组/HmiVisible；随后读一次运行快照注入反馈
+    /// 无 I/O 的 boot：仅依据给定 TopologySnapshot 初始化领域轴系统（**不读 runtime**）。
+    /// 由协调层（MotionControlService）先经 driver 读 topology，再调用本方法，避免
+    /// 旧 boot() 内部 poll() 造成「每 tick 第二次 runtime 读取」（见实施文档 §5.2）。
+    bool bootFromTopology(const plc_vnext::contracts::TopologySnapshot& topo);
     bool poll();  // 读运行快照 -> 注入轴反馈前7项 + 各龙门组状态
+    /// 注入**同一份**运行快照到领域状态（轴反馈 + 龙门状态），避免内部 poll() 重复读。
+    /// Phase 1 起：协调层每 tick 只经 IControlRuntime 读一次 runtime，再经本方法注入，
+    /// 确保同 tick 内仲裁/会话/快照基于唯一一份反馈，无重复 Modbus 读取。
+    bool applyRuntimeSnapshot(const plc_vnext::contracts::RuntimeSnapshot& res);
     void applyParameters(
         const std::array<plc_vnext::contracts::AxisParameterSnapshot,
                          plc_vnext::contracts::kRuntimeAxisCount>& params);
@@ -155,9 +163,15 @@ inline bool SystemManagerVnext::boot() {
         booted_ = false;
         return false;
     }
-    const auto bootRes = domain_vnext::system::SystemBoot::initialize(sys_, *topoRes);
+    const bool ok = bootFromTopology(*topoRes);
+    poll();                  // 旧 boot() 语义：首次运行反馈注入（driver 侧读一次）
+    return ok;
+}
+
+inline bool SystemManagerVnext::bootFromTopology(
+    const plc_vnext::contracts::TopologySnapshot& topo) {
+    const auto bootRes = domain_vnext::system::SystemBoot::initialize(sys_, topo);
     booted_ = true;          // 已初始化（是否可控制由 sys_.isReady() 表达）
-    poll();                  // 注入运行反馈 + 龙门状态
     return bootRes.ok;
 }
 
@@ -165,13 +179,19 @@ inline bool SystemManagerVnext::poll() {
     if (!booted_ || !driver_) return false;
     auto res = driver_->readRuntime();
     if (!res.hasValue()) return false;
+    return applyRuntimeSnapshot(*res);
+}
+
+inline bool SystemManagerVnext::applyRuntimeSnapshot(
+    const plc_vnext::contracts::RuntimeSnapshot& res) {
+    if (!booted_) return false;
     // 缓存龙门完整状态快照（guard / 生命周期策略读取），再走领域注入。
     for (int i = 0; i < 2; ++i) {
         gantryStatus_[static_cast<std::size_t>(i)] =
             domain_vnext::model::gantryStatusModelFromSnapshot(
-                (*res).gantry[static_cast<std::size_t>(i)]);
+                res.gantry[static_cast<std::size_t>(i)]);
     }
-    domain_vnext::system::FeedbackDispatcher::dispatch(sys_, *res);
+    domain_vnext::system::FeedbackDispatcher::dispatch(sys_, res);
     return true;
 }
 

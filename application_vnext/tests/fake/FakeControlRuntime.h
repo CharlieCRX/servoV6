@@ -98,6 +98,32 @@ public:
         return estopReleaseCount_;
     }
 
+    // ============ 脚本化：急停写失败（sticky，直到清除）============
+    /// 驱动 triggerEmergencyStop() 返回的通讯结果（未脚本化默认 sent()=成功）。
+    void scriptEmergencyStopFailure(
+        plc_vnext::contracts::CommunicationResult::Status status,
+        std::string diagnostic = {}) {
+        std::lock_guard<std::mutex> lock(mtx_);
+        estopTriggerFailure_ = status;
+        estopTriggerDiag_ = std::move(diagnostic);
+    }
+    void clearEmergencyStopFailure() {
+        std::lock_guard<std::mutex> lock(mtx_);
+        estopTriggerFailure_.reset();
+    }
+    /// 驱动 requestEmergencyStopRelease() 返回的通讯结果。
+    void scriptEmergencyStopReleaseFailure(
+        plc_vnext::contracts::CommunicationResult::Status status,
+        std::string diagnostic = {}) {
+        std::lock_guard<std::mutex> lock(mtx_);
+        estopReleaseFailure_ = status;
+        estopReleaseDiag_ = std::move(diagnostic);
+    }
+    void clearEmergencyStopReleaseFailure() {
+        std::lock_guard<std::mutex> lock(mtx_);
+        estopReleaseFailure_.reset();
+    }
+
     // ============ IControlRuntime ============
     plc_vnext::contracts::ReadResult<plc_vnext::contracts::RuntimeSnapshot> readRuntime() override {
         std::lock_guard<std::mutex> lock(mtx_);
@@ -137,12 +163,18 @@ public:
     plc_vnext::contracts::CommunicationResult triggerEmergencyStop() override {
         std::lock_guard<std::mutex> lock(mtx_);
         ++estopTriggerCount_;
+        if (estopTriggerFailure_) {
+            return {*estopTriggerFailure_, 0, estopTriggerDiag_};
+        }
         return plc_vnext::contracts::CommunicationResult::sent();
     }
 
     plc_vnext::contracts::CommunicationResult requestEmergencyStopRelease() override {
         std::lock_guard<std::mutex> lock(mtx_);
         ++estopReleaseCount_;
+        if (estopReleaseFailure_) {
+            return {*estopReleaseFailure_, 0, estopReleaseDiag_};
+        }
         return plc_vnext::contracts::CommunicationResult::sent();
     }
 
@@ -162,6 +194,10 @@ private:
     std::optional<plc_vnext::contracts::ReadResult<plc_vnext::contracts::SafetySnapshot>::FailureKind>
         safetyFailure_;
     std::string safetyDiag_;
+    std::optional<plc_vnext::contracts::CommunicationResult::Status> estopTriggerFailure_;
+    std::string estopTriggerDiag_;
+    std::optional<plc_vnext::contracts::CommunicationResult::Status> estopReleaseFailure_;
+    std::string estopReleaseDiag_;
 
     // 记录
     unsigned readRuntimeCount_ = 0;

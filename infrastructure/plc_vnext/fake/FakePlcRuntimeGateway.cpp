@@ -160,6 +160,11 @@ unsigned FakePlcRuntimeGateway::requestReconnectCount() const {
     return m_reconnectCount;
 }
 
+unsigned FakePlcRuntimeGateway::readRuntimeCallCount() const {
+    std::lock_guard<std::mutex> lock(m_mtx);
+    return m_readRuntimeCount;
+}
+
 // ============================================================================
 // IPlcRuntimeGateway
 // ============================================================================
@@ -188,6 +193,7 @@ contracts::ReadResult<contracts::TopologySnapshot> FakePlcRuntimeGateway::readTo
 
 contracts::ReadResult<contracts::RuntimeSnapshot> FakePlcRuntimeGateway::readRuntime() {
     std::lock_guard<std::mutex> lock(m_mtx);
+    ++m_readRuntimeCount;
     if (m_runtimeFailure.has_value()) {
         return contracts::ReadResult<contracts::RuntimeSnapshot>::failure(
             *m_runtimeFailure, m_runtimeDiag);

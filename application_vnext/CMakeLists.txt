@@ -26,6 +26,8 @@ add_library(application_vnext STATIC
     #   control/ControlStateStore.h    —— 统一状态存储 + 快照类型（线程安全、无 Qt 依赖）
     #   control/SessionPolicy.h        —— ISessionPolicy 会话抽象
     #   control/IControlRuntime.h      —— 协调层应用层最小运行时接口
+    # ============ Phase 1：MotionControlService 骨架 + 命令队列 + submit ============
+    control/MotionControlService.cpp
 )
 
 # 顶层目录作 include 根，便于以 "application_vnext/..." 方式引用头文件。

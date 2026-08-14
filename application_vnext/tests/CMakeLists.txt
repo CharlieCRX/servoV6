@@ -20,6 +20,8 @@ add_executable(application_vnext_tests
     test_control_command.cpp
     test_control_state_store.cpp
     test_required_resources.cpp
+    # ============ Phase 1：MotionControlService 骨架 + 命令队列 + submit ============
+    test_motion_control_service.cpp
 )
 
 target_include_directories(application_vnext_tests

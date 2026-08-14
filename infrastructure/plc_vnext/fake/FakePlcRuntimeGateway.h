@@ -104,6 +104,9 @@ public:
     std::vector<WrittenEmergencyCoil> emergencyCoilWrites() const;
     std::vector<GantrySubmission> gantrySubmissions() const;
     unsigned requestReconnectCount() const;
+    /// readRuntime() 被调用次数（Phase 1 验证「每 tick 只经 IControlRuntime 读一次 runtime，
+    /// driver 侧不得重复读」）。
+    unsigned readRuntimeCallCount() const;
 
     // ============ IPlcRuntimeGateway ============
     contracts::ReadResult<contracts::TopologySnapshot> readTopology() override;
@@ -136,6 +139,7 @@ private:
     std::optional<contracts::AxisParameterSnapshot> m_param;
     bool m_connected = true;
     unsigned m_reconnectCount = 0;
+    unsigned m_readRuntimeCount = 0;   // readRuntime() 调用次数（driver 侧）
 
     // 故障脚本（sticky）
     std::optional<contracts::ReadResult<contracts::TopologySnapshot>::FailureKind>

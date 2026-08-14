@@ -65,5 +65,18 @@ TEST(ControlCommandTest, AxisTargetNameFormatsGroupAndFunction) {
     EXPECT_EQ(axisTargetName(b), "B.X1");
 }
 
+TEST(ControlCommandTest, StartMoveCarriesTargetAndSpeedAtomically) {
+    ControlCommand c;
+    c.action = ControlAction::StartAbsMove;
+    c.motion = MotionRequest{123.5f, 25.0f};
+    ASSERT_TRUE(c.motion.has_value());
+    EXPECT_FLOAT_EQ(c.motion->target, 123.5f);
+    EXPECT_FLOAT_EQ(c.motion->speed, 25.0f);
+
+    // 默认构造：无负载（Set* 命令 / 未填 Start*Move 的调用保持 nullopt）。
+    ControlCommand d;
+    EXPECT_FALSE(d.motion.has_value());
+}
+
 }  // namespace
 }  // namespace application_vnext::control

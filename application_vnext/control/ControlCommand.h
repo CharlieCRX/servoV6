@@ -15,6 +15,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 #include "domain_vnext/model/AxisFunction.h"
@@ -62,6 +63,14 @@ enum class ControlAction {
     ReleaseEmergencyStop,
 };
 
+/// `Start*Move` 携带的目标与速度（原子业务意图，见 §5.3 目标值归属）。
+/// 避免「目标由某来源设置、速度由另一来源设置」的竞争；Phase 3 执行时
+/// 一次性落到 PLC（先写目标 D 寄存器，再触发 M 寄存器），不改分步来源。
+struct MotionRequest {
+    float target = 0.0f;   ///< 绝对/相对目标（EU）
+    float speed  = 0.0f;   ///< 定位速度（EU/s）
+};
+
 /// 统一控制命令：不携带 PLC 地址，只描述业务意图。
 struct ControlCommand {
     std::string operationId;                       // 全链路追踪、UDP 回包关联
@@ -70,6 +79,7 @@ struct ControlCommand {
     ControlAction action{};
     float value = 0.0f;                            // SetManualSpeed/SetPositioningSpeed/SetAbsTarget/SetRelTarget
     bool level = false;                            // EnableAxis/EnableMotor 的 on；StartJog 预留
+    std::optional<MotionRequest> motion;           // StartAbsMove/StartRelMove 的原子 目标+速度 负载
     std::chrono::steady_clock::time_point createdAt = std::chrono::steady_clock::now();
     std::chrono::milliseconds ttl{1000};           // 超时未被执行则丢弃（TimedOut）
 };
