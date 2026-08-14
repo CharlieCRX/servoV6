@@ -74,6 +74,13 @@ add_subdirectory(domain)
 add_subdirectory(application)
 add_subdirectory(presentation)
 
+if(NOT ANDROID)
+    # ★ Phase 2：UiControlAdapter 与真实 MotionControlService 的 Qt 集成测试
+    #   （依赖 presentation 库与 Qt6::Core/Qml，须在其定义之后引入）
+    add_subdirectory(presentation/tests)
+endif()
+
+
 
 # ==========================================
 # 3. 主可执行目标 + QML 模块
@@ -108,6 +115,7 @@ qt_add_qml_module(appservoV6
         presentation/qml/blocks/TelemetryBlock.qml
         presentation/qml/blocks/ActionControlBlock.qml
         presentation/qml/blocks/ErrorPanelBlock.qml
+        presentation/qml/blocks/ControlSnapshotBlock.qml
         presentation/qml/views/MainDashboard.qml
 )
 

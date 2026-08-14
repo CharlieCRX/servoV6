@@ -10,6 +10,10 @@ add_library(presentation
     viewmodel/ViewModelError.h
     viewmodel/EmergencyStopViewModel.h
 
+    # ★ Phase 2：统一状态快照 -> Qt/QML 只读适配器（读 ControlStateStore 投影）
+    viewmodel/UiControlAdapter.h
+    viewmodel/UiControlAdapter.cpp
+
     # ★ 游戏手柄输入事件系统
     input/InputEvent.h
     input/GamepadInputInterpreter.h
@@ -36,4 +40,5 @@ target_link_libraries(presentation
         domain
         application
         infrastructure
+        application_vnext      # ★ Phase 2：UiControlAdapter 依赖 MotionControlService/ControlStateStore
 )

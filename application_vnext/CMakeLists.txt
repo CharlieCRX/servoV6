@@ -28,6 +28,9 @@ add_library(application_vnext STATIC
     #   control/IControlRuntime.h      —— 协调层应用层最小运行时接口
     # ============ Phase 1：MotionControlService 骨架 + 命令队列 + submit ============
     control/MotionControlService.cpp
+    # ============ Phase 2：状态快照投影（先接 UI 只读）============
+    #   control/UiProjection.h —— ControlStateSnapshot -> UI 只读投影（纯 C++，无 Qt）
+    #   （Qt 侧适配器 presentation/viewmodel/UiControlAdapter.{h,cpp}，见 presentation 目标）
 )
 
 # 顶层目录作 include 根，便于以 "application_vnext/..." 方式引用头文件。

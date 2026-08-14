@@ -29,6 +29,7 @@
 #include "presentation/input/AxisSelectionModel.h"
 #include "presentation/input/AxisSelectionController.h"
 #include "presentation/input/MotionController.h"
+#include "presentation/viewmodel/UiControlAdapter.h"   // ★ Phase 2：统一快照 -> QML 只读
 #include "infrastructure/joystick/AndroidGamepadJoystick.h"
 #include "infrastructure/logger/Logger.h"
 #include <sstream>
@@ -332,6 +333,12 @@ int main(int argc, char *argv[])
     ConnectionViewModel connectionVM_A(manager, "Machine_A");
     ConnectionViewModel connectionVM_B(manager, "Machine_B");
 
+    // ★ Phase 2：统一状态快照 -> QML 只读适配器（严格只读，不提交命令）
+    //   真实 vnext 链路（SystemManagerVnext + MotionControlService）由 Phase 6
+    //   组合根注入；接入前传 nullptr，安全展示默认「离线/全局锁定」态。
+    //   Phase 6 替换为：MotionControlService svc(driver, runtime); UiControlAdapter snapshotAdapter(&svc);
+    UiControlAdapter snapshotAdapter(nullptr);
+
     // ============================
     // 5. QML 引擎初始化与依赖注入
     // ============================
@@ -362,6 +369,9 @@ int main(int argc, char *argv[])
     // 连接状态 ViewModel（★ P1/P2 新增）
     engine.rootContext()->setContextProperty("connectionVM_A", &connectionVM_A);
     engine.rootContext()->setContextProperty("connectionVM_B", &connectionVM_B);
+
+    // ★ Phase 2：统一状态快照（UiControlAdapter）暴露给 QML（只读对照面板）
+    engine.rootContext()->setContextProperty("controlSnapshot", &snapshotAdapter);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
         &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);
@@ -463,6 +473,9 @@ int main(int argc, char *argv[])
 
         // 6f. UDP 消息处理（收包 → 分发 → 回包）
         udpServer.tick();
+
+        // 6g. ★ Phase 2：统一状态快照投影（GUI 线程内读 ControlStateStore，只读）
+        snapshotAdapter.refresh();
     });
     systemClock.start(10);  // 10ms 物理心跳
 

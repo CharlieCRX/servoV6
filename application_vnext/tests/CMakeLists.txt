@@ -22,6 +22,8 @@ add_executable(application_vnext_tests
     test_required_resources.cpp
     # ============ Phase 1：MotionControlService 骨架 + 命令队列 + submit ============
     test_motion_control_service.cpp
+    # ============ Phase 2：状态快照投影（先接 UI 只读）============
+    test_ui_projection.cpp
 )
 
 target_include_directories(application_vnext_tests
