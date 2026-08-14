@@ -12,6 +12,8 @@ add_executable(application_vnext_tests
     test_system_manager_vnext.cpp
     # ============ 阶段 2：只读影子运行 ============
     test_shadow_run_assessor.cpp
+    # ============ 阶段3/后续：运动策略层（Abs/Rel/Jog/AxisMotionApi）============
+    test_axis_motion_policy.cpp
 )
 
 target_include_directories(application_vnext_tests

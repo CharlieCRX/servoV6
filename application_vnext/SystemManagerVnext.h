@@ -50,6 +50,8 @@ public:
     AppVnextResult enableMotor(domain_vnext::model::AxisFunction fn, bool on);
     AppVnextResult jog(domain_vnext::model::AxisFunction fn, bool forward, bool on);
     AppVnextResult stopJog(domain_vnext::model::AxisFunction fn, bool forward);
+    /// 点动心跳（保持电平线圈）：周期写 ON 维持，停止时补写 OFF。供 JogPolicy 使用。
+    AppVnextResult jogHeartbeat(domain_vnext::model::AxisFunction fn, bool on);
     AppVnextResult setManualSpeed(domain_vnext::model::AxisFunction fn, float v);
     AppVnextResult setPositioningSpeed(domain_vnext::model::AxisFunction fn, float v);
     AppVnextResult setAbsTarget(domain_vnext::model::AxisFunction fn, float v);
@@ -257,6 +259,9 @@ inline AppVnextResult SystemManagerVnext::stopJog(domain_vnext::model::AxisFunct
     return submitCoil(0, fn,
         forward ? domain_vnext::model::AxisCommandKind::JogForward
                 : domain_vnext::model::AxisCommandKind::JogBackward, false);
+}
+inline AppVnextResult SystemManagerVnext::jogHeartbeat(domain_vnext::model::AxisFunction fn, bool on) {
+    return submitCoil(0, fn, domain_vnext::model::AxisCommandKind::JogHeartbeat, on);
 }
 inline AppVnextResult SystemManagerVnext::setManualSpeed(domain_vnext::model::AxisFunction fn, float v) {
     return submitParam(0, fn, domain_vnext::model::AxisCommandKind::SetManualSpeed, v);
