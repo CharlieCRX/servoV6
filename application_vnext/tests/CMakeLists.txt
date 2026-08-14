@@ -16,6 +16,10 @@ add_executable(application_vnext_tests
     test_axis_motion_policy.cpp
     # ============ 龙门生命周期 + 运动许可守卫 + PowerOwnership ============
     test_gantry_policy.cpp
+    # ============ Phase 0：统一控制协调层——类型与命令模型 ============
+    test_control_command.cpp
+    test_control_state_store.cpp
+    test_required_resources.cpp
 )
 
 target_include_directories(application_vnext_tests

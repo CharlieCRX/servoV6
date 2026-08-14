@@ -20,6 +20,12 @@ add_library(application_vnext STATIC
     # ============ 阶段3：单轴物理调试服务（写入闸门 + 心跳会话）============
     commissioning/JogSession.cpp
     commissioning/PhysicalAxisCommissioningService.cpp
+    # ============ Phase 0：统一控制协调层——类型与命令模型（纯头文件）============
+    #   control/ControlCommand.h       —— 统一命令模型（ControlSource/AxisTarget/ControlAction/ControlCommand）
+    #   control/OperationState.h       —— 操作生命周期枚举 + ControlResource/OperationLease/requiredResources
+    #   control/ControlStateStore.h    —— 统一状态存储 + 快照类型（线程安全、无 Qt 依赖）
+    #   control/SessionPolicy.h        —— ISessionPolicy 会话抽象
+    #   control/IControlRuntime.h      —— 协调层应用层最小运行时接口
 )
 
 # 顶层目录作 include 根，便于以 "application_vnext/..." 方式引用头文件。
