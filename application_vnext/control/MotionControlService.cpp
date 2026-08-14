@@ -31,12 +31,20 @@
 #include <cstdint>
 #include <string>
 #include <utility>
+#include <algorithm>
+#include <optional>
+#include <string_view>
+
 
 #include "application_vnext/SystemManagerVnext.h"
 #include "application_vnext/policy/AxisMotionApi.h"
 #include "application_vnext/policy/GantryMotionApi.h"
 #include "domain_vnext/gateway/IPlcDriver.h"
 #include "infrastructure/plc_vnext/contracts/PlcAxisSlot.h"
+#include "application_vnext/control/SessionAdapter.h"
+#include "domain_vnext/model/AxisKey.h"
+#include "domain_vnext/system/AxisRegistry.h"
+
 
 namespace application_vnext::control {
 
@@ -106,6 +114,7 @@ void MotionControlService::ensureBootedIfNeeded() {
     // read per tick in readFeedbackAndSafety().
     const auto topoRes = driver_.readTopology();
     if (topoRes.hasValue() && sysManager_ && sysManager_->bootFromTopology(*topoRes)) {
+        lastTopo_ = *topoRes;
         bootOk_ = true;
         bootRetryCount_ = 0;
         return;
@@ -205,6 +214,11 @@ void MotionControlService::handleUrgent(const std::vector<ControlCommand>& cmds)
                 ? "estop write failed" : res.diagnostic;
         }
 
+        // Software estop request: clear all ordinary local sessions (Phase 3).
+        if (p.action == ControlAction::EmergencyStop) {
+            cancelAllSessions("emergency stop");
+        }
+
         // Re-lock to record the result into OperationEntry.
         std::lock_guard<std::mutex> lock(qMtx_);
         const auto it = operations_.find(p.operationId);
@@ -212,6 +226,17 @@ void MotionControlService::handleUrgent(const std::vector<ControlCommand>& cmds)
             it->second.state = st;
             it->second.diag = diag;
             it->second.updatedAt = now;
+        }
+    }
+
+    // Stop / StopJog：高优先级终止匹配的目标会话（StopJog 按 owner 过滤，不误停他轴）。
+    for (const auto& cmd : cmds) {
+        if (cmd.action == ControlAction::StopMotion) {
+            stopSessionsForTarget(cmd, /*ownerFiltered=*/false);
+            setOpState(cmd.operationId, OperationState::Accepted, "stop requested");
+        } else if (cmd.action == ControlAction::StopJog) {
+            stopSessionsForTarget(cmd, /*ownerFiltered=*/true);
+            setOpState(cmd.operationId, OperationState::Accepted, "stop jog requested");
         }
     }
 }
@@ -291,7 +316,375 @@ void MotionControlService::expireCommands(std::vector<ControlCommand>& cmds) {
     }
 }
 
+// ============================================================================
+// Phase 3：OperationEntry 回写 / 租约 / 会话终止辅助
+// ============================================================================
+
+bool MotionControlService::isOneShotAction(ControlAction a) {
+    switch (a) {
+        case ControlAction::SetManualSpeed:
+        case ControlAction::SetPositioningSpeed:
+        case ControlAction::SetAbsTarget:
+        case ControlAction::SetRelTarget:
+        case ControlAction::EnableAxis:
+        case ControlAction::EnableMotor:
+            return true;
+        default:
+            return false;
+    }
+}
+
+void MotionControlService::setOpState(const std::string& id, OperationState st, std::string diag) {
+    std::lock_guard<std::mutex> lock(qMtx_);  // operations_ shared with submit()
+    const auto it = operations_.find(id);
+    if (it == operations_.end()) return;
+    it->second.state = st;
+    if (!diag.empty()) it->second.diag = std::move(diag);
+    it->second.updatedAt = std::chrono::steady_clock::now();
+}
+
+void MotionControlService::setOpMotion(const std::string& id, int16_t motionState, float position) {
+    std::lock_guard<std::mutex> lock(qMtx_);
+    const auto it = operations_.find(id);
+    if (it == operations_.end()) return;
+    it->second.motionState = motionState;
+    it->second.position = position;
+}
+
+/// 任一资源已被「其它 operationId」占用 → 冲突（不抢占）。ownerOpId 用于幂等自比较。
+bool MotionControlService::leaseConflict(const std::vector<ControlResource>& res,
+                                         const std::string& ownerOpId) const {
+    for (const auto& r : res) {
+        const auto it = resourceIndex_.find(r.key);
+        if (it != resourceIndex_.end() && it->second != ownerOpId) return true;
+    }
+    return false;
+}
+
+void MotionControlService::registerLease(const ControlCommand& cmd,
+                                         const std::vector<ControlResource>& res) {
+    OperationLease lease;
+    lease.operationId = cmd.operationId;
+    lease.owner = cmd.source;
+    lease.resources = res;
+    lease.target = cmd.target;
+    lease.kind = kindOf(cmd.action);
+    leases_.push_back(std::move(lease));
+    for (const auto& r : res) resourceIndex_[r.key] = cmd.operationId;
+}
+
+void MotionControlService::releaseLeaseFor(const std::string& opId) {
+    for (auto it = resourceIndex_.begin(); it != resourceIndex_.end();) {
+        if (it->second == opId) it = resourceIndex_.erase(it);
+        else ++it;
+    }
+    leases_.erase(std::remove_if(leases_.begin(), leases_.end(),
+        [&](const OperationLease& l) { return l.operationId == opId; }),
+        leases_.end());
+}
+
+void MotionControlService::cancelAllSessions(const char* reason) {
+    for (auto& kv : sessions_) kv.second->cancel(reason);
+}
+
+void MotionControlService::stopSessionsForTarget(const ControlCommand& cmd, bool ownerFiltered) {
+    const ControlResource want = ControlResource::ofAxis(cmd.target);
+    for (auto& kv : sessions_) {
+        auto& s = kv.second;
+        // owner 过滤（StopJog）：只停本来源创建的点动会话，不误停其他轴/来源。
+        if (ownerFiltered) {
+            if (auto* b = dynamic_cast<const session_adapter::SessionBase*>(s.get())) {
+                if (b->owner() != cmd.source) continue;
+            }
+        }
+        const auto res = s->resources();
+        const bool hit = std::any_of(res.begin(), res.end(),
+            [&](const ControlResource& r) { return r.key == want.key; });
+        if (hit) s->requestStop();
+    }
+}
+
+// ============================================================================
+// Phase 3：仲裁 / 执行 / 会话推进
+// ============================================================================
+
+void MotionControlService::mirrorToChildren(const std::string& parentId, OperationState st,
+                                            const std::string& diag) {
+    // 重复点动并入父会话的子 operation：镜像父会话的运行/终局状态，
+    // 避免子 operation 永久停留在 Accepted（评审 P0）。
+    std::lock_guard<std::mutex> lock(qMtx_);  // operations_ shared with submit()
+    for (auto& kv : operations_) {
+        if (kv.second.parentOperationId == parentId) {
+            kv.second.state = st;
+            if (!diag.empty()) kv.second.diag = diag;
+            kv.second.updatedAt = std::chrono::steady_clock::now();
+        }
+    }
+}
+
+void MotionControlService::arbitrate(ControlCommand& cmd) {
+    // 已被 handleUrgent / expireCommands 处理（非 Queued）的命令跳过。
+    {
+        std::lock_guard<std::mutex> lock(qMtx_);
+        const auto it = operations_.find(cmd.operationId);
+        if (it == operations_.end() || it->second.state != OperationState::Queued) return;
+    }
+
+    // 全局锁定（安全失败 / 断线 / 不可信 / 未 boot / Revision 变化）：
+    // 普通控制一律拒绝；急停/释放/Stop 已在 handleUrgent 优先处理，不受此限制。
+    if (globallyLocked_) {
+        setOpState(cmd.operationId, OperationState::Rejected,
+                   "globally locked (safety / disconnect / not booted)");
+        return;
+    }
+
+    // 龙门生命周期在 Phase 7 才开放安全取消；Phase 3 一律拒绝，绝不创建龙门会话。
+    if (cmd.action == ControlAction::GantryEnableAndCouple ||
+        cmd.action == ControlAction::GantryDecoupleAndDisable) {
+        setOpState(cmd.operationId, OperationState::Rejected,
+                   "gantry lifecycle deferred to Phase 7");
+        return;
+    }
+
+    // 一次性写入（Set*/Enable*）：不创建会话；但仍需尊重目标轴资源占用，防止
+    // 他来源在轴运动中改速度 / EnableMotor=false（改变运行安全性）。
+    if (isOneShotAction(cmd.action)) {
+        const auto res = requiredResources(cmd, lastTopo_);
+        if (leaseConflict(res, cmd.operationId)) {
+            setOpState(cmd.operationId, OperationState::Rejected,
+                       "target axis leased by another operation");
+            return;
+        }
+        setOpState(cmd.operationId, OperationState::Accepted);
+        execute(cmd);
+        return;
+    }
+
+    // ---- 会话类动作：资源粒度仲裁 ----
+    const auto required = requiredResources(cmd, lastTopo_);
+
+    // 同源重复点动 ON：幂等——已存在同源同资源的点动会话则并入刷新，不重复占用。
+    if (cmd.action == ControlAction::StartJogForward ||
+        cmd.action == ControlAction::StartJogBackward) {
+        for (const auto& kv : sessions_) {
+            auto* b = dynamic_cast<const session_adapter::SessionBase*>(kv.second.get());
+            if (!b || b->kind() != OperationKind::Jog || b->owner() != cmd.source) continue;
+            const auto res = b->resources();
+            const bool overlap = std::any_of(res.begin(), res.end(),
+                [&](const ControlResource& r) {
+                    return std::any_of(required.begin(), required.end(),
+                        [&](const ControlResource& q) { return r.key == q.key; });
+                });
+            if (overlap) {
+                // 幂等刷新：并入现有父会话，记录 parentOperationId 以镜像其最终状态。
+                {
+                    std::lock_guard<std::mutex> lock(qMtx_);
+                    const auto it = operations_.find(cmd.operationId);
+                    if (it != operations_.end()) it->second.parentOperationId = b->operationId();
+                }
+                setOpState(cmd.operationId, OperationState::Accepted,
+                           "idempotent jog refresh (folded into " + b->operationId() + ")");
+                return;
+            }
+        }
+    }
+
+    // 资源冲突：已有其它 operationId 占用任一资源 → 整体拒绝，不抢占。
+    if (leaseConflict(required, cmd.operationId)) {
+        setOpState(cmd.operationId, OperationState::Rejected,
+                   "resource in use by another operation");
+        return;
+    }
+
+    // 全部空闲：原子占用全部资源并登记索引，随后执行落地到策略。
+    setOpState(cmd.operationId, OperationState::Accepted);
+    registerLease(cmd, required);
+    execute(cmd);
+}
+
+void MotionControlService::execute(ControlCommand& cmd) {
+    using domain_vnext::model::AxisKey;
+    using domain_vnext::model::AxisFunction;
+    using plc_vnext::contracts::PlcAxisSlot;
+
+    const auto g = cmd.target.group;
+    const auto fn = cmd.target.function;
+    const bool logical = (fn == AxisFunction::X);   // 逻辑轴 X 走龙门 API（含组资源）
+
+    // 一次性写入（Set*/Enable*）：直接落地，成功即 Succeeded（无会话、无租约）。
+    if (isOneShotAction(cmd.action)) {
+        AppVnextResult r{std::monostate{}};
+        switch (cmd.action) {
+            case ControlAction::EnableAxis:          r = sysManager_->enableAxis(g, fn, cmd.level); break;
+            case ControlAction::EnableMotor:         r = sysManager_->enableMotor(g, fn, cmd.level); break;
+            case ControlAction::SetManualSpeed:      r = sysManager_->setManualSpeed(g, fn, cmd.value); break;
+            case ControlAction::SetPositioningSpeed: r = sysManager_->setPositioningSpeed(g, fn, cmd.value); break;
+            case ControlAction::SetAbsTarget:        r = sysManager_->setAbsTarget(g, fn, cmd.value); break;
+            case ControlAction::SetRelTarget:        r = sysManager_->setRelTarget(g, fn, cmd.value); break;
+            default: break;
+        }
+        if (appResultOk(r)) setOpState(cmd.operationId, OperationState::Succeeded);
+        else setOpState(cmd.operationId, OperationState::Failed, "one-shot write failed");
+        return;
+    }
+
+    // (组, 功能) -> 物理槽位；未绑定返回空（逻辑轴 X 由 GantryMotionApi 内部解析）。
+    auto resolveSlot = [this](const ControlCommand& c) -> std::optional<PlcAxisSlot> {
+        const auto* axis = sysManager_->system().find(
+            AxisKey{c.target.group, c.target.function});
+        if (!axis) return std::nullopt;
+        return axis->slot();
+    };
+    auto startPos = [this](const ControlCommand& c) -> float {
+        const auto* axis = sysManager_->system().find(
+            AxisKey{c.target.group, c.target.function});
+        return axis ? axis->feedback().absPosition : 0.0f;
+    };
+    auto failAndRelease = [&](const char* why) {
+        setOpState(cmd.operationId, OperationState::Failed, why);
+        releaseLeaseFor(cmd.operationId);
+    };
+
+    std::shared_ptr<ISessionPolicy> session;
+    const auto required = requiredResources(cmd, lastTopo_);
+    switch (cmd.action) {
+        case ControlAction::StartAbsMove:
+        case ControlAction::StartRelMove: {
+            const float target = cmd.motion ? cmd.motion->target : 0.0f;
+            const float speed  = cmd.motion ? cmd.motion->speed : 0.0f;
+            const bool abs = (cmd.action == ControlAction::StartAbsMove);
+            if (logical) {
+                gantryApi_->setPositioningSpeed(g, speed);
+                if (abs) {
+                    gantryApi_->setAbsTarget(g, target);
+                    auto p = gantryApi_->beginAbs(g);
+                    p.setVerifyTarget(target);
+                    session = std::make_shared<
+                        session_adapter::PositioningSession<application_vnext::policy::AbsMovePolicy>>(
+                        *sysManager_, std::move(p), cmd.operationId, cmd.source,
+                        cmd.target, required, OperationKind::Positioning);
+                } else {
+                    gantryApi_->setRelTarget(g, target);
+                    auto p = gantryApi_->beginRel(g);
+                    p.setVerifyTarget(startPos(cmd) + target);
+                    session = std::make_shared<
+                        session_adapter::PositioningSession<application_vnext::policy::RelMovePolicy>>(
+                        *sysManager_, std::move(p), cmd.operationId, cmd.source,
+                        cmd.target, required, OperationKind::Positioning);
+                }
+            } else {
+                const auto slot = resolveSlot(cmd);
+                if (!slot) { failAndRelease("axis not bound in topology"); return; }
+                sysManager_->setPositioningSpeed(g, fn, speed);
+                if (abs) {
+                    axisApi_->setAbsTarget(*slot, target);
+                    auto p = axisApi_->beginAbs(*slot);
+                    p.setVerifyTarget(target);
+                    session = std::make_shared<
+                        session_adapter::PositioningSession<application_vnext::policy::AbsMovePolicy>>(
+                        *sysManager_, std::move(p), cmd.operationId, cmd.source,
+                        cmd.target, required, OperationKind::Positioning);
+                } else {
+                    axisApi_->setRelTarget(*slot, target);
+                    auto p = axisApi_->beginRel(*slot);
+                    p.setVerifyTarget(startPos(cmd) + target);
+                    session = std::make_shared<
+                        session_adapter::PositioningSession<application_vnext::policy::RelMovePolicy>>(
+                        *sysManager_, std::move(p), cmd.operationId, cmd.source,
+                        cmd.target, required, OperationKind::Positioning);
+                }
+            }
+            break;
+        }
+        case ControlAction::StartJogForward:
+        case ControlAction::StartJogBackward: {
+            const bool forward = (cmd.action == ControlAction::StartJogForward);
+            constexpr int kHeartbeatMs = 500;
+            if (logical) {
+                auto p = gantryApi_->beginJog(g, forward, 0, kHeartbeatMs);
+                session = std::make_shared<session_adapter::JogSession>(
+                    std::move(p), cmd.operationId, cmd.source, cmd.target,
+                    required, OperationKind::Jog);
+            } else {
+                const auto slot = resolveSlot(cmd);
+                if (!slot) { failAndRelease("axis not bound in topology"); return; }
+                auto p = axisApi_->beginJog(*slot, forward, 0, kHeartbeatMs);
+                session = std::make_shared<session_adapter::JogSession>(
+                    std::move(p), cmd.operationId, cmd.source, cmd.target,
+                    required, OperationKind::Jog);
+            }
+            break;
+        }
+        case ControlAction::GantryEnableAndCouple:
+        case ControlAction::GantryDecoupleAndDisable:
+            // Phase 3 不开放龙门：arbitrate 已拒绝，此处兜底拒绝（不创建会话）。
+            setOpState(cmd.operationId, OperationState::Rejected,
+                       "gantry lifecycle deferred to Phase 7");
+            releaseLeaseFor(cmd.operationId);
+            return;
+        default:
+            // 不应到达：紧急 / Stop / 一次性动作已在上游处理。
+            setOpState(cmd.operationId, OperationState::Rejected, "unsupported action");
+            releaseLeaseFor(cmd.operationId);
+            return;
+    }
+
+    if (!session) { failAndRelease("session create failed"); return; }
+
+    // 创建即 Error（如逻辑轴未绑定 / 槽位未注册）：立即失败并释放租约，不留空会话。
+    if (session->hasError()) {
+        setOpState(cmd.operationId, OperationState::Failed, session->diag());
+        releaseLeaseFor(cmd.operationId);
+        return;
+    }
+    sessions_[cmd.operationId] = std::move(session);
+}
+
+void MotionControlService::tickSessions() {
+    for (auto it = sessions_.begin(); it != sessions_.end();) {
+        const std::string opId = it->first;
+        auto& s = it->second;
+
+        // 全局锁定（安全失败 / 断线 / 不可信 / Revision 变化）：终止本地会话，
+        // 绝不在重连后自动重放运动。
+        if (globallyLocked_) s->cancel("global lock / safety / disconnect");
+
+        s->tick();
+
+        // 回写 PLC 反馈（motionState / position）到 OperationEntry。
+        if (auto* b = dynamic_cast<session_adapter::SessionBase*>(s.get())) {
+            const auto t = b->target();
+            if (const auto* axis = sysManager_->system().find(
+                    domain_vnext::model::AxisKey{t.group, t.function})) {
+                setOpMotion(opId, axis->feedback().motionState, axis->feedback().absPosition);
+            }
+        }
+
+        if (s->isDone() || s->hasError()) {
+            OperationState final;
+            std::string diag = s->diag();
+            if (s->hasError()) {
+                final = OperationState::Failed;
+            } else if (s->isStopping()) {
+                final = OperationState::Cancelled;
+                if (diag.empty()) diag = "cancelled / stopped";
+            } else {
+                final = OperationState::Succeeded;
+            }
+            setOpState(opId, final, diag);
+            mirrorToChildren(opId, final, diag);
+            releaseLeaseFor(opId);
+            it = sessions_.erase(it);
+        } else {
+            setOpState(opId, OperationState::Running);
+            mirrorToChildren(opId, OperationState::Running, {});
+            ++it;
+        }
+    }
+}
+
 void MotionControlService::tick() {
+
     std::vector<ControlCommand> cmds;
     drainQueue(cmds);
 
@@ -302,8 +695,8 @@ void MotionControlService::tick() {
     expireCommands(cmds);      // handle expired ordinary commands
 
     // ---- Phase 3: arbitrate + execute + tickSessions ----
-    // for (auto& c : cmds) arbitrate(c);
-    // tickSessions();
+    for (auto& c : cmds) arbitrate(c);   // 仲裁通过即执行；占用 / 拒绝 / 幂等刷新
+    tickSessions();                      // 推进会话、更新 OperationEntry、终止即释放租约
 
     publishSnapshot();
 }
@@ -337,6 +730,22 @@ void MotionControlService::publishSnapshot() {
                 a.role = axis->key().function;
                 a.hmiVisible = axis->hmiVisible();
                 a.bound = true;
+                // 投影资源租约：该轴是否被某操作占用（统一协调层核心价值：
+                // UI 应能显示“当前由 UDP / 摇杆控制”）。
+                const std::string key = ControlResource::ofAxis(
+                    AxisTarget{axis->key().group, axis->key().function}).key;
+                const auto idx = resourceIndex_.find(key);
+                if (idx != resourceIndex_.end()) {
+                    a.leased = true;
+                    a.leaseOperationId = idx->second;
+                    for (const auto& l : leases_) {
+                        if (l.operationId == idx->second) {
+                            a.leaseOwner = l.owner;
+                            a.leaseOwnerName = controlSourceName(l.owner);
+                            break;
+                        }
+                    }
+                }
             }
         }
         for (std::size_t g = 0; g < kRuntimeGroupCount; ++g) {
@@ -357,6 +766,13 @@ void MotionControlService::publishSnapshot() {
             gu.skew = src.skew;
             gu.fault = src.fault;
             gu.faultCode = src.faultCode;
+            // 投影龙门组资源租约（Phase 3 龙门未开放，恒为 false；Phase 7 启用）。
+            const auto gidx = resourceIndex_.find(ControlResource::ofGantry(
+                plc_vnext::contracts::PlcGroupIndex(static_cast<int>(g))).key);
+            if (gidx != resourceIndex_.end()) {
+                gu.lifecycleLeased = true;
+                gu.lifecycleOperationId = gidx->second;
+            }
         }
     }
 

@@ -26,7 +26,10 @@ add_library(application_vnext STATIC
     #   control/ControlStateStore.h    —— 统一状态存储 + 快照类型（线程安全、无 Qt 依赖）
     #   control/SessionPolicy.h        —— ISessionPolicy 会话抽象
     #   control/IControlRuntime.h      —— 协调层应用层最小运行时接口
-    # ============ Phase 1：MotionControlService 骨架 + 命令队列 + submit ============
+    # ============ Phase 1/3：MotionControlService 唯一协调器 ============
+    #   Phase 1：骨架 + 线程安全命令队列 + submit/queryOperation/tick 骨架
+    #   Phase 3：arbitrate（资源粒度 ControlResource 仲裁）+ execute + 会话 tick
+    #            + 会话适配器（control/SessionAdapter.h）
     control/MotionControlService.cpp
     # ============ Phase 2：状态快照投影（先接 UI 只读）============
     #   control/UiProjection.h —— ControlStateSnapshot -> UI 只读投影（纯 C++，无 Qt）

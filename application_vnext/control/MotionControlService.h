@@ -100,6 +100,17 @@ private:
     void tickSessions();                   // tick 所有进行中的会话 —— Phase 3
     void publishSnapshot();                // 写 ControlStateStore
 
+    // ---- Phase 3 辅助：OperationEntry 回写 / 租约 / 会话终止 ----
+    void setOpState(const std::string& id, OperationState st, std::string diag = {});
+    void setOpMotion(const std::string& id, int16_t motionState, float position);
+    bool leaseConflict(const std::vector<ControlResource>& res, const std::string& ownerOpId) const;
+    void registerLease(const ControlCommand& cmd, const std::vector<ControlResource>& res);
+    void releaseLeaseFor(const std::string& opId);
+    void cancelAllSessions(const char* reason);
+    void stopSessionsForTarget(const ControlCommand& cmd, bool ownerFiltered);
+    void mirrorToChildren(const std::string& parentId, OperationState st, const std::string& diag);
+    static bool isOneShotAction(ControlAction a);
+
     // ---- 组合根（不公开）：仅本类内部使用，由 arbitrate/execute 唯一触碰 ----
     std::unique_ptr<application_vnext::SystemManagerVnext>       sysManager_;
     std::unique_ptr<application_vnext::policy::AxisMotionApi>    axisApi_;
@@ -123,6 +134,7 @@ private:
     plc_vnext::contracts::SafetySnapshot   lastSafety_;
     plc_vnext::contracts::ConnectionState  lastConn_;
     std::optional<plc_vnext::contracts::RuntimeSnapshot> lastRuntime_;  // 每 tick 唯一一份
+    plc_vnext::contracts::TopologySnapshot lastTopo_;   // boot 成功后缓存，供仲裁 requiredResources
     bool globallyLocked_ = true;     // 初始锁定，boot 成功 + 首读可信后才释放
     bool bootOk_ = false;            // 经 bootFromTopology 成功初始化（topology 读取+校验通过）
     std::size_t bootRetryCount_ = 0; // 连续 boot 失败次数（指数退避用）

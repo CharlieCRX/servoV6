@@ -82,6 +82,7 @@ struct GantryUiState {
 /// 一次操作的状态条目（给 UDP 回包 / UI 展示）。
 struct OperationEntry {
     std::string operationId;
+    std::string parentOperationId;   // 重复点动并入父会话时记录父 operationId（空=自有会话）
     ControlSource source = ControlSource::Ui;
     std::string axis;                   // "A.Y" / "A.X" ...
     OperationKind kind = OperationKind::Positioning;
