@@ -121,17 +121,17 @@ GantryMotionApi（业务意图入口，按 组 -> AxisFunction::X -> 拓扑解�
 **内容**：扩展 `tools/plc_vnext_motion_probe`，经 `GantryMotionApi` 暴露龙门 action，现场可逐帧打印
 `step / ms / pos / gantryState / internalStep`。
 
-**探针用法**（A 组 g=0）：
+**探针用法**（默认 PLC IP=192.168.1.88，A 组 g=0）：
 ```bash
 # 建立联动并使能逻辑轴（->Ready）
-plc_vnext_motion_probe.exe --host IP --group 0 --action gantry-couple --confirm-write
+plc_vnext_motion_probe.exe --group 0 --action gantry-couple --confirm-write
 # 龙门下绝对/相对定位（前提已 couple 到 Ready）
-plc_vnext_motion_probe.exe --host IP --group 0 --action gantry-move-abs --value 100 --confirm-write --confirm-motion
-plc_vnext_motion_probe.exe --host IP --group 0 --action gantry-move-rel --value -30 --confirm-write --confirm-motion
+plc_vnext_motion_probe.exe --group 0 --action gantry-move-abs --value 100 --confirm-write --confirm-motion
+plc_vnext_motion_probe.exe --group 0 --action gantry-move-rel --value -30 --confirm-write --confirm-motion
 # 龙门下点动（显式停止）
-plc_vnext_motion_probe.exe --host IP --group 0 --action gantry-jog-forward --duration-ms 2000 --confirm-write --confirm-motion
+plc_vnext_motion_probe.exe --group 0 --action gantry-jog-forward --duration-ms 2000 --confirm-write --confirm-motion
 # 解除联动并掉电逻辑轴
-plc_vnext_motion_probe.exe --host IP --group 0 --action gantry-decouple --confirm-write
+plc_vnext_motion_probe.exe --group 0 --action gantry-decouple --confirm-write
 ```
 
 **完成判据**：
