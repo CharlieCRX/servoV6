@@ -66,6 +66,10 @@ bool isGantryMotionAction(const std::string& a) {
            a == "gantry-jog-forward" || a == "gantry-jog-backward";
 }
 
+bool isGantryRunAction(const std::string& a) {
+    return a == "gantry-run-abs" || a == "gantry-run-rel" || a == "gantry-run-jog";
+}
+
 int usage(const char* prog) {
     std::printf(
         "usage: %s --host IP --port 502 --unit 1 --slot <已绑定功能的slot，如2> "
@@ -78,10 +82,12 @@ int usage(const char* prog) {
         "       --group: 龙门组（A 组=0，B 组=1，默认 0）。\n"
         "actions: read | topo | jog-forward | jog-backward | move-absolute | move-relative |\n"
         "         gantry-couple | gantry-decouple |\n"
-        "         gantry-move-abs | gantry-move-rel | gantry-jog-forward | gantry-jog-backward\n"
+        "         gantry-move-abs | gantry-move-rel | gantry-jog-forward | gantry-jog-backward |\n"
+        "         gantry-run-abs | gantry-run-rel | gantry-run-jog\n"
         "       topo: 打印当前 PLC 拓扑中已绑定功能的 slot 映射（排查 slot 未注册）\n"
         "       gantry-couple: 建立联动并使能逻辑轴（->Ready）；gantry-decouple: 解除并掉电逻辑轴\n"
         "       gantry-move-abs/rel/jog: 龙门下逻辑轴运动（前提已 gantry-couple 到 Ready）\n"
+        "       gantry-run-abs/rel/jog: 组合闭环：自动 建立+使能 -> 运动 -> 解除+掉电\n"
         "约束: slot 必须已在拓扑绑定到某 AxisFunction（否则 AxisNotFound）；\n"
         "      单轴/龙门运动类动作需 --confirm-write 与 --confirm-motion；\n"
         "      龙门建立/解除需 --confirm-write。\n",
@@ -361,6 +367,79 @@ int runAction(SystemManagerVnext& mgr, AxisMotionApi& api, const Args& a) {
         auto p = gapi.beginJog(g, fwd, a.durationMs, a.heartbeatMs);
         if (p.hasError()) { std::printf("  diag=%s\n", p.diag().c_str()); return 4; }
         return driveVerbose(mgr, *lslot, p, /*capMs=*/a.moveTimeoutMs, a.action.c_str());
+    }
+
+    // 组合闭环：自动 建立+使能 -> 运动 -> 解除+掉电（每次点动/位置移动都全自动）。
+    if (isGantryRunAction(a.action)) {
+        if (!a.confirmWrite || !a.confirmMotion) {
+            std::printf("[%s] REJECTED: 需 --confirm-write 与 --confirm-motion\n",
+                        a.action.c_str());
+            return 3;
+        }
+        auto lslot = logicalSlotOf(mgr, g);
+        if (!lslot) {
+            std::printf("[%s] 逻辑轴 X 未绑定（组 %d）\n", a.action.c_str(), a.group);
+            return 4;
+        }
+        GantryMotionApi gapi(mgr);
+
+        // [1] 建立联动并使能逻辑轴（->Ready）。失败则中止（不运动、不解除）。
+        {
+            auto p = gapi.beginEnableAndCouple(g);
+            const int rc = driveGantryLifecycle(mgr, g, p, a.moveTimeoutMs,
+                                                "run[1]couple", /*ready=*/true);
+            if (rc != 0) {
+                std::printf("[%s] 建立联动失败，中止。\n", a.action.c_str());
+                return rc;
+            }
+        }
+
+        // [2] 龙门下运动（定位或点动）。
+        int rc = 0;
+        if (a.action == "gantry-run-abs") {
+            if (!appResultOk(gapi.setAbsTarget(g, a.value))) {
+                std::printf("[gantry-run-abs] setAbsTarget 失败\n"); rc = 4;
+            } else {
+                auto p = gapi.beginAbs(g);
+                if (p.hasError()) { std::printf("  diag=%s\n", p.diag().c_str()); rc = 4; }
+                else {
+                    p.setVerifyTarget(a.value);
+                    rc = driveVerbose(mgr, *lslot, p, a.moveTimeoutMs,
+                                      "run[2]move-abs", a.value);
+                }
+            }
+        } else if (a.action == "gantry-run-rel") {
+            if (!appResultOk(gapi.setRelTarget(g, a.value))) {
+                std::printf("[gantry-run-rel] setRelTarget 失败\n"); rc = 4;
+            } else {
+                auto p = gapi.beginRel(g);
+                if (p.hasError()) { std::printf("  diag=%s\n", p.diag().c_str()); rc = 4; }
+                else {
+                    const auto* ax = mgr.system().findBySlot(*lslot);
+                    const float startPos = ax ? ax->feedback().absPosition : 0.f;
+                    p.setVerifyTarget(startPos + a.value);
+                    rc = driveVerbose(mgr, *lslot, p, a.moveTimeoutMs,
+                                      "run[2]move-rel", startPos + a.value);
+                }
+            }
+        } else {  // gantry-run-jog（正向点动）
+            auto p = gapi.beginJog(g, /*forward=*/true, a.durationMs, a.heartbeatMs);
+            if (p.hasError()) { std::printf("  diag=%s\n", p.diag().c_str()); rc = 4; }
+            else { rc = driveVerbose(mgr, *lslot, p, a.moveTimeoutMs, "run[2]jog"); }
+        }
+
+        // [3] 解除联动并掉电（无论运动成败，都要安全解除）。
+        {
+            auto p = gapi.beginDecoupleAndDisable(g);
+            const int rc2 = driveGantryLifecycle(mgr, g, p, a.moveTimeoutMs,
+                                                 "run[3]decouple", /*ready=*/false);
+            if (rc2 != 0) {
+                std::printf("[%s] 警告：解除联动失败：%s\n", a.action.c_str(),
+                            p.diag().c_str());
+                if (rc == 0) rc = rc2;
+            }
+        }
+        return rc;
     }
 
     std::printf("unhandled action: %s\n", a.action.c_str());

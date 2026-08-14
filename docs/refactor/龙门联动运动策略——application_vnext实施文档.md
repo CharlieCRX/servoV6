@@ -123,7 +123,12 @@ GantryMotionApi（业务意图入口，按 组 -> AxisFunction::X -> 拓扑解�
 
 **探针用法**（默认 PLC IP=192.168.1.88，A 组 g=0）：
 ```bash
-# 建立联动并使能逻辑轴（->Ready）
+# 组合闭环：自动 建立+使能 -> 运动 -> 解除+掉电（推荐，每次点动/移动全自动）
+plc_vnext_motion_probe.exe --group 0 --action gantry-run-rel --value -30 --confirm-write --confirm-motion
+plc_vnext_motion_probe.exe --group 0 --action gantry-run-abs --value 100 --confirm-write --confirm-motion
+plc_vnext_motion_probe.exe --group 0 --action gantry-run-jog --duration-ms 2000 --confirm-write --confirm-motion
+
+# 分步：建立联动并使能逻辑轴（->Ready）
 plc_vnext_motion_probe.exe --group 0 --action gantry-couple --confirm-write
 # 龙门下绝对/相对定位（前提已 couple 到 Ready）
 plc_vnext_motion_probe.exe --group 0 --action gantry-move-abs --value 100 --confirm-write --confirm-motion
