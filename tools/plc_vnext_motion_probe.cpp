@@ -19,9 +19,11 @@
 #include "application_vnext/PlcRuntimeDriverAdapter.h"
 #include "application_vnext/SystemManagerVnext.h"
 #include "application_vnext/policy/AxisMotionApi.h"
+#include "application_vnext/policy/GantryMotionApi.h"
 #include "infrastructure/logger/Logger.h"
 #include "infrastructure/plc_vnext/PlcRuntimeGateway.h"
 #include "infrastructure/plc_vnext/contracts/PlcAxisSlot.h"
+#include "infrastructure/plc_vnext/contracts/PlcGroupIndex.h"
 #include "infrastructure/plc_vnext/transport/AsioModbusTcpClient.h"
 
 namespace {
@@ -30,6 +32,8 @@ using plc_vnext::transport::AsioModbusTcpClient;
 using application_vnext::PlcRuntimeDriverAdapter;
 using application_vnext::SystemManagerVnext;
 using application_vnext::policy::AxisMotionApi;
+using application_vnext::policy::GantryMotionApi;
+using plc_vnext::contracts::PlcGroupIndex;
 
 struct Args {
     std::string host = "192.168.1.88";
@@ -38,6 +42,7 @@ struct Args {
     uint32_t timeoutMs = 1000;
     uint32_t reconnectMs = 2000;
     int slot = 2;
+    int group = 0;                 // 龙门组（A 组=0，B 组=1）
     std::string action = "read";
     float value = 0.f;
     int durationMs = 3000;
@@ -52,19 +57,34 @@ bool isMotionAction(const std::string& a) {
            a == "move-absolute" || a == "move-relative";
 }
 
+bool isGantryLifecycleAction(const std::string& a) {
+    return a == "gantry-couple" || a == "gantry-decouple";
+}
+
+bool isGantryMotionAction(const std::string& a) {
+    return a == "gantry-move-abs" || a == "gantry-move-rel" ||
+           a == "gantry-jog-forward" || a == "gantry-jog-backward";
+}
+
 int usage(const char* prog) {
     std::printf(
         "usage: %s --host IP --port 502 --unit 1 --slot <已绑定功能的slot，如2> "
         "--action <action> [--value X] [--duration-ms 3000] "
         "[--heartbeat-ms 500] [--timeout 1000] [--reconnect 2000] "
-        "[--move-timeout-ms 0] "
+        "[--group 0] [--move-timeout-ms 0] "
         "[--confirm-write] [--confirm-motion]\n"
         "       --move-timeout-ms: 定位外部看门狗，0=不限（默认，由策略自身 Done/Error 结束）；\n"
         "                          定位用时=速度×距离，建议不要设固定上限砍掉慢速移动。\n"
-        "actions: read | topo | jog-forward | jog-backward | move-absolute | move-relative\n"
+        "       --group: 龙门组（A 组=0，B 组=1，默认 0）。\n"
+        "actions: read | topo | jog-forward | jog-backward | move-absolute | move-relative |\n"
+        "         gantry-couple | gantry-decouple |\n"
+        "         gantry-move-abs | gantry-move-rel | gantry-jog-forward | gantry-jog-backward\n"
         "       topo: 打印当前 PLC 拓扑中已绑定功能的 slot 映射（排查 slot 未注册）\n"
+        "       gantry-couple: 建立联动并使能逻辑轴（->Ready）；gantry-decouple: 解除并掉电逻辑轴\n"
+        "       gantry-move-abs/rel/jog: 龙门下逻辑轴运动（前提已 gantry-couple 到 Ready）\n"
         "约束: slot 必须已在拓扑绑定到某 AxisFunction（否则 AxisNotFound）；\n"
-        "      运动类动作需 --confirm-write 与 --confirm-motion。\n",
+        "      单轴/龙门运动类动作需 --confirm-write 与 --confirm-motion；\n"
+        "      龙门建立/解除需 --confirm-write。\n",
         prog);
     return 0;
 }
@@ -80,6 +100,7 @@ int parseArgs(int argc, char** argv, Args& a) {
         else if (arg == "--port") { auto v = next(); if (!v) return 1; a.port = static_cast<uint16_t>(std::stoi(*v)); }
         else if (arg == "--unit") { auto v = next(); if (!v) return 1; a.unit = static_cast<uint8_t>(std::stoi(*v)); }
         else if (arg == "--slot") { auto v = next(); if (!v) return 1; a.slot = std::stoi(*v); }
+        else if (arg == "--group") { auto v = next(); if (!v) return 1; a.group = std::stoi(*v); }
         else if (arg == "--action") { auto v = next(); if (!v) return 1; a.action = *v; }
         else if (arg == "--value") { auto v = next(); if (!v) return 1; a.value = std::stof(*v); }
         else if (arg == "--duration-ms") { auto v = next(); if (!v) return 1; a.durationMs = std::stoi(*v); }
@@ -155,6 +176,56 @@ int driveVerbose(SystemManagerVnext& mgr, plc_vnext::contracts::PlcAxisSlot slot
 
 //__PART3__
 
+/// 解析某组的逻辑轴（X）槽位；未绑定返回 nullopt。
+std::optional<plc_vnext::contracts::PlcAxisSlot> logicalSlotOf(
+    SystemManagerVnext& mgr, PlcGroupIndex g) {
+    const auto* a = mgr.system().find({g, domain_vnext::model::AxisFunction::X});
+    return a ? std::optional(a->slot()) : std::nullopt;
+}
+
+/// 手动逐帧驱动龙门生命周期策略（couple/decouple），打印 step + gantryState +
+/// internalStep + 逻辑轴 ms/pos。completeWhenReady=true 以 isReady() 判完成（couple），
+/// false 以 isDone() 判完成（decouple）。
+template <typename Policy>
+int driveGantryLifecycle(SystemManagerVnext& mgr, PlcGroupIndex g, Policy& p,
+                         int capMs, const char* name, bool completeWhenReady) {
+    auto stateOf = [&]() -> int16_t { return mgr.gantryStatus(g).rawState; };
+    auto stepOf = [&]() -> int16_t { return mgr.gantryStatus(g).internalStep; };
+    auto msOf = [&]() -> int16_t {
+        const auto* a = mgr.system().find({g, domain_vnext::model::AxisFunction::X});
+        return a ? a->feedback().motionState : -1;
+    };
+    auto posOf = [&]() -> float {
+        const auto* a = mgr.system().find({g, domain_vnext::model::AxisFunction::X});
+        return a ? a->feedback().absPosition : 0.f;
+    };
+    const auto done = [&]() { return completeWhenReady ? p.isReady() : p.isDone(); };
+
+    using clock = std::chrono::steady_clock;
+    const auto deadline = clock::now() + std::chrono::milliseconds(capMs);
+    std::printf("[%s] begin step=%s gantry=%d iStep=%d ms=%d pos=%.2f\n", name,
+                Policy::stepName(p.currentStep()), (int)stateOf(), (int)stepOf(),
+                (int)msOf(), posOf());
+    int steps = 0;
+    while ((capMs <= 0 || clock::now() < deadline) && !done() && !p.hasError()) {
+        mgr.poll();
+        p.tick();
+        ++steps;
+        if ((steps % 5) == 0 || done() || p.hasError()) {
+            std::printf("  step=%-16s gantry=%d iStep=%d ms=%d pos=%.2f\n",
+                        Policy::stepName(p.currentStep()), (int)stateOf(),
+                        (int)stepOf(), (int)msOf(), posOf());
+        }
+        if (done() || p.hasError()) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    const bool ok = done();
+    std::printf("[%s] end ok=%d step=%s gantry=%d iStep=%d ms=%d pos=%.2f diag=%s\n",
+                name, ok ? 1 : 0, Policy::stepName(p.currentStep()), (int)stateOf(),
+                (int)stepOf(), (int)msOf(), posOf(), p.diag().c_str());
+    return ok ? 0 : 4;
+}
+
 int runAction(SystemManagerVnext& mgr, AxisMotionApi& api, const Args& a) {
     auto slot = plc_vnext::contracts::PlcAxisSlot::tryCreate(a.slot);
     if (!slot) { std::printf("[%s] bad slot: %d\n", a.action.c_str(), a.slot); return 1; }
@@ -217,6 +288,81 @@ int runAction(SystemManagerVnext& mgr, AxisMotionApi& api, const Args& a) {
         auto p = api.beginJog(*slot, fwd, a.durationMs, a.heartbeatMs);
         return driveVerbose(mgr, *slot, p, /*capMs=*/a.moveTimeoutMs, a.action.c_str());
     }
+
+    // ============ 龙门联动 ============
+    if (a.group < 0 || a.group > 1) {
+        std::printf("[%s] bad group: %d（仅 0/1）\n", a.action.c_str(), a.group);
+        return 1;
+    }
+    const PlcGroupIndex g(a.group);
+
+    // 注入龙门配置有效标志（假定 PLC 已配置 GantryParam；若配置无效 PLC 会拒绝 couple）。
+    // 这是 GantryCouplingStateMachine::requestCouple 的 configValid 准入来源。
+    domain_vnext::model::GantryParamModel gcfg;
+    gcfg.valid = true;
+    mgr.applyGantryConfig(g, gcfg);
+
+    // 龙门生命周期：建立联动并使能逻辑轴 / 解除联动并掉电逻辑轴。
+    if (isGantryLifecycleAction(a.action)) {
+        if (!a.confirmWrite) {
+            std::printf("[%s] REJECTED: 需 --confirm-write\n", a.action.c_str());
+            return 3;
+        }
+        GantryMotionApi gapi(mgr);
+        if (a.action == "gantry-couple") {
+            auto p = gapi.beginEnableAndCouple(g);
+            return driveGantryLifecycle(mgr, g, p, a.moveTimeoutMs,
+                                        "gantry-couple", /*completeWhenReady=*/true);
+        }
+        auto p = gapi.beginDecoupleAndDisable(g);
+        return driveGantryLifecycle(mgr, g, p, a.moveTimeoutMs,
+                                    "gantry-decouple", /*completeWhenReady=*/false);
+    }
+
+    // 龙门逻辑轴运动：前提已 gantry-couple 到 Ready（LogicalControlAllowed）。
+    if (isGantryMotionAction(a.action)) {
+        if (!a.confirmWrite || !a.confirmMotion) {
+            std::printf("[%s] REJECTED: 需 --confirm-write 与 --confirm-motion\n",
+                        a.action.c_str());
+            return 3;
+        }
+        auto lslot = logicalSlotOf(mgr, g);
+        if (!lslot) {
+            std::printf("[%s] 逻辑轴 X 未绑定（组 %d）\n", a.action.c_str(), a.group);
+            return 4;
+        }
+        GantryMotionApi gapi(mgr);
+        if (a.action == "gantry-move-abs") {
+            if (!appResultOk(gapi.setAbsTarget(g, a.value))) {
+                std::printf("[gantry-move-abs] setAbsTarget 失败（逻辑轴未绑定?）\n");
+                return 4;
+            }
+            auto p = gapi.beginAbs(g);
+            if (p.hasError()) { std::printf("  diag=%s\n", p.diag().c_str()); return 4; }
+            p.setVerifyTarget(a.value);
+            return driveVerbose(mgr, *lslot, p, /*capMs=*/a.moveTimeoutMs,
+                                "gantry-move-abs", a.value);
+        }
+        if (a.action == "gantry-move-rel") {
+            if (!appResultOk(gapi.setRelTarget(g, a.value))) {
+                std::printf("[gantry-move-rel] setRelTarget 失败（逻辑轴未绑定?）\n");
+                return 4;
+            }
+            auto p = gapi.beginRel(g);
+            if (p.hasError()) { std::printf("  diag=%s\n", p.diag().c_str()); return 4; }
+            const auto* ax = mgr.system().findBySlot(*lslot);
+            const float startPos = ax ? ax->feedback().absPosition : 0.f;
+            p.setVerifyTarget(startPos + a.value);
+            return driveVerbose(mgr, *lslot, p, /*capMs=*/a.moveTimeoutMs,
+                                "gantry-move-rel", startPos + a.value);
+        }
+        // gantry-jog-forward / gantry-jog-backward
+        const bool fwd = a.action == "gantry-jog-forward";
+        auto p = gapi.beginJog(g, fwd, a.durationMs, a.heartbeatMs);
+        if (p.hasError()) { std::printf("  diag=%s\n", p.diag().c_str()); return 4; }
+        return driveVerbose(mgr, *lslot, p, /*capMs=*/a.moveTimeoutMs, a.action.c_str());
+    }
+
     std::printf("unhandled action: %s\n", a.action.c_str());
     return 1;
 }

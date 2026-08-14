@@ -117,14 +117,28 @@ GantryMotionApi（业务意图入口，按 组 -> AxisFunction::X -> 拓扑解�
   - `GantryMotionApi::beginAbs`：解析到逻辑轴 slot13，LifecycleManaged 不使能
 - [x] 旧 `test_axis_motion_policy.cpp` 与 `test_system_manager_vnext.cpp` 无回归
 
-### 阶段 B —— 联机探针接入（可选，便于现场驱动）
-**内容**：让现有 `tools/plc_vnext_motion_probe` 或新增 gantry 探针，经 `GantryMotionApi` 暴露
-`--action gantry-couple / gantry-move-abs / gantry-decouple`，使现场可逐帧打印
-`step / ms / pos / gantryState`。
+### 阶段 B —— 联机探针接入 ✅（代码完成，真机验证并入阶段 C）
+**内容**：扩展 `tools/plc_vnext_motion_probe`，经 `GantryMotionApi` 暴露龙门 action，现场可逐帧打印
+`step / ms / pos / gantryState / internalStep`。
+
+**探针用法**（A 组 g=0）：
+```bash
+# 建立联动并使能逻辑轴（->Ready）
+plc_vnext_motion_probe.exe --host IP --group 0 --action gantry-couple --confirm-write
+# 龙门下绝对/相对定位（前提已 couple 到 Ready）
+plc_vnext_motion_probe.exe --host IP --group 0 --action gantry-move-abs --value 100 --confirm-write --confirm-motion
+plc_vnext_motion_probe.exe --host IP --group 0 --action gantry-move-rel --value -30 --confirm-write --confirm-motion
+# 龙门下点动（显式停止）
+plc_vnext_motion_probe.exe --host IP --group 0 --action gantry-jog-forward --duration-ms 2000 --confirm-write --confirm-motion
+# 解除联动并掉电逻辑轴
+plc_vnext_motion_probe.exe --host IP --group 0 --action gantry-decouple --confirm-write
+```
 
 **完成判据**：
-- [ ] 探针可对真实 PLC 发起"建立 → 使能 → 低速小位移 → 停止 → 解除 → 掉电"并打印每步状态
-- [ ] `CommitUncertain` 路径可观察（提交不确定时探针不重发，继续 poll 等 Ack）
+- [x] 探针代码接入 `GantryMotionApi`：`gantry-couple / gantry-decouple / gantry-move-abs / gantry-move-rel / gantry-jog-*`
+- [x] 探针在龙门分支注入 `applyGantryConfig(valid=true)`（`requestCouple` 的 configValid 准入来源）
+- [x] 单测覆盖 `GantryMotionApi`（未绑定组返回 Error 策略、目标/停止落到逻辑轴），`application_vnext_tests` 44/44 全绿
+- [ ] **真机验证**（并入阶段 C）：对真实 PLC 发起"建立 → 使能 → 低速小位移 → 停止 → 解除 → 掉电"并打印每步状态；`CommitUncertain` 路径可观察（提交不确定时探针不重发，继续 poll 等 Ack）
 
 ### 阶段 C —— 真机闭环验证（现场）
 **内容**：用探针或生产入口执行完整龙门闭环，验证建立/解除顺序与 PLC 权限位一致。

@@ -289,6 +289,31 @@ TEST_F(GantryPolicyTest, Api_BeginAbs_ResolvesLogicalAxisNoError) {
     EXPECT_FALSE(wrote(PlcAxisCommandKind::EnableAxis, true));  // LifecycleManaged 不使能
 }
 
+TEST_F(GantryPolicyTest, Api_BeginAbs_UnboundGroup_ReportsError) {
+    // B 组未配置（无逻辑轴 X 绑定）：beginAbs 应返回 Error 策略，绝不误控任何有效槽位。
+    setCoupledReady();
+    GantryMotionApi api(*mgr_);
+    auto p = api.beginAbs(PlcGroupIndex(1));
+    EXPECT_TRUE(p.hasError());
+    EXPECT_NE(p.diag().find("not bound"), std::string::npos);
+}
+
+TEST_F(GantryPolicyTest, Api_SetTargetAndStop_WriteLogicalAxis) {
+    setCoupledReady();
+    GantryMotionApi api(*mgr_);
+    ASSERT_TRUE(appResultOk(api.setAbsTarget(g0, 123.f)));
+    ASSERT_TRUE(appResultOk(api.stop(g0)));
+    bool target = false, stopAbs = false, stopRel = false;
+    for (const auto& w : gw_.writtenAxis()) {
+        if (w.cmd.kind == PlcAxisCommandKind::SetAbsTarget && w.cmd.realValue == 123.f) target = true;
+        if (w.cmd.kind == PlcAxisCommandKind::StopAbsMove) stopAbs = true;
+        if (w.cmd.kind == PlcAxisCommandKind::StopRelMove) stopRel = true;
+    }
+    EXPECT_TRUE(target);
+    EXPECT_TRUE(stopAbs);
+    EXPECT_TRUE(stopRel);
+}
+
 }  // namespace
 }  // namespace application_vnext::policy
 
