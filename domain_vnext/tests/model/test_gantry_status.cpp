@@ -49,5 +49,20 @@ TEST(GantryStatusModelTest, CouplingReflectsRawState) {
     EXPECT_EQ(s.coupling, GantryCouplingState::Coupled);
 }
 
+TEST(GantryStatusModelTest, InternalStepMappedFromSnapshot) {
+    plc_vnext::contracts::GantryStatusSnapshot snap;
+    snap.state = 3;
+    snap.internalStep = 80;   // 建立完成诊断步骤
+    snap.ackSeq = 7;
+    snap.logicalControlAllowed = true;
+
+    const auto m = gantryStatusModelFromSnapshot(snap);
+    EXPECT_EQ(m.internalStep, 80);
+    EXPECT_EQ(m.rawState, 3);
+    EXPECT_EQ(m.coupling, GantryCouplingState::Coupled);
+    EXPECT_EQ(m.ackSeq, 7);
+    EXPECT_TRUE(m.logicalControlAllowed);
+}
+
 }  // namespace
 }  // namespace domain_vnext::model

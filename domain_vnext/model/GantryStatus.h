@@ -56,6 +56,7 @@ inline const char* gantryCouplingStateName(GantryCouplingState s) {
 struct GantryStatusModel {
     GantryCouplingState coupling = GantryCouplingState::Unconfigured;
     int16_t rawState = 0;            // 0未配置 1已解除 2建立中 3已联动 4解除中 5故障
+    int16_t internalStep = 0;        // 内部步骤（仅诊断；建立完成=80，解除完成=10）
     int32_t ackSeq = 0;              // 与 RequestSeq 对齐判定
     int16_t commandResult = 0;       // 0/1/2/3/4
     int16_t commandErrorCode = 0;
@@ -81,6 +82,7 @@ inline GantryStatusModel gantryStatusModelFromSnapshot(
     GantryStatusModel m;
     m.coupling = gantryCouplingStateFromRaw(s.state);
     m.rawState = s.state;
+    m.internalStep = s.internalStep;
     m.ackSeq = s.ackSeq;
     m.commandResult = s.commandResult;
     m.commandErrorCode = s.commandErrorCode;

@@ -17,6 +17,7 @@
 
 #include "application_vnext/SystemManagerVnext.h"
 #include "application_vnext/policy/AxisMotionCommon.h"
+#include "application_vnext/policy/GantryMotionGuard.h"
 #include "domain_vnext/model/AxisFunction.h"
 #include "domain_vnext/system/AxisRegistry.h"
 #include "infrastructure/plc_vnext/contracts/PlcAxisSlot.h"
@@ -36,7 +37,9 @@ public:
 
     /// 入口：不接收 distance —— 距离已在独立 setRelTarget() 写入 PLC。
     void start() {
-        m_step = Step::EnsuringEnabled;
+        // LifecycleManaged：龙门生命周期已负责使能，跳过 EnsuringEnabled。
+        m_step = (power_ == PowerOwnership::LifecycleManaged) ? Step::PostEnableDelay
+                                                              : Step::EnsuringEnabled;
         m_diag.clear();
         m_enableSent = false;
         m_moveTriggered = false;
@@ -46,6 +49,7 @@ public:
         m_posReachedSet = false;
         m_startPos = 0.f;
         m_fnValid = false;
+        m_idleReachedTime = std::chrono::steady_clock::now();
         if (const auto* axis = m_->system().findBySlot(slot_)) {
             m_fn = axis->key().function;
             m_fnValid = true;
@@ -80,6 +84,17 @@ public:
 
         if (m_step != Step::Initial && alarm) {
             m_step = Step::Error; m_diag = "axis alarm"; disableMotor(); return;
+        }
+
+        // LifecycleManaged：运行中持续校验逻辑轴许可，失联即停（不直接掉电）。
+        if (power_ == PowerOwnership::LifecycleManaged && guard_) {
+            const auto gr = guard_->evaluate();
+            if (!gr.allowed) {
+                if (m_fnValid) m_->stop(m_fn);
+                m_step = Step::Error;
+                m_diag = std::string("gantry permit lost: ") + gr.reason;
+                return;
+            }
         }
 
         using clock = std::chrono::steady_clock;
@@ -204,6 +219,15 @@ public:
     /// 设置到位容差（默认 ±0.5，见 kTargetTolerance）。可按轴定位精度调整。
     void setVerifyTolerance(float t) { m_verifyTolerance = t; }
 
+    /// 电源所有权。仅 start() 前可设（运行中不可切换）。
+    void setPowerOwnership(PowerOwnership p) {
+        if (m_step == Step::Initial) power_ = p;
+    }
+    /// 注入龙门运动许可守卫（仅 LifecycleManaged 生效）。
+    void setGantryGuard(const GantryMotionGuard* g) { guard_ = g; }
+    /// 标记为不可用（如逻辑轴未绑定），返回已处于 Error 的策略。
+    void setUnavailable(const char* reason) { m_step = Step::Error; m_diag = reason; }
+
 private:
     /// 运动完成收尾：复位领域 busy（Stop* 自复位，无副作用）+ 进入停稳确认窗 → 掉电。
     void onMoveCompleted() {
@@ -217,7 +241,7 @@ private:
     void disableMotor() {
         if (m_disableSent) return;
         m_disableSent = true;
-        if (m_fnValid) m_->enableMotor(m_fn, false);
+        if (m_fnValid && power_ != PowerOwnership::LifecycleManaged) m_->enableMotor(m_fn, false);
     }
 
     SystemManagerVnext* m_;
@@ -249,6 +273,8 @@ private:
     bool m_sendStopAfterIdle = true;
     std::chrono::steady_clock::time_point m_stopIdleReachedTime;
 
+    PowerOwnership power_ = PowerOwnership::SelfManaged;
+    const GantryMotionGuard* guard_ = nullptr;
     bool m_disableSent = false;
 };
 }  // namespace application_vnext::policy

@@ -14,6 +14,8 @@ add_executable(application_vnext_tests
     test_shadow_run_assessor.cpp
     # ============ 阶段3/后续：运动策略层（Abs/Rel/Jog/AxisMotionApi）============
     test_axis_motion_policy.cpp
+    # ============ 龙门生命周期 + 运动许可守卫 + PowerOwnership ============
+    test_gantry_policy.cpp
 )
 
 target_include_directories(application_vnext_tests

@@ -60,6 +60,9 @@ public:
     bool hasPendingRequest() const { return pending_.has_value(); }
     plc_vnext::contracts::GantryRequest popPendingRequest();
 
+    /// 最近一次请求的 RequestSeq（供上层以 AckSeq 闭环确认本次提交）。
+    int32_t lastRequestSeq() const { return lastRequestSeq_; }
+
 private:
     void nextSeq() {
         ++requestSeq_;

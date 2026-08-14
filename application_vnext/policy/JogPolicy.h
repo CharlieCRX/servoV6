@@ -16,6 +16,7 @@
 
 #include "application_vnext/SystemManagerVnext.h"
 #include "application_vnext/policy/AxisMotionCommon.h"
+#include "application_vnext/policy/GantryMotionGuard.h"
 #include "domain_vnext/model/AxisFunction.h"
 #include "domain_vnext/system/AxisRegistry.h"
 #include "infrastructure/plc_vnext/contracts/PlcAxisSlot.h"
@@ -36,7 +37,9 @@ public:
 
     /// 入口。durationMs_>0 时点动到时自动停止；=0 由 requestStop()/心跳失败停止。
     void start() {
-        m_step = Step::EnsuringEnabled;
+        // LifecycleManaged：龙门生命周期已负责使能，跳过 EnsuringEnabled。
+        m_step = (power_ == PowerOwnership::LifecycleManaged) ? Step::PostEnableDelay
+                                                              : Step::EnsuringEnabled;
         m_diag.clear();
         m_fnValid = false;
         m_enableSent = false;
@@ -45,6 +48,7 @@ public:
         m_stopRequested = false;
         m_heartbeatFailed = false;
         m_heartbeatWritten = false;
+        m_idleReachedTime = std::chrono::steady_clock::now();
         if (const auto* axis = m_->system().findBySlot(slot_)) {
             m_fn = axis->key().function;
             m_fnValid = true;
@@ -57,6 +61,15 @@ public:
 
     /// 请求停止点动（外部：按钮松开 / UI 停止）。
     void requestStop() { m_stopRequested = true; }
+
+    /// 电源所有权。仅 start() 前可设（运行中不可切换）。
+    void setPowerOwnership(PowerOwnership p) {
+        if (m_step == Step::Idle) power_ = p;
+    }
+    /// 注入龙门运动许可守卫（仅 LifecycleManaged 生效）。
+    void setGantryGuard(const GantryMotionGuard* g) { guard_ = g; }
+    /// 标记为不可用（如逻辑轴未绑定），返回已处于 Error 的策略。
+    void setUnavailable(const char* reason) { m_step = Step::Error; m_diag = reason; }
 
     void tick() {
         if (m_step == Step::Done || m_step == Step::Error) return;
@@ -83,6 +96,17 @@ public:
 
         if (m_step != Step::Idle && alarm) {
             m_step = Step::Error; m_diag = "axis alarm"; stopHeartbeatAndDirection(); disableMotor(); return;
+        }
+
+        // LifecycleManaged：运行中持续校验逻辑轴许可，失联即停点动（不直接掉电）。
+        if (power_ == PowerOwnership::LifecycleManaged && guard_) {
+            const auto gr = guard_->evaluate();
+            if (!gr.allowed) {
+                stopHeartbeatAndDirection();   // 方向 OFF + 心跳 OFF（运动停止，非掉电）
+                m_step = Step::Error;
+                m_diag = std::string("gantry permit lost: ") + gr.reason;
+                return;
+            }
         }
 
         using clock = std::chrono::steady_clock;
@@ -212,11 +236,12 @@ private:
         if (m_heartbeatWritten) m_->jogHeartbeat(m_fn, false);
         m_heartbeatWritten = false;
     }
-    /// 掉电 = 使能电机 OFF（每轮最多一次）。
+    /// 掉电 = 使能电机 OFF（每轮最多一次）。LifecycleManaged 下不掉电
+    /// （掉电由生命周期策略在安全解除后负责），此处 no-op。
     void disableMotor() {
         if (m_disableSent) return;
         m_disableSent = true;
-        if (m_fnValid) m_->enableMotor(m_fn, false);
+        if (m_fnValid && power_ != PowerOwnership::LifecycleManaged) m_->enableMotor(m_fn, false);
     }
 
     SystemManagerVnext* m_;
@@ -242,6 +267,8 @@ private:
     bool m_stopSent = false;
     std::chrono::steady_clock::time_point m_stopIdleReachedTime;
 
+    PowerOwnership power_ = PowerOwnership::SelfManaged;
+    const GantryMotionGuard* guard_ = nullptr;
     bool m_disableSent = false;
 };
 }  // namespace application_vnext::policy

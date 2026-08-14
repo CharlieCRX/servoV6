@@ -18,6 +18,15 @@
 
 namespace application_vnext::policy {
 
+/// 运动策略的电源（使能/掉电）所有权。
+/// 决定策略是否自己管理 `enableAxis/enableMotor`，还是由上层（龙门生命周期）
+/// 负责。不可变配置，避免在运行中被误改。
+enum class PowerOwnership {
+    SelfManaged,      // 普通独立轴：策略自己使能、运动结束自己掉电
+    LifecycleManaged, // 龙门逻辑轴：使能/解除/掉电由 GantryLifecyclePolicy 负责，
+                      // 本策略只负责"触发 → 运行 → 停止"，运行前后持续校验龙门许可
+};
+
 // D128 运动状态（真实 PLC_re 语义）
 constexpr int16_t kMotionNotEnabled      = 0;  // 使能轴控 OFF
 constexpr int16_t kMotionEnabledMotorOff = 1;  // 轴控 ON、电机 OFF（掉电态）

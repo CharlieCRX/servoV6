@@ -20,6 +20,7 @@
 #include "domain_vnext/gateway/IPlcDriver.h"
 #include "domain_vnext/model/AxisCommand.h"
 #include "domain_vnext/model/GantryParam.h"
+#include "domain_vnext/model/GantryStatus.h"
 #include "domain_vnext/system/AxisSystem.h"
 #include "domain_vnext/system/FeedbackDispatcher.h"
 #include "domain_vnext/system/SystemBoot.h"
@@ -45,12 +46,30 @@ public:
         const std::array<plc_vnext::contracts::AxisParameterSnapshot,
                          plc_vnext::contracts::kRuntimeAxisCount>& params);
 
-    // ---- 单轴用例（默认 A 组，g=0）----
+    // ---- 单轴用例（group 维度用于 A/B 组；旧接口=默认 A 组 g=0 包装）----
+    AppVnextResult enableAxis(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, bool on);
+    AppVnextResult enableMotor(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, bool on);
+    AppVnextResult jog(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, bool forward, bool on);
+    AppVnextResult stopJog(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, bool forward);
+    /// 点动心跳（保持电平线圈）：周期写 ON 维持，停止时补写 OFF。供 JogPolicy 使用。
+    AppVnextResult jogHeartbeat(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, bool on);
+    AppVnextResult setManualSpeed(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, float v);
+    AppVnextResult setPositioningSpeed(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, float v);
+    AppVnextResult setAbsTarget(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, float v);
+    AppVnextResult setRelTarget(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, float v);
+    AppVnextResult triggerAbsMove(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn);
+    AppVnextResult triggerRelMove(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn);
+    /// 停止：发出绝对/相对终止（PLC 自复位，只写 ON）。
+    AppVnextResult stop(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn);
+    AppVnextResult clearRelZero(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn);
+    AppVnextResult setRelZero(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn);
+    AppVnextResult clearAbsPosition(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn);
+
+    // ---- 兼容旧调用方：默认 A 组（g=0）包装，保留原签名 ----
     AppVnextResult enableAxis(domain_vnext::model::AxisFunction fn, bool on);
     AppVnextResult enableMotor(domain_vnext::model::AxisFunction fn, bool on);
     AppVnextResult jog(domain_vnext::model::AxisFunction fn, bool forward, bool on);
     AppVnextResult stopJog(domain_vnext::model::AxisFunction fn, bool forward);
-    /// 点动心跳（保持电平线圈）：周期写 ON 维持，停止时补写 OFF。供 JogPolicy 使用。
     AppVnextResult jogHeartbeat(domain_vnext::model::AxisFunction fn, bool on);
     AppVnextResult setManualSpeed(domain_vnext::model::AxisFunction fn, float v);
     AppVnextResult setPositioningSpeed(domain_vnext::model::AxisFunction fn, float v);
@@ -58,7 +77,6 @@ public:
     AppVnextResult setRelTarget(domain_vnext::model::AxisFunction fn, float v);
     AppVnextResult triggerAbsMove(domain_vnext::model::AxisFunction fn);
     AppVnextResult triggerRelMove(domain_vnext::model::AxisFunction fn);
-    /// 停止：发出绝对/相对终止（PLC 自复位，只写 ON）。
     AppVnextResult stop(domain_vnext::model::AxisFunction fn);
     AppVnextResult clearRelZero(domain_vnext::model::AxisFunction fn);
     AppVnextResult setRelZero(domain_vnext::model::AxisFunction fn);
@@ -81,6 +99,19 @@ public:
     void applyGantryConfig(plc_vnext::contracts::PlcGroupIndex g,
                            const domain_vnext::model::GantryParamModel& cfg) {
         sys_.group(g).gantryCoupling().applyConfig(cfg);
+    }
+
+    /// 最近一次 poll 缓存的该组龙门状态模型（供 GantryMotionGuard / 生命周期策略读取）。
+    /// GantryCouplingStateMachine 只保留 state/fault/readyTo*，这里缓存完整快照
+    /// （InternalStep / LogicalControlAllowed / InGear / CommandErrorCode 等）。
+    const domain_vnext::model::GantryStatusModel& gantryStatus(
+        plc_vnext::contracts::PlcGroupIndex g) const {
+        return gantryStatus_[static_cast<std::size_t>(g.value())];
+    }
+
+    /// 该组最近一次龙门请求的 RequestSeq（供生命周期以 AckSeq 闭环确认）。
+    int32_t lastGantryRequestSeq(plc_vnext::contracts::PlcGroupIndex g) const {
+        return sys_.group(g).gantryCoupling().lastRequestSeq();
     }
 
 private:
@@ -110,6 +141,8 @@ private:
     domain_vnext::system::AxisSystem sys_;
     domain_vnext::gateway::IPlcDriver* driver_ = nullptr;
     bool booted_ = false;
+    /// 最近一次 poll 缓存的各龙门组完整状态（供 guard / 生命周期策略读取）。
+    std::array<domain_vnext::model::GantryStatusModel, 2> gantryStatus_{};
 };
 
 // ============================================================================
@@ -132,6 +165,12 @@ inline bool SystemManagerVnext::poll() {
     if (!booted_ || !driver_) return false;
     auto res = driver_->readRuntime();
     if (!res.hasValue()) return false;
+    // 缓存龙门完整状态快照（guard / 生命周期策略读取），再走领域注入。
+    for (int i = 0; i < 2; ++i) {
+        gantryStatus_[static_cast<std::size_t>(i)] =
+            domain_vnext::model::gantryStatusModelFromSnapshot(
+                (*res).gantry[static_cast<std::size_t>(i)]);
+    }
     domain_vnext::system::FeedbackDispatcher::dispatch(sys_, *res);
     return true;
 }
@@ -242,58 +281,121 @@ inline AppVnextResult SystemManagerVnext::flushGantry(
     return std::monostate{};
 }
 
-// ---- 单轴用例实现 ----
+// ---- 单轴用例实现（group-aware）----
 
-inline AppVnextResult SystemManagerVnext::enableAxis(domain_vnext::model::AxisFunction fn, bool on) {
-    return submitCoil(0, fn, domain_vnext::model::AxisCommandKind::EnableAxis, on);
+inline AppVnextResult SystemManagerVnext::enableAxis(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, bool on) {
+    return submitCoil(g.value(), fn, domain_vnext::model::AxisCommandKind::EnableAxis, on);
 }
-inline AppVnextResult SystemManagerVnext::enableMotor(domain_vnext::model::AxisFunction fn, bool on) {
-    return submitCoil(0, fn, domain_vnext::model::AxisCommandKind::EnableMotor, on);
+inline AppVnextResult SystemManagerVnext::enableMotor(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, bool on) {
+    return submitCoil(g.value(), fn, domain_vnext::model::AxisCommandKind::EnableMotor, on);
 }
-inline AppVnextResult SystemManagerVnext::jog(domain_vnext::model::AxisFunction fn, bool forward, bool on) {
-    return submitCoil(0, fn,
+inline AppVnextResult SystemManagerVnext::jog(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, bool forward, bool on) {
+    return submitCoil(g.value(), fn,
         forward ? domain_vnext::model::AxisCommandKind::JogForward
                 : domain_vnext::model::AxisCommandKind::JogBackward, on);
 }
-inline AppVnextResult SystemManagerVnext::stopJog(domain_vnext::model::AxisFunction fn, bool forward) {
-    return submitCoil(0, fn,
+inline AppVnextResult SystemManagerVnext::stopJog(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, bool forward) {
+    return submitCoil(g.value(), fn,
         forward ? domain_vnext::model::AxisCommandKind::JogForward
                 : domain_vnext::model::AxisCommandKind::JogBackward, false);
 }
-inline AppVnextResult SystemManagerVnext::jogHeartbeat(domain_vnext::model::AxisFunction fn, bool on) {
-    return submitCoil(0, fn, domain_vnext::model::AxisCommandKind::JogHeartbeat, on);
+inline AppVnextResult SystemManagerVnext::jogHeartbeat(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, bool on) {
+    return submitCoil(g.value(), fn, domain_vnext::model::AxisCommandKind::JogHeartbeat, on);
 }
-inline AppVnextResult SystemManagerVnext::setManualSpeed(domain_vnext::model::AxisFunction fn, float v) {
-    return submitParam(0, fn, domain_vnext::model::AxisCommandKind::SetManualSpeed, v);
+inline AppVnextResult SystemManagerVnext::setManualSpeed(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, float v) {
+    return submitParam(g.value(), fn, domain_vnext::model::AxisCommandKind::SetManualSpeed, v);
 }
-inline AppVnextResult SystemManagerVnext::setPositioningSpeed(domain_vnext::model::AxisFunction fn, float v) {
-    return submitParam(0, fn, domain_vnext::model::AxisCommandKind::SetPositioningSpeed, v);
+inline AppVnextResult SystemManagerVnext::setPositioningSpeed(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, float v) {
+    return submitParam(g.value(), fn, domain_vnext::model::AxisCommandKind::SetPositioningSpeed, v);
 }
-inline AppVnextResult SystemManagerVnext::setAbsTarget(domain_vnext::model::AxisFunction fn, float v) {
-    return submitParam(0, fn, domain_vnext::model::AxisCommandKind::SetAbsDistance, v);
+inline AppVnextResult SystemManagerVnext::setAbsTarget(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, float v) {
+    return submitParam(g.value(), fn, domain_vnext::model::AxisCommandKind::SetAbsDistance, v);
 }
-inline AppVnextResult SystemManagerVnext::setRelTarget(domain_vnext::model::AxisFunction fn, float v) {
-    return submitParam(0, fn, domain_vnext::model::AxisCommandKind::SetRelDistance, v);
+inline AppVnextResult SystemManagerVnext::setRelTarget(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn, float v) {
+    return submitParam(g.value(), fn, domain_vnext::model::AxisCommandKind::SetRelDistance, v);
 }
-inline AppVnextResult SystemManagerVnext::triggerAbsMove(domain_vnext::model::AxisFunction fn) {
-    return submitPulse(0, fn, domain_vnext::model::AxisCommandKind::TriggerAbsMove);
+inline AppVnextResult SystemManagerVnext::triggerAbsMove(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn) {
+    return submitPulse(g.value(), fn, domain_vnext::model::AxisCommandKind::TriggerAbsMove);
 }
-inline AppVnextResult SystemManagerVnext::triggerRelMove(domain_vnext::model::AxisFunction fn) {
-    return submitPulse(0, fn, domain_vnext::model::AxisCommandKind::TriggerRelMove);
+inline AppVnextResult SystemManagerVnext::triggerRelMove(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn) {
+    return submitPulse(g.value(), fn, domain_vnext::model::AxisCommandKind::TriggerRelMove);
 }
-inline AppVnextResult SystemManagerVnext::stop(domain_vnext::model::AxisFunction fn) {
-    auto a = submitPulse(0, fn, domain_vnext::model::AxisCommandKind::StopAbsMove);
-    return appResultOk(a) ? submitPulse(0, fn,
+inline AppVnextResult SystemManagerVnext::stop(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn) {
+    auto a = submitPulse(g.value(), fn, domain_vnext::model::AxisCommandKind::StopAbsMove);
+    return appResultOk(a) ? submitPulse(g.value(), fn,
         domain_vnext::model::AxisCommandKind::StopRelMove) : a;
 }
+inline AppVnextResult SystemManagerVnext::clearRelZero(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn) {
+    return submitPulse(g.value(), fn, domain_vnext::model::AxisCommandKind::ClearRelZero);
+}
+inline AppVnextResult SystemManagerVnext::setRelZero(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn) {
+    return submitPulse(g.value(), fn, domain_vnext::model::AxisCommandKind::SetRelZero);
+}
+inline AppVnextResult SystemManagerVnext::clearAbsPosition(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn) {
+    return submitPulse(g.value(), fn, domain_vnext::model::AxisCommandKind::ClearAbsPosition);
+}
+
+// ---- 默认 A 组（g=0）包装：保留旧接口签名，供现有调用方与测试使用 ----
+inline AppVnextResult SystemManagerVnext::enableAxis(domain_vnext::model::AxisFunction fn, bool on) {
+    return enableAxis(plc_vnext::contracts::PlcGroupIndex(0), fn, on);
+}
+inline AppVnextResult SystemManagerVnext::enableMotor(domain_vnext::model::AxisFunction fn, bool on) {
+    return enableMotor(plc_vnext::contracts::PlcGroupIndex(0), fn, on);
+}
+inline AppVnextResult SystemManagerVnext::jog(domain_vnext::model::AxisFunction fn, bool forward, bool on) {
+    return jog(plc_vnext::contracts::PlcGroupIndex(0), fn, forward, on);
+}
+inline AppVnextResult SystemManagerVnext::stopJog(domain_vnext::model::AxisFunction fn, bool forward) {
+    return stopJog(plc_vnext::contracts::PlcGroupIndex(0), fn, forward);
+}
+inline AppVnextResult SystemManagerVnext::jogHeartbeat(domain_vnext::model::AxisFunction fn, bool on) {
+    return jogHeartbeat(plc_vnext::contracts::PlcGroupIndex(0), fn, on);
+}
+inline AppVnextResult SystemManagerVnext::setManualSpeed(domain_vnext::model::AxisFunction fn, float v) {
+    return setManualSpeed(plc_vnext::contracts::PlcGroupIndex(0), fn, v);
+}
+inline AppVnextResult SystemManagerVnext::setPositioningSpeed(domain_vnext::model::AxisFunction fn, float v) {
+    return setPositioningSpeed(plc_vnext::contracts::PlcGroupIndex(0), fn, v);
+}
+inline AppVnextResult SystemManagerVnext::setAbsTarget(domain_vnext::model::AxisFunction fn, float v) {
+    return setAbsTarget(plc_vnext::contracts::PlcGroupIndex(0), fn, v);
+}
+inline AppVnextResult SystemManagerVnext::setRelTarget(domain_vnext::model::AxisFunction fn, float v) {
+    return setRelTarget(plc_vnext::contracts::PlcGroupIndex(0), fn, v);
+}
+inline AppVnextResult SystemManagerVnext::triggerAbsMove(domain_vnext::model::AxisFunction fn) {
+    return triggerAbsMove(plc_vnext::contracts::PlcGroupIndex(0), fn);
+}
+inline AppVnextResult SystemManagerVnext::triggerRelMove(domain_vnext::model::AxisFunction fn) {
+    return triggerRelMove(plc_vnext::contracts::PlcGroupIndex(0), fn);
+}
+inline AppVnextResult SystemManagerVnext::stop(domain_vnext::model::AxisFunction fn) {
+    return stop(plc_vnext::contracts::PlcGroupIndex(0), fn);
+}
 inline AppVnextResult SystemManagerVnext::clearRelZero(domain_vnext::model::AxisFunction fn) {
-    return submitPulse(0, fn, domain_vnext::model::AxisCommandKind::ClearRelZero);
+    return clearRelZero(plc_vnext::contracts::PlcGroupIndex(0), fn);
 }
 inline AppVnextResult SystemManagerVnext::setRelZero(domain_vnext::model::AxisFunction fn) {
-    return submitPulse(0, fn, domain_vnext::model::AxisCommandKind::SetRelZero);
+    return setRelZero(plc_vnext::contracts::PlcGroupIndex(0), fn);
 }
 inline AppVnextResult SystemManagerVnext::clearAbsPosition(domain_vnext::model::AxisFunction fn) {
-    return submitPulse(0, fn, domain_vnext::model::AxisCommandKind::ClearAbsPosition);
+    return clearAbsPosition(plc_vnext::contracts::PlcGroupIndex(0), fn);
 }
+
 
 }  // namespace application_vnext
