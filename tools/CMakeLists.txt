@@ -14,3 +14,10 @@ target_link_libraries(plc_vnext_readonly_probe PRIVATE plc_vnext)
 add_executable(plc_vnext_physical_axis_probe plc_vnext_physical_axis_probe.cpp)
 target_include_directories(plc_vnext_physical_axis_probe PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(plc_vnext_physical_axis_probe PRIVATE application_vnext plc_vnext)
+
+# plc_vnext_motion_probe: 新策略层运动探针（经 SystemManagerVnext + AxisMotionApi）。
+# 按 slot 解析到 AxisFunction，走"使能→触发→等待自然回 idle→掉电"时序；
+# 点动为"使能→点动(心跳)→显式停止→掉电"。运动需 --confirm-write/--confirm-motion。
+add_executable(plc_vnext_motion_probe plc_vnext_motion_probe.cpp)
+target_include_directories(plc_vnext_motion_probe PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(plc_vnext_motion_probe PRIVATE application_vnext plc_vnext)
