@@ -44,6 +44,10 @@ class AxisMotionApi;
 class GantryMotionApi;
 }  // namespace application_vnext::policy
 
+namespace domain_vnext::model {
+struct GantryParamModel;   // 龙门参数（只读 D1600 区），供龙门联动准入（Phase 7）
+}  // namespace domain_vnext::model
+
 namespace application_vnext {
 class SystemManagerVnext;
 }  // namespace application_vnext
@@ -82,6 +86,12 @@ public:
     /// 快照存储（供 Qt ViewModel / UDP 查询，纯 C++、线程安全）。
     ControlStateStore& store() { return store_; }
     const ControlStateStore& store() const { return store_; }
+
+    /// 注入龙门参数配置（只读 D1600 区，非 PLC 写）。`GantryCouplingStateMachine::requestCouple`
+    /// 的准入依赖 configValid；Phase 7 打开龙门生命周期后，组合根/探针必须在触发 couple 前
+    /// 注入有效配置，否则 couple 在 SubmitCouple 阶段被领域状态机拒绝（RejectedUnconfigured）。
+    void applyGantryConfig(plc_vnext::contracts::PlcGroupIndex g,
+                           const domain_vnext::model::GantryParamModel& cfg);
 
     // ---- 测试钩子（Phase 1 断言用）----
     /// 当前全局锁定状态（boot + 首读可信后才释放）。

@@ -21,3 +21,10 @@ target_link_libraries(plc_vnext_physical_axis_probe PRIVATE application_vnext pl
 add_executable(plc_vnext_motion_probe plc_vnext_motion_probe.cpp)
 target_include_directories(plc_vnext_motion_probe PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(plc_vnext_motion_probe PRIVATE application_vnext plc_vnext)
+
+# plc_vnext_udp_probe: Phase 7 联机探针——统一协调层「submit → tick → 快照」链路。
+# 与 UDP/UI 同入口（MotionControlService::submit()，无 Qt/UDP 依赖），验证
+# UDP 触发 → 唯一 tick 仲裁/会话 → ControlStateStore 快照 → UI 同步链路。
+add_executable(plc_vnext_udp_probe plc_vnext_udp_probe.cpp)
+target_include_directories(plc_vnext_udp_probe PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(plc_vnext_udp_probe PRIVATE application_vnext plc_vnext)

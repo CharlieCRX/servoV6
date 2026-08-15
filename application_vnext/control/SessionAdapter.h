@@ -158,13 +158,23 @@ public:
 
     void tick() override { policy_.tick(); }
 
-    void requestStop() override { stopping_ = true; }
+    void requestStop() override {
+        policy_.cancel();   // 停止 = 生命周期安全取消（急停/断线同样走 cancel）
+        stopping_ = true;
+    }
     void cancel(std::string_view reason) override {
+        policy_.cancel();
         stopping_ = true;
         cancelReason_ = std::string(reason);
     }
 
-    bool isDone() const override { return policy_.isDone(); }
+    bool isDone() const override {
+        // 龙门生命周期成功终态：couple 停在 Ready（isReady()，经 PLC 侧
+        // State=3/Step=80/CommandResult=2 确认）、decouple 停在 Done（isDone()）。
+        // 二者都是「操作成功结束」：必须让 tickSessions() 据此释放 gantry:A:0 租约并
+        // 移除会话，否则 couple 会话会永久停在 Running、租约永不释放（Phase 7）。
+        return policy_.isDone() || policy_.isReady();
+    }
     bool hasError() const override { return policy_.hasError(); }
     std::string diag() const override { return policy_.diag(); }
     std::string currentStepName() const override {

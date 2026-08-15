@@ -25,6 +25,7 @@
 #include "application_vnext/PlcRuntimeDriverAdapter.h"
 #include "application_vnext/control/MotionControlService.h"
 #include "application_vnext/tests/fake/FakeControlRuntime.h"
+#include "domain_vnext/model/GantryParam.h"
 #include "infrastructure/plc_vnext/contracts/CommunicationResult.h"
 #include "infrastructure/plc_vnext/contracts/SafetySnapshot.h"
 #include "infrastructure/plc_vnext/fake/FakePlcRuntimeGateway.h"
@@ -133,6 +134,64 @@ std::string startJogToJogging(MotionControlService& svc, FakeControlRuntime& rt,
     svc.tick();   // PostEnableDelay -> IssuingJog
     svc.tick();   // IssuingJog -> Jogging
     return id;
+}
+
+// ---- Phase 7：龙门生命周期夹具 ----
+
+domain_vnext::model::GantryParamModel validGantryConfig() {
+    domain_vnext::model::GantryParamModel cfg;
+    cfg.valid = true;   // ConfigValid（D1600 参数区）是 requestCouple 的准入来源
+    return cfg;
+}
+
+// 设置 A 组龙门运行时反馈（经 IControlRuntime 注入服务），并同步逻辑轴 slot13 motionState。
+// 字段对齐 GantryStatusSnapshot（State=1已解除 / 2建立中 / 3已联动 / 5故障）。
+void setGantryRuntime(FakeControlRuntime& rt, int16_t ms, int32_t ackSeq,
+                      int16_t state, int16_t step, int16_t result, int16_t err,
+                      bool x1, bool x2, bool logical, bool member) {
+    auto r = makeTrustedRuntimeSnapshot();
+    r.axes[13].motionState = ms;
+    auto& s = r.gantry[0];
+    s.state = state; s.internalStep = step; s.commandResult = result;
+    s.commandErrorCode = err; s.ackSeq = ackSeq;
+    s.x1InGear = x1; s.x2InGear = x2;
+    s.logicalControlAllowed = logical; s.memberControlAllowed = member;
+    s.readyToCouple = (state == 1);
+    s.readyToDecouple = (state == 3);
+    s.fault = false; s.faultCode = 0; s.trusted = true;
+    rt.setRuntimeSnapshot(r);
+}
+
+// 构造 A 组龙门生命周期命令（建立 / 解除），target 为逻辑轴 X。
+ControlCommand gantryCmd(ControlAction a) {
+    ControlCommand c;
+    c.source = ControlSource::Ui;
+    c.target.group = plc_vnext::contracts::PlcGroupIndex(0);
+    c.target.function = domain_vnext::model::AxisFunction::X;
+    c.action = a;
+    return c;
+}
+
+// 驱动服务把「GantryEnableAndCouple」跑完到 Succeeded（经统一 tick 逐帧推进）。
+// 使能序列用 ms=2 + state==1（readyToCouple）反馈；反复 tick 直到 fake 网关收到 Couple 提交
+// （即已进入 WaitCoupleFinal，requestCouple 在 state==1 下被接受），随后注入 coupled
+// （State3/Step80/CommandResult2/AckSeq1）推进到 Ready -> tickSessions 收口 Succeeded。
+// 反馈注入与策略 tick 同 tick：SubmitCouple 前必须保持 state==1，进入 WaitCoupleFinal 后再注入 coupled。
+std::string driveCoupleToSucceeded(MotionControlService& svc, FakeControlRuntime& rt,
+                                   FakePlcRuntimeGateway& gw) {
+    setGantryRuntime(rt, 2, 0, 1, 10, 0, 0, false, false, false, true);  // ms=2, decoupled
+    const auto id = svc.submit(gantryCmd(ControlAction::GantryEnableAndCouple));
+    for (int i = 0; i < 40 && gw.gantrySubmissions().empty(); ++i) svc.tick();
+    setGantryRuntime(rt, 2, 1, 3, 80, 2, 0, true, true, true, false);    // coupled ackSeq1
+    for (int i = 0; i < 5; ++i) svc.tick();    // WaitCoupleFinal -> Ready -> Succeeded
+    return id;
+}
+
+// 先让服务 boot（sys.reset() 会清空龙门耦合状态机的 configValid），随后注入有效龙门参数。
+// 必须在 boot 之后注入，否则 submit 前注入会被 boot 重置（Phase 7 龙门准入来源）。
+void bootAndConfigureGantry(MotionControlService& svc) {
+    svc.tick();   // boot：空队列，readTopology -> bootFromTopology
+    svc.applyGantryConfig(plc_vnext::contracts::PlcGroupIndex(0), validGantryConfig());
 }
 
 
@@ -421,18 +480,139 @@ TEST_F(MotionControlServiceTest, Phase3_EstopCancelsAllSessions) {
     EXPECT_EQ(svc->queryOperation(jogId)->state, OperationState::Cancelled);
 }
 
-TEST_F(MotionControlServiceTest, Phase3_GantryLifecycleRejectedUntilPhase7) {
+TEST_F(MotionControlServiceTest, Phase7_CoupleWithoutConfigFailsAtSubmit) {
     gw_.setTopologySnapshot(makeSixAxisTopology());
     auto svc = makeService();
-    ControlCommand couple;
-    couple.source = ControlSource::Ui;
-    couple.target.group = plc_vnext::contracts::PlcGroupIndex(0);
-    couple.target.function = domain_vnext::model::AxisFunction::X;
-    couple.action = ControlAction::GantryEnableAndCouple;
-    const auto id = svc->submit(couple);
+    // 不调用 applyGantryConfig：couple 前向步骤正常，SubmitCouple 时 RejectedUnconfigured。
+    setGantryRuntime(runtime_, 1, 0, 1, 10, 0, 0, false, false, false, true);
+    const auto id = svc->submit(gantryCmd(ControlAction::GantryEnableAndCouple));
+    svc->tick();   // Validate -> EnsureAxisControl
+    svc->tick();   // EnableAxis -> WaitAxisControlReady
+    setGantryRuntime(runtime_, 1, 0, 1, 10, 0, 0, false, false, false, true);
+    svc->tick();   // WaitAxisControlReady -> EnsureMotor
+    svc->tick();   // EnableMotor -> WaitMotorReady
+    setGantryRuntime(runtime_, 2, 0, 1, 10, 0, 0, false, false, false, true);
+    svc->tick();   // WaitMotorReady -> CheckGantryError
+    svc->tick();   // CheckErr -> SubmitCouple
+    svc->tick();   // SubmitCouple -> RejectedUnconfigured -> Error
+    EXPECT_EQ(svc->queryOperation(id)->state, OperationState::Failed);
+    // 失败已释放龙门组租约（可再次提交而不被 Rejected）。
+    EXPECT_FALSE(svc->store().snapshot().gantries[0].lifecycleLeased);
+}
+
+TEST_F(MotionControlServiceTest, Phase7_GantryCoupleRunsToSucceededAndReleasesLease) {
+    gw_.setTopologySnapshot(makeSixAxisTopology());
+    auto svc = makeService();
+    bootAndConfigureGantry(*svc);
+    const auto id = driveCoupleToSucceeded(*svc, runtime_, gw_);
+
+    EXPECT_EQ(svc->queryOperation(id)->state, OperationState::Succeeded);
+    // couple 成功 -> Ready 终态 -> 释放 gantry:A:0 租约（UI/UDP 可查空闲）。
+    EXPECT_FALSE(svc->store().snapshot().gantries[0].lifecycleLeased);
+    // 逻辑轴 X 的租约投影同样释放。
+    bool xBoundLeased = false;
+    for (const auto& a : svc->store().snapshot().axes) {
+        if (a.role == domain_vnext::model::AxisFunction::X) xBoundLeased = xBoundLeased || a.leased;
+    }
+    EXPECT_FALSE(xBoundLeased);
+}
+
+TEST_F(MotionControlServiceTest, Phase7_GantryDuringCoupleRejectsAxisOps) {
+    // 龙门建立进行中持有 {gantry:A:0, X, X1, X2}：普通 X1 单轴运动与逻辑轴 X 运动都被拒
+    // （资源集合重叠 -> 结构性互斥，非 if/else 特判）。
+    gw_.setTopologySnapshot(makeSixAxisTopology());
+    auto svc = makeService();
+    bootAndConfigureGantry(*svc);
+
+    // 推进 couple 到 WaitMotorReady（尚未 Ready，租约仍在）。
+    setGantryRuntime(runtime_, 1, 0, 1, 10, 0, 0, false, false, false, true);
+    const auto coupleId = svc->submit(gantryCmd(ControlAction::GantryEnableAndCouple));
+    svc->tick();   // Validate -> EnsureAxisControl
+    svc->tick();   // EnableAxis -> WaitAxisControlReady
+    setGantryRuntime(runtime_, 1, 0, 1, 10, 0, 0, false, false, false, true);
+    svc->tick();   // WaitAxisControlReady -> EnsureMotor
+    svc->tick();   // EnableMotor -> WaitMotorReady
+    EXPECT_EQ(svc->queryOperation(coupleId)->state, OperationState::Running);
+    EXPECT_TRUE(svc->store().snapshot().gantries[0].lifecycleLeased);
+
+    // X1 单轴运动 -> 与 couple 的 axis:A:X1 冲突 -> Rejected。
+    auto x1 = startRelMove();
+    x1.target.function = domain_vnext::model::AxisFunction::X1;
+    x1.motion = MotionRequest{10.f, 10.f};
+    const auto x1Id = svc->submit(x1);
     svc->tick();
-    EXPECT_EQ(svc->queryOperation(id)->state, OperationState::Rejected);
-    // 不产生龙门组资源占用。
+    EXPECT_EQ(svc->queryOperation(x1Id)->state, OperationState::Rejected);
+
+    // 逻辑轴 X 运动 -> 与 couple 的 gantry:A:0 组冲突 -> Rejected。
+    auto xmove = startRelMove();
+    xmove.target.function = domain_vnext::model::AxisFunction::X;
+    xmove.motion = MotionRequest{10.f, 10.f};
+    const auto xId = svc->submit(xmove);
+    svc->tick();
+    EXPECT_EQ(svc->queryOperation(xId)->state, OperationState::Rejected);
+}
+
+TEST_F(MotionControlServiceTest, Phase7_GantryDecoupleRunsToSucceeded) {
+    gw_.setTopologySnapshot(makeSixAxisTopology());
+    auto svc = makeService();
+    bootAndConfigureGantry(*svc);
+    driveCoupleToSucceeded(*svc, runtime_, gw_);   // 先建立到 Ready（租约已释放）
+
+    // 解除：coupled(ms==2) -> Decouple(seq2) -> WaitFinal(State1/Step10/AckSeq2) -> 掉电 -> Done。
+    setGantryRuntime(runtime_, 2, 1, 3, 80, 2, 0, true, true, true, false);  // coupled idle
+    const auto id = svc->submit(gantryCmd(ControlAction::GantryDecoupleAndDisable));
+    svc->tick();   // EnsureLogicalAxisStopped(ms==2) -> SubmitDecouple
+    svc->tick();   // Decouple(seq2) -> WaitDecoupleFinal
+    setGantryRuntime(runtime_, 2, 2, 1, 10, 2, 0, false, false, false, true);  // decoupled ackSeq2
+    svc->tick();   // WaitDecoupleFinal -> DisableMotor
+    svc->tick();   // 掉电 -> Done
+    EXPECT_EQ(svc->queryOperation(id)->state, OperationState::Succeeded);
+    EXPECT_FALSE(svc->store().snapshot().gantries[0].lifecycleLeased);
+}
+
+// ---- Phase 7：龙门生命周期取消安全收口（P0-B）----
+// 规则：取消发生在 Couple 提交前 -> 立即终止、绝无 Couple/使能写；
+//       取消发生在 Couple 已提交（WaitCoupleFinal）-> 只读观察，等 AckSeq 自然收口 -> Cancelled。
+
+TEST_F(MotionControlServiceTest, Phase7_CancelBeforeCoupleCommit_NoGantryWrite) {
+    gw_.setTopologySnapshot(makeSixAxisTopology());
+    auto svc = makeService();
+    bootAndConfigureGantry(*svc);
+    // 推进到 CheckGantryError（SubmitCouple 之前）：state=1/ms=2 反馈 tick 5 次。
+    setGantryRuntime(runtime_, 2, 0, 1, 10, 0, 0, false, false, false, true);
+    const auto id = svc->submit(gantryCmd(ControlAction::GantryEnableAndCouple));
+    for (int i = 0; i < 5; ++i) svc->tick();   // -> CheckGantryError（Couple 尚未提交）
+    EXPECT_EQ(svc->queryOperation(id)->state, OperationState::Running);
+    EXPECT_TRUE(gw_.gantrySubmissions().empty());   // Couple 尚未提交
+
+    // 断线 -> 全局锁定 -> 会话 cancel -> 策略立即终止，绝不发 Couple。
+    runtime_.setConnected(false, "link down");
+    svc->tick();
+    EXPECT_EQ(svc->queryOperation(id)->state, OperationState::Cancelled);
+    EXPECT_TRUE(gw_.gantrySubmissions().empty());   // 绝无 Couple 写
+    EXPECT_FALSE(svc->store().snapshot().gantries[0].lifecycleLeased);   // 租约已释放
+}
+
+TEST_F(MotionControlServiceTest, Phase7_CancelAfterCoupleCommit_ObservesThenCancelled) {
+    gw_.setTopologySnapshot(makeSixAxisTopology());
+    auto svc = makeService();
+    bootAndConfigureGantry(*svc);
+    // 推进到 WaitCoupleFinal（Couple 已提交）：state=1/ms=2，tick 直到 gantrySubmissions 非空。
+    setGantryRuntime(runtime_, 2, 0, 1, 10, 0, 0, false, false, false, true);
+    const auto id = svc->submit(gantryCmd(ControlAction::GantryEnableAndCouple));
+    for (int i = 0; i < 40 && gw_.gantrySubmissions().empty(); ++i) svc->tick();
+    ASSERT_FALSE(gw_.gantrySubmissions().empty());   // Couple 已提交 -> WaitCoupleFinal
+    EXPECT_EQ(svc->queryOperation(id)->state, OperationState::Running);
+
+    // 断线 -> 取消 -> 只读观察：保持 WaitCoupleFinal（不发新写），租约保持。
+    runtime_.setConnected(false, "link down");
+    svc->tick();
+    EXPECT_TRUE(svc->store().snapshot().gantries[0].lifecycleLeased);
+
+    // 反馈到 coupled（AckSeq=1）-> 观察收口为 Cancelled（不是 Succeeded），并释放租约。
+    setGantryRuntime(runtime_, 2, 1, 3, 80, 2, 0, true, true, true, false);
+    svc->tick();
+    EXPECT_EQ(svc->queryOperation(id)->state, OperationState::Cancelled);
     EXPECT_FALSE(svc->store().snapshot().gantries[0].lifecycleLeased);
 }
 

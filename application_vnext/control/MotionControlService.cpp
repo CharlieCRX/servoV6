@@ -101,6 +101,14 @@ MotionControlService::MotionControlService(
 
 MotionControlService::~MotionControlService() = default;
 
+void MotionControlService::applyGantryConfig(
+    plc_vnext::contracts::PlcGroupIndex g,
+    const domain_vnext::model::GantryParamModel& cfg) {
+    // 龙门参数注入（只读 D1600 区，非 PLC 写）：configValid 是 GantryCouplingStateMachine::
+    // requestCouple 的准入来源。Phase 7 打开龙门生命周期后，组合根/探针在触发 couple 前调用。
+    if (sysManager_) sysManager_->applyGantryConfig(g, cfg);
+}
+
 std::string MotionControlService::nextOperationId(ControlSource src) {
     return std::string(idPrefix(src)) + "-" + std::to_string(++idCounter_);
 }
@@ -439,13 +447,9 @@ void MotionControlService::arbitrate(ControlCommand& cmd) {
         return;
     }
 
-    // 龙门生命周期在 Phase 7 才开放安全取消；Phase 3 一律拒绝，绝不创建龙门会话。
-    if (cmd.action == ControlAction::GantryEnableAndCouple ||
-        cmd.action == ControlAction::GantryDecoupleAndDisable) {
-        setOpState(cmd.operationId, OperationState::Rejected,
-                   "gantry lifecycle deferred to Phase 7");
-        return;
-    }
+    // 龙门生命周期（GantryEnableAndCouple / GantryDecoupleAndDisable）从 Phase 7 起开放：
+    // 走下方「会话类动作」资源租约仲裁（requiredResources 返回 {gantry:A:0, X, X1, X2}，
+    // 同组独占由资源集合重叠天然保证）。不再在此提前拒绝。
 
     // 一次性写入（Set*/Enable*）：不创建会话；但仍需尊重目标轴资源占用，防止
     // 他来源在轴运动中改速度 / EnableMotor=false（改变运行安全性）。
@@ -640,12 +644,24 @@ void MotionControlService::execute(ControlCommand& cmd) {
             break;
         }
         case ControlAction::GantryEnableAndCouple:
-        case ControlAction::GantryDecoupleAndDisable:
-            // Phase 3 不开放龙门：arbitrate 已拒绝，此处兜底拒绝（不创建会话）。
-            setOpState(cmd.operationId, OperationState::Rejected,
-                       "gantry lifecycle deferred to Phase 7");
-            releaseLeaseFor(cmd.operationId);
-            return;
+        case ControlAction::GantryDecoupleAndDisable: {
+            // Phase 7：走 GantryMotionApi 生命周期（拥有电源），包成龙门生命周期会话。
+            // 建立 = beginEnableAndCouple（使能虚轴→等 ms=2→Couple→Ready）；
+            // 解除 = beginDecoupleAndDisable（确保停止→Decouple→掉电→Done）。
+            const bool couple = (cmd.action == ControlAction::GantryEnableAndCouple);
+            auto p = couple ? gantryApi_->beginEnableAndCouple(g)
+                            : gantryApi_->beginDecoupleAndDisable(g);
+            if (p.hasError()) {
+                // 逻辑轴未绑定等：创建即 Error，立即失败并释放租约（failAndRelease 语义）。
+                setOpState(cmd.operationId, OperationState::Failed, p.diag());
+                releaseLeaseFor(cmd.operationId);
+                return;
+            }
+            session = std::make_shared<session_adapter::GantryLifecycleSession>(
+                std::move(p), cmd.operationId, cmd.source, cmd.target,
+                required, OperationKind::GantryLifecycle);
+            break;
+        }
         default:
             // 不应到达：紧急 / Stop / 一次性动作已在上游处理。
             setOpState(cmd.operationId, OperationState::Rejected, "unsupported action");

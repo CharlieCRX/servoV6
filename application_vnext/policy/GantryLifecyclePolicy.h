@@ -57,6 +57,7 @@ public:
         // 解除
         EnsureLogicalAxisStopped, SubmitDecouple, WaitDecoupleFinal,
         DisableMotor, Done,
+        Cancelled,   // 生命周期被取消（急停/断线/停止）：不再产生任何新 PLC 写
         Error
     };
 
@@ -68,13 +69,18 @@ public:
     /// 解除联动 + 掉电逻辑轴。仅 Idle 可启动。
     void beginDecouple();
     /// 复位到 Idle（允许重新 begin）。若有进行中操作会静默忽略（由 caller 决定）。
-    void reset() { step_ = Step::Idle; diag_.clear(); }
+    void reset() { step_ = Step::Idle; diag_.clear(); cancelled_ = false; }
+
+    /// 受控取消（Phase 7 安全收口）：置 cancelled_。tick() 在真正提交（Couple/Decouple
+    /// 已进入 AckSeq 等待）前终止，不再发任何使能/建立/解除写；若已进入 Wait*Final（事务
+    /// 已提交），则转只读观察，等 AckSeq 自然收口到 Ready/Done 后以 Cancelled 结束。
+    void cancel() { cancelled_ = true; }
 
     void tick();
 
     Step currentStep() const { return step_; }
     bool isReady() const { return step_ == Step::Ready; }
-    bool isDone() const { return step_ == Step::Done; }
+    bool isDone() const { return step_ == Step::Done || step_ == Step::Cancelled; }
     bool hasError() const { return step_ == Step::Error; }
     const std::string& diag() const { return diag_; }
 
@@ -104,6 +110,7 @@ private:
     const domain_vnext::system::Axis* logical_ = nullptr;
     clock::time_point stepStart_{};
     int32_t currentSeq_ = 0;
+    bool cancelled_ = false;
     bool enabledSent_ = false;
     bool motorSent_ = false;
     bool stopSent_ = false;
@@ -117,6 +124,7 @@ private:
 inline void GantryLifecyclePolicy::beginCouple() {
     if (step_ != Step::Idle) return;   // 每组同一时间仅一个活动生命周期操作
     diag_.clear();
+    cancelled_ = false;
     enabledSent_ = false; motorSent_ = false; stopSent_ = false; disableSent_ = false;
     currentSeq_ = 0;
     logical_ = nullptr;
@@ -127,6 +135,7 @@ inline void GantryLifecyclePolicy::beginCouple() {
 inline void GantryLifecyclePolicy::beginDecouple() {
     if (step_ != Step::Idle) return;
     diag_.clear();
+    cancelled_ = false;
     enabledSent_ = false; motorSent_ = false; stopSent_ = false; disableSent_ = false;
     currentSeq_ = 0;
     // P0：解除入口立即解析逻辑轴，避免 motionState() 恒 0 卡在停止判断。
@@ -178,9 +187,23 @@ inline bool GantryLifecyclePolicy::resetFinalSatisfied(int32_t seq) const {
 
 inline void GantryLifecyclePolicy::tick() {
     if (step_ == Step::Idle || step_ == Step::Ready ||
-        step_ == Step::Done || step_ == Step::Error) return;
+        step_ == Step::Done || step_ == Step::Error || step_ == Step::Cancelled) return;
     const auto now = clock::now();
     const double el = std::chrono::duration<double>(now - stepStart_).count();
+
+    // Phase 7 安全收口：已取消时，
+    //   - 若事务尚未提交（未进入 Wait*Final）：立即终止，不再发任何 Couple/使能/解除写；
+    //   - 若事务已提交（WaitCoupleFinal / WaitDecoupleFinal）：转只读观察，等 AckSeq 自然收口。
+    if (cancelled_) {
+        switch (step_) {
+            case Step::WaitCoupleFinal:
+            case Step::WaitDecoupleFinal:
+                break;   // 观察模式：下面两个 case 只读反馈 + 超时，不产生新写
+            default:
+                step_ = Step::Cancelled;
+                return;
+        }
+    }
 
     switch (step_) {
     case Step::ValidatePreconditions:
@@ -251,8 +274,11 @@ inline void GantryLifecyclePolicy::tick() {
         step_ = Step::WaitCoupleFinal; stepStart_ = now; break;
 
     case Step::WaitCoupleFinal:
-        if (coupleFinalSatisfied(currentSeq_)) { step_ = Step::Ready; break; }
+        if (coupleFinalSatisfied(currentSeq_)) {
+            step_ = cancelled_ ? Step::Cancelled : Step::Ready; break;
+        }
         if (el >= gantry_lifecycle_detail::kCoupleTimeoutSeconds) {
+            if (cancelled_) { step_ = Step::Cancelled; return; }
             toError("gantry couple timeout"); return;
         }
         break;
@@ -280,8 +306,14 @@ inline void GantryLifecyclePolicy::tick() {
         step_ = Step::WaitDecoupleFinal; stepStart_ = now; break;
 
     case Step::WaitDecoupleFinal:
-        if (decoupleFinalSatisfied(currentSeq_)) { step_ = Step::DisableMotor; stepStart_ = now; break; }
+        if (decoupleFinalSatisfied(currentSeq_)) {
+            // 已取消时不进入 DisableMotor（会产生 enableMotor=OFF 写），直接 Cancelled。
+            step_ = cancelled_ ? Step::Cancelled : Step::DisableMotor;
+            if (step_ != Step::Cancelled) stepStart_ = now;
+            break;
+        }
         if (el >= gantry_lifecycle_detail::kDecoupleTimeoutSeconds) {
+            if (cancelled_) { step_ = Step::Cancelled; return; }
             toError("gantry decouple timeout"); return;
         }
         break;
@@ -319,6 +351,7 @@ inline const char* GantryLifecyclePolicy::stepName(Step s) {
         case Step::WaitDecoupleFinal:   return "WaitDecoupleFinal";
         case Step::DisableMotor:        return "DisableMotor";
         case Step::Done:                return "Done";
+        case Step::Cancelled:           return "Cancelled";
         case Step::Error:               return "Error";
     }
     return "?";
