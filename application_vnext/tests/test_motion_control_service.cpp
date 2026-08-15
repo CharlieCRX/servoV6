@@ -616,6 +616,34 @@ TEST_F(MotionControlServiceTest, Phase7_CancelAfterCoupleCommit_ObservesThenCanc
     EXPECT_FALSE(svc->store().snapshot().gantries[0].lifecycleLeased);
 }
 
+TEST_F(MotionControlServiceTest, Phase7_CancelDuringResetWait_ObservesThenCancelled) {
+    // Reset 已提交（WaitResetFinal）：取消后保持租约只读观察，等 AckSeq==Reset seq 收口为
+    // Cancelled；期间不得提交新的 Couple（gantrySubmissions 仍只有 Reset 一条）。
+    gw_.setTopologySnapshot(makeSixAxisTopology());
+    auto svc = makeService();
+    bootAndConfigureGantry(*svc);
+    // CheckGantryError(err!=0) -> SubmitReset -> WaitResetFinal：err=123 触发复位路径。
+    setGantryRuntime(runtime_, 2, 0, 1, 10, 0, /*err=*/123, false, false, false, true);
+    const auto id = svc->submit(gantryCmd(ControlAction::GantryEnableAndCouple));
+    for (int i = 0; i < 40 && gw_.gantrySubmissions().empty(); ++i) svc->tick();
+    ASSERT_FALSE(gw_.gantrySubmissions().empty());   // Reset 已提交 -> WaitResetFinal
+    EXPECT_EQ(svc->queryOperation(id)->state, OperationState::Running);
+    const auto resetCount = gw_.gantrySubmissions().size();
+
+    // 断线 -> 取消 -> 只读观察：保持租约。
+    runtime_.setConnected(false, "link down");
+    svc->tick();
+    EXPECT_TRUE(svc->store().snapshot().gantries[0].lifecycleLeased);
+
+    // 反馈 Reset 完成（AckSeq==1、state=1、step=10、cmdResult=2、member）-> Cancelled。
+    setGantryRuntime(runtime_, 2, 1, 1, 10, 2, 0, false, false, false, true);
+    svc->tick();
+    EXPECT_EQ(svc->queryOperation(id)->state, OperationState::Cancelled);
+    EXPECT_FALSE(svc->store().snapshot().gantries[0].lifecycleLeased);
+    // 观察期不得提交新龙门请求（未新增 Couple）。
+    EXPECT_EQ(gw_.gantrySubmissions().size(), resetCount);
+}
+
 TEST_F(MotionControlServiceTest, Phase3_StopJogCancelsSession) {
     gw_.setTopologySnapshot(makeSixAxisTopology());
     auto svc = makeService();

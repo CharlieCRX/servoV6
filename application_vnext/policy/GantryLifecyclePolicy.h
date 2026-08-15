@@ -193,12 +193,14 @@ inline void GantryLifecyclePolicy::tick() {
 
     // Phase 7 安全收口：已取消时，
     //   - 若事务尚未提交（未进入 Wait*Final）：立即终止，不再发任何 Couple/使能/解除写；
-    //   - 若事务已提交（WaitCoupleFinal / WaitDecoupleFinal）：转只读观察，等 AckSeq 自然收口。
+    //   - 若事务已提交（WaitCoupleFinal / WaitDecoupleFinal / WaitResetFinal）：转只读观察，
+    //     等 AckSeq 自然收口（含 Reset 的 AckSeq 闭环），期间保持租约、不发新龙门请求。
     if (cancelled_) {
         switch (step_) {
             case Step::WaitCoupleFinal:
             case Step::WaitDecoupleFinal:
-                break;   // 观察模式：下面两个 case 只读反馈 + 超时，不产生新写
+            case Step::WaitResetFinal:
+                break;   // 观察模式：下面各 case 只读反馈 + 超时，不产生新写
             default:
                 step_ = Step::Cancelled;
                 return;
@@ -260,8 +262,15 @@ inline void GantryLifecyclePolicy::tick() {
         step_ = Step::WaitResetFinal; stepStart_ = now; break;
 
     case Step::WaitResetFinal:
-        if (resetFinalSatisfied(currentSeq_)) { step_ = Step::SubmitCouple; stepStart_ = now; break; }
+        if (resetFinalSatisfied(currentSeq_)) {
+            // 已取消时不进入 SubmitCouple（会产生 Couple 写），直接 Cancelled；未取消则继续
+            // CheckGantryError 后的建立序列。Reset 的 AckSeq 闭环在观察模式下保持租约完成。
+            step_ = cancelled_ ? Step::Cancelled : Step::SubmitCouple;
+            if (step_ != Step::Cancelled) stepStart_ = now;
+            break;
+        }
         if (el >= gantry_lifecycle_detail::kResetTimeoutSeconds) {
+            if (cancelled_) { step_ = Step::Cancelled; return; }
             toError("gantry reset timeout"); return;
         }
         break;
