@@ -71,18 +71,42 @@ static std::string formatAxisSummary(QtAxisViewModel& vm)
     return oss.str();
 }
 
-// ★ Phase 5：vnext UDP 链路的长生命周期持有者。
+// ★ Phase 6：统一控制链路的长生命周期持有者（组合根）。
 //   MotionControlService 保存 driver/runtime 的**引用**，因此它们必须与 service 同生命周期，
 //   不能是 if 块内的栈对象。本结构以声明逆序析构，保证安全顺序：
 //     UdpServer → MotionControlService → GatewayControlRuntime/Driver
 //       → PlcRuntimeGateway → Modbus Client
-struct VnextUdpStack {
+//   由组合根开关 kUnifiedLoopEnabled 决定是否构造；server 仅当 UDP 子开关开启时存在。
+struct UnifiedControlStack {
     std::shared_ptr<plc_vnext::transport::AsioModbusTcpClient> client;
     std::unique_ptr<plc_vnext::PlcRuntimeGateway> gateway;
     std::unique_ptr<application_vnext::PlcRuntimeDriverAdapter> driver;
     std::unique_ptr<application_vnext::control::GatewayControlRuntime> runtime;
     std::unique_ptr<application_vnext::control::MotionControlService> service;
-    std::unique_ptr<UdpServer> server;
+    std::unique_ptr<UdpServer> server;   // 仅 kEnableUdpVnext 开启时创建
+};
+
+// ★ Phase 6：Legacy 组合根的持有者（仅 kUnifiedLoopEnabled=false 时构造）。
+//   Unified 模式**完全不创建**旧 client / legacy manager / 旧 QtAxisViewModel，实现
+//   「单 client / 单 poll / 单写链路」，杜绝旧 UI 与 MotionControlService 并存写 PLC。
+struct LegacyStack {
+    // ---- Modbus 通讯（两分组）----
+    std::unique_ptr<plc::protocol::AsioModbusTcpClient> clientA, clientB;
+    std::unique_ptr<plc::protocol::PlcPoller>          pollerA, pollerB;
+    std::unique_ptr<plc::protocol::PlcDevice>          deviceA, deviceB;
+    std::unique_ptr<plc::ModbusSystemDriver>           driverA, driverB;
+    SystemManager manager;
+    SystemContext* ctxA = nullptr;
+    SystemContext* ctxB = nullptr;
+
+    // ---- 旧 UI 控制链（QtAxisViewModel 直连 AxisViewModelCore 写 PLC）----
+    // 统一索引：0..5 = A_Y,A_Z,A_R,A_X,A_X1,A_X2；6..11 = B_Y,B_Z,B_R,B_X,B_X1,B_X2
+    std::vector<std::unique_ptr<AxisViewModelCore>> vmCores;
+    std::vector<std::unique_ptr<QtAxisViewModel>>   qtVMs;
+    std::vector<QtAxisViewModel*>                   allViewModels;
+    std::unique_ptr<EmergencyStopViewModel>  emergencyVM_A, emergencyVM_B;
+    std::unique_ptr<GantryViewModel>         gantryVM_A, gantryVM_B;
+    std::unique_ptr<ConnectionViewModel>     connectionVM_A, connectionVM_B;
 };
 
 int main(int argc, char *argv[])
@@ -116,12 +140,65 @@ int main(int argc, char *argv[])
 
     QQuickStyle::setStyle("Basic");
 
-    // ============================
-    // 1. Modbus 通讯层（每个分组独立的 ModbusSystemDriver）
-    // ============================
+    // ★ Phase 6 组合根迁移开关（默认关闭 = Legacy 模式；开启 = Unified 模式）。
+    //   两种组合根**二选一构造**，杜绝两套对象并存（文档 §12.6 迁移约束）：
+    //     - kUnifiedLoopEnabled = true  : Unified 模式 —— 只创建 vnext client +
+    //       MotionControlService，**不创建**旧 client / legacy manager / 旧 QtAxisViewModel
+    //       （旧 UI 控制入口随之不存在，无法写 PLC），实现「单 client / 单 poll / 单写链路」；
+    //     - kUnifiedLoopEnabled = false : Legacy 模式 —— 旧 client + legacy manager +
+    //       旧 UI 控制链（现状），不创建统一栈。
+    constexpr bool kUnifiedLoopEnabled = false;
+    // UDP 子开关：仅 Unified 模式下有意义，控制是否启动真实 UDP server。
+    constexpr bool kEnableUdpVnext = false;
+    (void)kEnableUdpVnext;  // Unified 关闭时未被 if constexpr 引用，此处消解未使用警告
 
-    // 1a. 寄存器注册表（所有需要轮询的线圈和保持寄存器）
-    plc::protocol::RegisterRegistry registry;
+    // 两套组合根的持有者（长生命周期，声明逆序析构，避免 service 引用悬空）。
+    std::optional<LegacyStack>          legacy;
+    std::optional<UnifiedControlStack>  ustack;
+
+    if constexpr (kUnifiedLoopEnabled) {
+        // ════════════════════════════════════════════════════════════
+        // ★ Unified 组合根：单 client / 单 poll / 单 MotionControlService::tick()
+        // ════════════════════════════════════════════════════════════
+        plc_vnext::transport::AsioModbusTcpClient::Config vnextCfg;
+        vnextCfg.host = "192.168.1.88";   // 与 PLC A 一致
+        vnextCfg.port = 502;
+        vnextCfg.unitId = 0x01;
+        vnextCfg.timeoutMs = 1000;
+        UnifiedControlStack& s = ustack.emplace();
+        s.client = std::make_shared<plc_vnext::transport::AsioModbusTcpClient>(vnextCfg);
+        s.client->start();
+        s.gateway = std::make_unique<plc_vnext::PlcRuntimeGateway>(s.client);
+        s.driver = std::make_unique<application_vnext::PlcRuntimeDriverAdapter>(*s.gateway);
+        s.runtime =
+            std::make_unique<application_vnext::control::GatewayControlRuntime>(*s.gateway);
+        s.service = std::make_unique<application_vnext::control::MotionControlService>(*s.driver,
+                                                                                        *s.runtime);
+        if constexpr (kEnableUdpVnext) {
+            UdpServer::Config udpCfg;
+            udpCfg.listenPort = 62000;
+            udpCfg.bindAddress = "0.0.0.0";
+            udpCfg.recvBufferSize = 4096;
+            s.server = std::make_unique<UdpServer>(*s.service, udpCfg);
+            if (!s.server->start()) {
+                LOG_ERROR(LogLayer::APP, "System", "UDP Server failed to start");
+            }
+        }
+        LOG_WARN(LogLayer::APP, "System",
+                 "Phase 6 Unified mode ENABLED: single vnext client + MotionControlService. "
+                 "Legacy client/manager/old ViewModel NOT created -> one-writer-per-axis.");
+    } else {
+        // ════════════════════════════════════════════════════════════
+        // ★ Legacy 组合根：旧 client + legacy manager + 旧 UI 控制链（现状）
+        // ════════════════════════════════════════════════════════════
+        LegacyStack& L = legacy.emplace();
+
+        // ============================
+        // 1. Modbus 通讯层（每个分组独立的 ModbusSystemDriver）
+        // ============================
+
+        // 1a. 寄存器注册表（所有需要轮询的线圈和保持寄存器）
+        plc::protocol::RegisterRegistry registry;
     {
         using namespace plc::reg;
 
@@ -223,48 +300,47 @@ int main(int argc, char *argv[])
     cfgB.unitId = 0x01;
     cfgB.timeoutMs = 1000;
 
-    auto clientA = std::make_unique<plc::protocol::AsioModbusTcpClient>(cfgA);
-    auto clientB = std::make_unique<plc::protocol::AsioModbusTcpClient>(cfgB);
-    clientA->start();
-    clientB->start();
+    L.clientA = std::make_unique<plc::protocol::AsioModbusTcpClient>(cfgA);
+    L.clientB = std::make_unique<plc::protocol::AsioModbusTcpClient>(cfgB);
+    L.clientA->start();
+    L.clientB->start();
     LOG_INFO(LogLayer::APP, "System", "Modbus TCP clients started");
 
     // 1c. PlcPoller（每个分组共享同一个寄存器注册表）
-    auto pollerA = std::make_unique<plc::protocol::PlcPoller>(registry);
-    auto pollerB = std::make_unique<plc::protocol::PlcPoller>(registry);
+    L.pollerA = std::make_unique<plc::protocol::PlcPoller>(registry);
+    L.pollerB = std::make_unique<plc::protocol::PlcPoller>(registry);
 
     // 1d. PlcDevice（寄存器读写门面）
-    auto deviceA = std::make_unique<plc::protocol::PlcDevice>(plc::protocol::INOVANCE_PROFILE);
-    auto deviceB = std::make_unique<plc::protocol::PlcDevice>(plc::protocol::INOVANCE_PROFILE);
-    deviceA->bindTransport(clientA.get());
-    deviceB->bindTransport(clientB.get());
+    L.deviceA = std::make_unique<plc::protocol::PlcDevice>(plc::protocol::INOVANCE_PROFILE);
+    L.deviceB = std::make_unique<plc::protocol::PlcDevice>(plc::protocol::INOVANCE_PROFILE);
+    L.deviceA->bindTransport(L.clientA.get());
+    L.deviceB->bindTransport(L.clientB.get());
 
     // 1e. 组装 ModbusSystemDriver
-    plc::ModbusSystemDriver driverA, driverB;
-    driverA.setModbusClient(clientA.get());
-    driverA.setDevice(deviceA.get());
-    driverA.setPoller(std::move(pollerA));
+    L.driverA = std::make_unique<plc::ModbusSystemDriver>();
+    L.driverB = std::make_unique<plc::ModbusSystemDriver>();
+    L.driverA->setModbusClient(L.clientA.get());
+    L.driverA->setDevice(L.deviceA.get());
+    L.driverA->setPoller(std::move(L.pollerA));
     // m_clock 默认使用 SteadyClock，无需额外设置
 
-    driverB.setModbusClient(clientB.get());
-    driverB.setDevice(deviceB.get());
-    driverB.setPoller(std::move(pollerB));
+    L.driverB->setModbusClient(L.clientB.get());
+    L.driverB->setDevice(L.deviceB.get());
+    L.driverB->setPoller(std::move(L.pollerB));
 
     // ============================
     // 2. 系统分组管理
     // ============================
-    SystemManager manager;
     ContextRejection reason;
+    L.manager.createGroup("Machine_A", reason);   // Y, Z, R 轴
+    L.manager.createGroup("Machine_B", reason);   // X1, X2 轴（龙门）
 
-    manager.createGroup("Machine_A", reason);   // Y, Z, R 轴
-    manager.createGroup("Machine_B", reason);   // X1, X2 轴（龙门）
-
-    SystemContext* ctxA = nullptr;
-    SystemContext* ctxB = nullptr;
-    manager.tryGetGroup("Machine_A", ctxA, reason);
-    manager.tryGetGroup("Machine_B", ctxB, reason);
-    ctxA->setDriver(&driverA);
-    ctxB->setDriver(&driverB);
+    L.ctxA = nullptr;
+    L.ctxB = nullptr;
+    L.manager.tryGetGroup("Machine_A", L.ctxA, reason);
+    L.manager.tryGetGroup("Machine_B", L.ctxB, reason);
+    L.ctxA->setDriver(L.driverA.get());
+    L.ctxB->setDriver(L.driverB.get());
 
     constexpr std::array<AxisId, 6> ALL_AXES = {
         AxisId::X, AxisId::X1, AxisId::X2, AxisId::Y, AxisId::Z, AxisId::R
@@ -277,10 +353,10 @@ int main(int argc, char *argv[])
     //    tryReadAxis 会拒绝访问，导致 X/X1/X2 永远无法注册身份）
     // ============================
     for (auto id : ALL_AXES) {
-        ctxA->setAxisIdentity(id, "Machine_A");
+        L.ctxA->setAxisIdentity(id, "Machine_A");
     }
     for (auto id : ALL_AXES) {
-        ctxB->setAxisIdentity(id, "Machine_B");
+        L.ctxB->setAxisIdentity(id, "Machine_B");
     }
 
     // ============================
@@ -288,136 +364,103 @@ int main(int argc, char *argv[])
     // ============================
     // 注意：使用真实 Modbus 通讯后，初始状态由 PLC 硬件决定，
     // 不再通过代码"强制设置"（forceState / setSimulatedJogVelocity 等 Fake 专用接口已移除）。
-    driverA.pollFeedback(*ctxA);
-    driverB.pollFeedback(*ctxB);
-
-    // ============================
-    // 3b. UDP 服务器（远程 R 轴控制）—— Phase 5 改为经统一协调层异步 operationId
-    // ============================
-    UdpServer::Config udpCfg;
-    udpCfg.listenPort = 62000;
-    udpCfg.bindAddress = "0.0.0.0";
-    udpCfg.recvBufferSize = 4096;
-
-    // ★ Phase 5 迁移开关（默认关闭）：主程序**不启动**真实 vnext UDP server。
-    //   原因：新旧链路并存（旧 clientA/legacy manager/QtAxisViewModel 仍可写 A 组各轴，
-    //   含 UDP 映射的 R 轴；新 vnextClient/mcs/UdpServer 也连同一 PLC A），若无按轴所有权
-    //   互斥，同一轴可能被旧 UI 与新 UDP 同时写，违反迁移约束（文档 §12.6）。
-    //   因此真实 UDP 默认不启用；仅显式置 true（接受互斥风险，仅供联调）才启动。
-    //   Phase 6 统一为单 client / 单 poll / 单 MotionControlService::tick() 后移除本开关。
-    //   整套对象经 VnextUdpStack 在 main() 作用域长期持有，避免 service 引用悬空。
-    constexpr bool kEnableUdpVnext = false;   // 迁移开关：false=主程序不启动真实 UDP server
-    std::optional<VnextUdpStack> udpStack;
-    if constexpr (kEnableUdpVnext) {
-        plc_vnext::transport::AsioModbusTcpClient::Config vnextCfg;
-        vnextCfg.host = "192.168.1.88";   // 与 PLC A 一致
-        vnextCfg.port = 502;
-        vnextCfg.unitId = 0x01;
-        vnextCfg.timeoutMs = 1000;
-        VnextUdpStack& s = udpStack.emplace();
-        s.client = std::make_shared<plc_vnext::transport::AsioModbusTcpClient>(vnextCfg);
-        s.client->start();
-        s.gateway = std::make_unique<plc_vnext::PlcRuntimeGateway>(s.client);
-        s.driver = std::make_unique<application_vnext::PlcRuntimeDriverAdapter>(*s.gateway);
-        s.runtime =
-            std::make_unique<application_vnext::control::GatewayControlRuntime>(*s.gateway);
-        s.service = std::make_unique<application_vnext::control::MotionControlService>(*s.driver,
-                                                                                        *s.runtime);
-        s.server = std::make_unique<UdpServer>(*s.service, udpCfg);
-        if (!s.server->start()) {
-            LOG_ERROR(LogLayer::APP, "System", "UDP Server failed to start");
-        }
-        LOG_WARN(LogLayer::APP, "System",
-                 "Phase 5 migration switch ENABLED: real vnext UDP server active (legacy "
-                 "link shares PLC A; ensure no concurrent write to same axis).");
-    }
+    L.driverA->pollFeedback(*L.ctxA);
+    L.driverB->pollFeedback(*L.ctxB);
 
     // ============================
     // 4. ViewModels（按 分组+轴 维度，两组各含6轴）
     // ============================
-    // Machine_A 的全部轴
-    auto vmCore_A_Y  = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::Y);
-    auto vmCore_A_Z  = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::Z);
-    auto vmCore_A_R  = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::R);
-    auto vmCore_A_X  = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::X);
-    auto vmCore_A_X1 = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::X1);
-    auto vmCore_A_X2 = std::make_unique<AxisViewModelCore>(manager, "Machine_A", AxisId::X2);
-
-    // Machine_B 的全部轴
-    auto vmCore_B_Y  = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::Y);
-    auto vmCore_B_Z  = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::Z);
-    auto vmCore_B_R  = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::R);
-    auto vmCore_B_X  = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::X);
-    auto vmCore_B_X1 = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::X1);
-    auto vmCore_B_X2 = std::make_unique<AxisViewModelCore>(manager, "Machine_B", AxisId::X2);
-
-    // Qt 包装
-    QtAxisViewModel qtVM_A_Y(vmCore_A_Y.get());
-    QtAxisViewModel qtVM_A_Z(vmCore_A_Z.get());
-    QtAxisViewModel qtVM_A_R(vmCore_A_R.get());
-    QtAxisViewModel qtVM_A_X(vmCore_A_X.get());
-    QtAxisViewModel qtVM_A_X1(vmCore_A_X1.get());
-    QtAxisViewModel qtVM_A_X2(vmCore_A_X2.get());
-
-    QtAxisViewModel qtVM_B_Y(vmCore_B_Y.get());
-    QtAxisViewModel qtVM_B_Z(vmCore_B_Z.get());
-    QtAxisViewModel qtVM_B_R(vmCore_B_R.get());
-    QtAxisViewModel qtVM_B_X(vmCore_B_X.get());
-    QtAxisViewModel qtVM_B_X1(vmCore_B_X1.get());
-    QtAxisViewModel qtVM_B_X2(vmCore_B_X2.get());
+    // 构造顺序对应 LegacyStack.qtVMs 统一索引：0..5=A_Y..A_X2；6..11=B_Y..B_X2
+    auto makeVm = [&L](const std::string& group, AxisId id) {
+        auto core = std::make_unique<AxisViewModelCore>(L.manager, group, id);
+        L.qtVMs.push_back(std::make_unique<QtAxisViewModel>(core.get()));
+        L.vmCores.push_back(std::move(core));
+        L.allViewModels.push_back(L.qtVMs.back().get());
+    };
+    makeVm("Machine_A", AxisId::Y);
+    makeVm("Machine_A", AxisId::Z);
+    makeVm("Machine_A", AxisId::R);
+    makeVm("Machine_A", AxisId::X);
+    makeVm("Machine_A", AxisId::X1);
+    makeVm("Machine_A", AxisId::X2);
+    makeVm("Machine_B", AxisId::Y);
+    makeVm("Machine_B", AxisId::Z);
+    makeVm("Machine_B", AxisId::R);
+    makeVm("Machine_B", AxisId::X);
+    makeVm("Machine_B", AxisId::X1);
+    makeVm("Machine_B", AxisId::X2);
 
     // ─────────────── 4b. 急停安全 ViewModel ───────────────
-    // 每个分组一个 EmergencyStopViewModel，在 tick loop 中读取紧急急停状态
-    EmergencyStopViewModel emergencyVM_A(manager, "Machine_A");
-    EmergencyStopViewModel emergencyVM_B(manager, "Machine_B");
+    L.emergencyVM_A = std::make_unique<EmergencyStopViewModel>(L.manager, "Machine_A");
+    L.emergencyVM_B = std::make_unique<EmergencyStopViewModel>(L.manager, "Machine_B");
 
     // ─────────────── 4c. 龙门 ViewModel ───────────────
-    // 每个分组一个 GantryViewModel，桥接 Domain 龙门控制器状态到 QML
-    GantryViewModel gantryVM_A(manager, "Machine_A");
-    GantryViewModel gantryVM_B(manager, "Machine_B");
+    L.gantryVM_A = std::make_unique<GantryViewModel>(L.manager, "Machine_A");
+    L.gantryVM_B = std::make_unique<GantryViewModel>(L.manager, "Machine_B");
 
     // ─────────────── 4d. 连接状态 ViewModel（★ P1/P2 新增）───────────────
-    // 每个分组一个 ConnectionViewModel，桥接基础设施层 TCP 连接状态到 QML
-    // 提供：连接状态指示灯（绿/红）+ 状态文本 + 手动重连按钮
-    ConnectionViewModel connectionVM_A(manager, "Machine_A");
-    ConnectionViewModel connectionVM_B(manager, "Machine_B");
+    L.connectionVM_A = std::make_unique<ConnectionViewModel>(L.manager, "Machine_A");
+    L.connectionVM_B = std::make_unique<ConnectionViewModel>(L.manager, "Machine_B");
+    }   // ═══ end Legacy 组合根 ═══
 
-    // ★ Phase 2：统一状态快照 -> QML 只读适配器（严格只读，不提交命令）
-    //   真实 vnext 链路（SystemManagerVnext + MotionControlService）由 Phase 6
-    //   组合根注入；接入前传 nullptr，安全展示默认「离线/全局锁定」态。
-    //   Phase 6 替换为：MotionControlService svc(driver, runtime); UiControlAdapter snapshotAdapter(&svc);
-    UiControlAdapter snapshotAdapter(nullptr);
+    // ★ Phase 2/6：统一状态快照 -> QML 只读适配器（严格只读，不提交命令）。
+    //   Phase 6 组合根把真实 MotionControlService 注入快照投影：
+    //     - kUnifiedLoopEnabled 开启时：注入统一栈的 service，QML 展示统一快照；
+    //     - 关闭时：传 nullptr，安全展示默认「离线/全局锁定」态（保持现状）。
+    UiControlAdapter snapshotAdapter(
+        kUnifiedLoopEnabled ? ustack->service.get() : nullptr);
 
     // ============================
     // 5. QML 引擎初始化与依赖注入
     // ============================
     QQmlApplicationEngine engine;
 
-    engine.rootContext()->setContextProperty("group_A_Y",  &qtVM_A_Y);
-    engine.rootContext()->setContextProperty("group_A_Z",  &qtVM_A_Z);
-    engine.rootContext()->setContextProperty("group_A_R",  &qtVM_A_R);
-    engine.rootContext()->setContextProperty("group_A_X",  &qtVM_A_X);
-    engine.rootContext()->setContextProperty("group_A_X1", &qtVM_A_X1);
-    engine.rootContext()->setContextProperty("group_A_X2", &qtVM_A_X2);
-
-    engine.rootContext()->setContextProperty("group_B_Y",  &qtVM_B_Y);
-    engine.rootContext()->setContextProperty("group_B_Z",  &qtVM_B_Z);
-    engine.rootContext()->setContextProperty("group_B_R",  &qtVM_B_R);
-    engine.rootContext()->setContextProperty("group_B_X",  &qtVM_B_X);
-    engine.rootContext()->setContextProperty("group_B_X1", &qtVM_B_X1);
-    engine.rootContext()->setContextProperty("group_B_X2", &qtVM_B_X2);
-
-    // 急停安全 ViewModel
-    engine.rootContext()->setContextProperty("emergencyVM_A", &emergencyVM_A);
-    engine.rootContext()->setContextProperty("emergencyVM_B", &emergencyVM_B);
-
-    // 龙门 ViewModel
-    engine.rootContext()->setContextProperty("gantryVM_A", &gantryVM_A);
-    engine.rootContext()->setContextProperty("gantryVM_B", &gantryVM_B);
-
-    // 连接状态 ViewModel（★ P1/P2 新增）
-    engine.rootContext()->setContextProperty("connectionVM_A", &connectionVM_A);
-    engine.rootContext()->setContextProperty("connectionVM_B", &connectionVM_B);
+    if constexpr (kUnifiedLoopEnabled) {
+        // Unified 模式：旧 UI 控制链不存在。group_*/emergency/gantry/connection 全部绑定
+        // nullptr（QML 已对 null 容错 → 控制按钮禁用/空展示），杜绝旧 UI 直写 PLC。
+        // ⚠ 准确边界：Unified 模式下 UI 是「统一快照只读展示」（经 controlSnapshot），
+        //   不是统一控制来源。当前可控来源 = UDP（子开关开启时）+ 摇杆；UI 控制按钮迁移
+        //   至 ControlCommand::submit() 属待完成工作（文档 §8.1），不在本阶段范围内。
+        engine.rootContext()->setContextProperty("group_A_Y",  nullptr);
+        engine.rootContext()->setContextProperty("group_A_Z",  nullptr);
+        engine.rootContext()->setContextProperty("group_A_R",  nullptr);
+        engine.rootContext()->setContextProperty("group_A_X",  nullptr);
+        engine.rootContext()->setContextProperty("group_A_X1", nullptr);
+        engine.rootContext()->setContextProperty("group_A_X2", nullptr);
+        engine.rootContext()->setContextProperty("group_B_Y",  nullptr);
+        engine.rootContext()->setContextProperty("group_B_Z",  nullptr);
+        engine.rootContext()->setContextProperty("group_B_R",  nullptr);
+        engine.rootContext()->setContextProperty("group_B_X",  nullptr);
+        engine.rootContext()->setContextProperty("group_B_X1", nullptr);
+        engine.rootContext()->setContextProperty("group_B_X2", nullptr);
+        engine.rootContext()->setContextProperty("emergencyVM_A", nullptr);
+        engine.rootContext()->setContextProperty("emergencyVM_B", nullptr);
+        engine.rootContext()->setContextProperty("gantryVM_A", nullptr);
+        engine.rootContext()->setContextProperty("gantryVM_B", nullptr);
+        engine.rootContext()->setContextProperty("connectionVM_A", nullptr);
+        engine.rootContext()->setContextProperty("connectionVM_B", nullptr);
+    } else {
+        // Legacy 模式：旧 UI 控制链绑定真实 ViewModel。
+        LegacyStack& L = *legacy;
+        engine.rootContext()->setContextProperty("group_A_Y",  L.qtVMs[0].get());
+        engine.rootContext()->setContextProperty("group_A_Z",  L.qtVMs[1].get());
+        engine.rootContext()->setContextProperty("group_A_R",  L.qtVMs[2].get());
+        engine.rootContext()->setContextProperty("group_A_X",  L.qtVMs[3].get());
+        engine.rootContext()->setContextProperty("group_A_X1", L.qtVMs[4].get());
+        engine.rootContext()->setContextProperty("group_A_X2", L.qtVMs[5].get());
+        engine.rootContext()->setContextProperty("group_B_Y",  L.qtVMs[6].get());
+        engine.rootContext()->setContextProperty("group_B_Z",  L.qtVMs[7].get());
+        engine.rootContext()->setContextProperty("group_B_R",  L.qtVMs[8].get());
+        engine.rootContext()->setContextProperty("group_B_X",  L.qtVMs[9].get());
+        engine.rootContext()->setContextProperty("group_B_X1", L.qtVMs[10].get());
+        engine.rootContext()->setContextProperty("group_B_X2", L.qtVMs[11].get());
+        engine.rootContext()->setContextProperty("emergencyVM_A", L.emergencyVM_A.get());
+        engine.rootContext()->setContextProperty("emergencyVM_B", L.emergencyVM_B.get());
+        engine.rootContext()->setContextProperty("gantryVM_A", L.gantryVM_A.get());
+        engine.rootContext()->setContextProperty("gantryVM_B", L.gantryVM_B.get());
+        engine.rootContext()->setContextProperty("connectionVM_A", L.connectionVM_A.get());
+        engine.rootContext()->setContextProperty("connectionVM_B", L.connectionVM_B.get());
+    }
 
     // ★ Phase 2：统一状态快照（UiControlAdapter）暴露给 QML（只读对照面板）
     engine.rootContext()->setContextProperty("controlSnapshot", &snapshotAdapter);
@@ -455,10 +498,14 @@ int main(int argc, char *argv[])
     //   service（并统一驱动 tick）前传 nullptr：摇杆保持选轴/死区/模式状态，命令提交
     //   待 Phase 6 接线后生效。命令链路正确性已由 presentation_tests 用真实 service +
     //   Fake gateway 单测覆盖（见 test_motion_controller.cpp）。
-    //   ⚠ 注意：此处为「Phase 4 组件/集成测试已完成，主程序尚未启用摇杆统一链路」的
-    //   安全降级（旧 ViewModel 控制链路在 Phase 4 已从摇杆移除），并非现有程序摇杆
-    //   功能已完成迁移；真机摇杆运动控制须待 Phase 6 注入 service 并驱动 tick 后生效。
-    MotionController motionCtrl(&interpreter, &axisModel, /*service*/nullptr);
+    //   ⚠ 注意：Phase 6 组合根注入真实 service 后，摇杆命令才真正生效：
+    //     - kUnifiedLoopEnabled 开启时：注入统一栈的 service（唯一协调层入口），
+    //       摇杆 StartJog/StopJog 经其仲裁/执行；
+    //     - 关闭时：传 nullptr，摇杆保持选轴/死区/模式状态，命令不提交（安全降级）。
+    //   命令链路正确性已由 presentation_tests 用真实 service + Fake gateway 单测覆盖
+    //   （见 test_motion_controller.cpp）。
+    MotionController motionCtrl(&interpreter, &axisModel,
+                                kUnifiedLoopEnabled ? ustack->service.get() : nullptr);
 
     AxisSelectionController axisCtrl(&interpreter, &axisModel);
     axisCtrl.setMotionController(&motionCtrl);  // ★ 注入 MotionController，JOG 活跃时阻止左摇杆选轴
@@ -477,85 +524,104 @@ int main(int argc, char *argv[])
     engine.loadFromModule("servoV6", "Main");
 
     // ============================
-    // 6. 全局 Tick Loop（统一 pollFeedback）
+    // 6. 全局 Tick Loop —— ★ Phase 6 统一调度循环
+    //    单一 QTimer（20ms，文档 §5.2 要求 20~50ms）驱动；两模式互斥，任一时刻只有
+    //    一条链路在写 PLC：
+    //      - kUnifiedLoopEnabled=true : 只驱动统一协调层（唯一 poll / 仲裁 / 会话 /
+    //        快照发布），旧 poll/ViewModel tick 不驱动（旧链路停写，保证互斥）；
+    //      - kUnifiedLoopEnabled=false: 完全保持现状的旧链路。
     // ============================
-    std::vector<QtAxisViewModel*> allViewModels = {
-        &qtVM_A_Y, &qtVM_A_Z, &qtVM_A_R, &qtVM_A_X, &qtVM_A_X1, &qtVM_A_X2,
-        &qtVM_B_Y, &qtVM_B_Z, &qtVM_B_R, &qtVM_B_X, &qtVM_B_X1, &qtVM_B_X2
-    };
-
     QTimer systemClock;
     QObject::connect(&systemClock, &QTimer::timeout, [&]() {
-        // 6a. 所有分组推进物理引擎 + 反馈注入
-        for (const auto& groupName : manager.groupNames()) {
-            SystemContext* ctx = nullptr;
-            ContextRejection r;
-            if (manager.tryGetGroup(groupName, ctx, r) && ctx) {
-                auto* drv = ctx->driver();
-                if (!drv) continue;
+        if constexpr (kUnifiedLoopEnabled) {
+            // ---- Phase 6 Unified 唯一控制循环 ----
+            //   server.tick() 先于 service.tick()：UDP 收包 → submit 本轮即入队，
+            //   同一 tick 内即可被仲裁/执行（收包 → submit → 统一 tick 顺序）。
+            //   service.tick(): 取命令 → 急停/停止优先（读前）→ 读 runtime/safety/连接
+            //     （每 tick 唯一一次 runtime 读）→ 更新领域与全局锁定 → 过期 → 仲裁/执行
+            //     → tick 会话（含 JogPolicy 心跳，按单调时钟 deadline 维持，无独立心跳线程）
+            //     → 发布不可变快照。
+            //   snapshotAdapter.refresh(): GUI 线程把统一快照投影到 QML（只读）。
+            if (ustack->server)  ustack->server->tick();   // UDP 收包 → submit
+            if (ustack->service) ustack->service->tick();  // 仲裁/执行（含本轮 UDP 命令）
+            snapshotAdapter.refresh();
+        } else {
+            // ---- Legacy 链路（现状）：物理引擎 + 反馈注入 + ViewModel 推进 ----
+            LegacyStack& L = *legacy;
+            // 6a. 所有分组推进物理引擎 + 反馈注入
+            for (const auto& groupName : L.manager.groupNames()) {
+                SystemContext* ctx = nullptr;
+                ContextRejection r;
+                if (L.manager.tryGetGroup(groupName, ctx, r) && ctx) {
+                    auto* drv = ctx->driver();
+                    if (!drv) continue;
 
-                // 6a-1. 反馈注入（轴 + 龙门 + 急停）
-                drv->pollFeedback(*ctx);
+                    // 6a-1. 反馈注入（轴 + 龙门 + 急停）
+                    drv->pollFeedback(*ctx);
 
-                // 6a-2. 消费 EmergencyStopController 产生的 pending command
-                auto& estopCtrl = ctx->emergencyStopController();
-                if (estopCtrl.hasPendingCommand()) {
-                    auto commResult = drv->send(estopCtrl.popPendingCommand());
-                    if (!commResult.ok()) {
-                        LOG_WARN(LogLayer::APP, "System",
-                            "[" + groupName + "] EmergencyStop command delivery failed: " + commResult.diagnostic);
+                    // 6a-2. 消费 EmergencyStopController 产生的 pending command
+                    auto& estopCtrl = ctx->emergencyStopController();
+                    if (estopCtrl.hasPendingCommand()) {
+                        auto commResult = drv->send(estopCtrl.popPendingCommand());
+                        if (!commResult.ok()) {
+                            LOG_WARN(LogLayer::APP, "System",
+                                "[" + groupName + "] EmergencyStop command delivery failed: " + commResult.diagnostic);
+                        }
                     }
                 }
             }
+
+            // 6b. 所有 ViewModel 推进状态机
+            for (auto* vm : L.allViewModels) {
+                vm->tick();
+            }
+
+            // 6c. 急停安全 ViewModel 推进（每帧同步急停控制器状态）
+            L.emergencyVM_A->tick();
+            L.emergencyVM_B->tick();
+
+            // 6d. 龙门 ViewModel 推进（每帧推进 Orchestrator + 刷新状态投影）
+            L.gantryVM_A->tick();
+            L.gantryVM_B->tick();
+
+            // 6e. 连接状态 ViewModel 推进（★ P1/P2 新增 — 每帧刷新 TCP 连接状态投影）
+            L.connectionVM_A->tick();
+            L.connectionVM_B->tick();
+
+            // 6g. ★ Phase 2：统一状态快照投影（GUI 线程内读 ControlStateStore，只读）
+            snapshotAdapter.refresh();
         }
-
-        // 6b. 所有 ViewModel 推进状态机
-        for (auto* vm : allViewModels) {
-            vm->tick();
-        }
-
-        // 6c. 急停安全 ViewModel 推进（每帧同步急停控制器状态）
-        emergencyVM_A.tick();
-        emergencyVM_B.tick();
-
-        // 6d. 龙门 ViewModel 推进（每帧推进 Orchestrator + 刷新状态投影）
-        gantryVM_A.tick();
-        gantryVM_B.tick();
-
-        // 6e. 连接状态 ViewModel 推进（★ P1/P2 新增 — 每帧刷新 TCP 连接状态投影）
-        connectionVM_A.tick();
-        connectionVM_B.tick();
-
-        // 6f. UDP 消息处理（收包 → 分发 → 回包；仅迁移开关开启时存在真实 server）
-        if (udpStack.has_value() && udpStack->server) udpStack->server->tick();
-
-        // ★ Phase 5：统一协调层唯一 tick（UDP 运动经其异步仲裁/执行/发布快照；开启时）。
-        if (udpStack.has_value() && udpStack->service) udpStack->service->tick();
-
-        // 6g. ★ Phase 2：统一状态快照投影（GUI 线程内读 ControlStateStore，只读）
-        snapshotAdapter.refresh();
     });
-    systemClock.start(10);  // 10ms 物理心跳
+    systemClock.start(20);  // ★ Phase 6：统一调度循环 20ms（文档 §5.2：20~50ms）
 
-    // 7. 周期性状态摘要（每秒输出一次，按分组分行）
+    // 7. 周期性状态摘要（每秒输出一次）
     QTimer summaryClock;
     QObject::connect(&summaryClock, &QTimer::timeout, [&]() {
-        LOG_SUMMARY(LogLayer::UI, "Telemetry",
-            "=== Machine_A === "
-            + formatAxisSummary(qtVM_A_Y) + "  "
-            + formatAxisSummary(qtVM_A_Z) + "  "
-            + formatAxisSummary(qtVM_A_R) + "  "
-            + formatAxisSummary(qtVM_A_X) + "  "
-            + formatAxisSummary(qtVM_A_X1) + "  "
-            + formatAxisSummary(qtVM_A_X2));
-        LOG_SUMMARY(LogLayer::UI, "Telemetry",
-            "=== Machine_B === "
-            + formatAxisSummary(qtVM_B_Y) + "  "
-            + formatAxisSummary(qtVM_B_Z) + "  "
-            + formatAxisSummary(qtVM_B_R) + "  "
-            + formatAxisSummary(qtVM_B_X) + "  "
-            + formatAxisSummary(qtVM_B_X1) + "  "
-            + formatAxisSummary(qtVM_B_X2));
+        if constexpr (kUnifiedLoopEnabled) {
+            // Unified 模式：无旧 ViewModel，输出统一协调层运行摘要（连接 / 全局锁定）。
+            LOG_SUMMARY(LogLayer::UI, "Telemetry",
+                "=== Unified control loop === connected="
+                + std::to_string(snapshotAdapter.connected())
+                + " globalLocked=" + std::to_string(snapshotAdapter.globallyLocked()));
+        } else {
+            LegacyStack& L = *legacy;
+            LOG_SUMMARY(LogLayer::UI, "Telemetry",
+                "=== Machine_A === "
+                + formatAxisSummary(*L.qtVMs[0]) + "  "
+                + formatAxisSummary(*L.qtVMs[1]) + "  "
+                + formatAxisSummary(*L.qtVMs[2]) + "  "
+                + formatAxisSummary(*L.qtVMs[3]) + "  "
+                + formatAxisSummary(*L.qtVMs[4]) + "  "
+                + formatAxisSummary(*L.qtVMs[5]));
+            LOG_SUMMARY(LogLayer::UI, "Telemetry",
+                "=== Machine_B === "
+                + formatAxisSummary(*L.qtVMs[6]) + "  "
+                + formatAxisSummary(*L.qtVMs[7]) + "  "
+                + formatAxisSummary(*L.qtVMs[8]) + "  "
+                + formatAxisSummary(*L.qtVMs[9]) + "  "
+                + formatAxisSummary(*L.qtVMs[10]) + "  "
+                + formatAxisSummary(*L.qtVMs[11]));
+        }
     });
     summaryClock.start(1000);  // 1s 周期
 
