@@ -32,9 +32,16 @@
 #include "presentation/viewmodel/UiControlAdapter.h"   // ★ Phase 2：统一快照 -> QML 只读
 #include "infrastructure/joystick/AndroidGamepadJoystick.h"
 #include "infrastructure/logger/Logger.h"
+// ★ Phase 5：UDP 链路统一协调层最小接线（MotionControlService + 生产 IControlRuntime）
+#include "application_vnext/PlcRuntimeDriverAdapter.h"
+#include "application_vnext/control/GatewayControlRuntime.h"
+#include "application_vnext/control/MotionControlService.h"
+#include "infrastructure/plc_vnext/PlcRuntimeGateway.h"
+#include "infrastructure/plc_vnext/transport/AsioModbusTcpClient.h"
 #include <sstream>
 #include <iomanip>
 #include <memory>
+#include <optional>
 
 // ════════════════════════════════════════════════════
 // windows.h 通过 Asio 间接引入，定义了 ERROR 和 NO_ERROR 宏，与 LogLevel::ERROR 冲突
@@ -63,6 +70,20 @@ static std::string formatAxisSummary(QtAxisViewModel& vm)
         oss << " errs=" << vm.errorCount();
     return oss.str();
 }
+
+// ★ Phase 5：vnext UDP 链路的长生命周期持有者。
+//   MotionControlService 保存 driver/runtime 的**引用**，因此它们必须与 service 同生命周期，
+//   不能是 if 块内的栈对象。本结构以声明逆序析构，保证安全顺序：
+//     UdpServer → MotionControlService → GatewayControlRuntime/Driver
+//       → PlcRuntimeGateway → Modbus Client
+struct VnextUdpStack {
+    std::shared_ptr<plc_vnext::transport::AsioModbusTcpClient> client;
+    std::unique_ptr<plc_vnext::PlcRuntimeGateway> gateway;
+    std::unique_ptr<application_vnext::PlcRuntimeDriverAdapter> driver;
+    std::unique_ptr<application_vnext::control::GatewayControlRuntime> runtime;
+    std::unique_ptr<application_vnext::control::MotionControlService> service;
+    std::unique_ptr<UdpServer> server;
+};
 
 int main(int argc, char *argv[])
 {
@@ -271,16 +292,44 @@ int main(int argc, char *argv[])
     driverB.pollFeedback(*ctxB);
 
     // ============================
-    // 3b. UDP 服务器（远程 R 轴控制）
+    // 3b. UDP 服务器（远程 R 轴控制）—— Phase 5 改为经统一协调层异步 operationId
     // ============================
     UdpServer::Config udpCfg;
     udpCfg.listenPort = 62000;
     udpCfg.bindAddress = "0.0.0.0";
     udpCfg.recvBufferSize = 4096;
 
-    UdpServer udpServer(manager, udpCfg);
-    if (!udpServer.start()) {
-        LOG_ERROR(LogLayer::APP, "System", "UDP Server failed to start");
+    // ★ Phase 5 迁移开关（默认关闭）：主程序**不启动**真实 vnext UDP server。
+    //   原因：新旧链路并存（旧 clientA/legacy manager/QtAxisViewModel 仍可写 A 组各轴，
+    //   含 UDP 映射的 R 轴；新 vnextClient/mcs/UdpServer 也连同一 PLC A），若无按轴所有权
+    //   互斥，同一轴可能被旧 UI 与新 UDP 同时写，违反迁移约束（文档 §12.6）。
+    //   因此真实 UDP 默认不启用；仅显式置 true（接受互斥风险，仅供联调）才启动。
+    //   Phase 6 统一为单 client / 单 poll / 单 MotionControlService::tick() 后移除本开关。
+    //   整套对象经 VnextUdpStack 在 main() 作用域长期持有，避免 service 引用悬空。
+    constexpr bool kEnableUdpVnext = false;   // 迁移开关：false=主程序不启动真实 UDP server
+    std::optional<VnextUdpStack> udpStack;
+    if constexpr (kEnableUdpVnext) {
+        plc_vnext::transport::AsioModbusTcpClient::Config vnextCfg;
+        vnextCfg.host = "192.168.1.88";   // 与 PLC A 一致
+        vnextCfg.port = 502;
+        vnextCfg.unitId = 0x01;
+        vnextCfg.timeoutMs = 1000;
+        VnextUdpStack& s = udpStack.emplace();
+        s.client = std::make_shared<plc_vnext::transport::AsioModbusTcpClient>(vnextCfg);
+        s.client->start();
+        s.gateway = std::make_unique<plc_vnext::PlcRuntimeGateway>(s.client);
+        s.driver = std::make_unique<application_vnext::PlcRuntimeDriverAdapter>(*s.gateway);
+        s.runtime =
+            std::make_unique<application_vnext::control::GatewayControlRuntime>(*s.gateway);
+        s.service = std::make_unique<application_vnext::control::MotionControlService>(*s.driver,
+                                                                                        *s.runtime);
+        s.server = std::make_unique<UdpServer>(*s.service, udpCfg);
+        if (!s.server->start()) {
+            LOG_ERROR(LogLayer::APP, "System", "UDP Server failed to start");
+        }
+        LOG_WARN(LogLayer::APP, "System",
+                 "Phase 5 migration switch ENABLED: real vnext UDP server active (legacy "
+                 "link shares PLC A; ensure no concurrent write to same axis).");
     }
 
     // ============================
@@ -477,8 +526,11 @@ int main(int argc, char *argv[])
         connectionVM_A.tick();
         connectionVM_B.tick();
 
-        // 6f. UDP 消息处理（收包 → 分发 → 回包）
-        udpServer.tick();
+        // 6f. UDP 消息处理（收包 → 分发 → 回包；仅迁移开关开启时存在真实 server）
+        if (udpStack.has_value() && udpStack->server) udpStack->server->tick();
+
+        // ★ Phase 5：统一协调层唯一 tick（UDP 运动经其异步仲裁/执行/发布快照；开启时）。
+        if (udpStack.has_value() && udpStack->service) udpStack->service->tick();
 
         // 6g. ★ Phase 2：统一状态快照投影（GUI 线程内读 ControlStateStore，只读）
         snapshotAdapter.refresh();

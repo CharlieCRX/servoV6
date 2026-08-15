@@ -6,8 +6,8 @@
 #include <string>
 #include <cstdint>
 
-#include "application/SystemManager.h"
 #include "application/udp/UdpCommandDispatcher.h"
+#include "application_vnext/control/MotionControlService.h"
 #include "infrastructure/logger/Logger.h"
 
 // ═══════════════════════════════════════════════════════════════════
@@ -38,9 +38,10 @@ public:
     // 构造 / 析构
     // ============================================================
 
-    explicit UdpServer(SystemManager& manager, const Config& cfg)
-        : m_manager(manager)
-        , m_dispatcher(manager)
+    explicit UdpServer(application_vnext::control::MotionControlService& service,
+                       const Config& cfg)
+        : m_service(service)
+        , m_dispatcher(service)
         , m_config(cfg)
     {
     }
@@ -156,7 +157,7 @@ public:
     [[nodiscard]] bool isRunning() const { return m_running; }
 
 private:
-    SystemManager& m_manager;
+    application_vnext::control::MotionControlService& m_service;
     UdpCommandDispatcher m_dispatcher;
     Config m_config;
     QUdpSocket m_socket;
