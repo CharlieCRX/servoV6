@@ -25,7 +25,10 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
+
+#include <array>
 
 #include "application_vnext/control/ControlCommand.h"
 #include "application_vnext/control/ControlStateStore.h"
@@ -135,6 +138,10 @@ private:
     plc_vnext::contracts::ConnectionState  lastConn_;
     std::optional<plc_vnext::contracts::RuntimeSnapshot> lastRuntime_;  // 每 tick 唯一一份
     plc_vnext::contracts::TopologySnapshot lastTopo_;   // boot 成功后缓存，供仲裁 requiredResources
+    // SetAbsTarget/SetRelTarget 预填缓存（键=(group, functionIdx)，值=[abs, rel]）。
+    // 由 execute 记录、publishSnapshot 投影到快照 axis.absMoveTarget/relMoveTarget，
+    // 供摇杆/UDP/UI 触发 Start*Move 时读取（见 §5.3「Set* 仅用于界面预填值」）。
+    std::map<std::pair<int, int>, std::array<float, 2>> presetTargets_;
     bool globallyLocked_ = true;     // 初始锁定，boot 成功 + 首读可信后才释放
     bool bootOk_ = false;            // 经 bootFromTopology 成功初始化（topology 读取+校验通过）
     std::size_t bootRetryCount_ = 0; // 连续 boot 失败次数（指数退避用）

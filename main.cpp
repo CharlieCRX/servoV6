@@ -400,18 +400,24 @@ int main(int argc, char *argv[])
     //   信号链: interpreter::inputEvent(Motion) → MotionController::onInputEvent()
     //          → 当前轴 ViewModel::jogPositivePressed/Released 或 jogNegativePressed/Released
     //   跨轴跳跃保护: axisModel::currentAxisChanged → MotionController::onCurrentAxisChanged()
-    MotionController motionCtrl(&interpreter, &axisModel);
+    // ★ Phase 4：MotionController 不再持有 ViewModel、不再直接写 PLC，改为提交
+    //   ControlCommand 给统一协调层 MotionControlService。
+    //   第三参数 = MotionControlService*（唯一协调层入口）。Phase 6 组合根注入真实
+    //   service（并统一驱动 tick）前传 nullptr：摇杆保持选轴/死区/模式状态，命令提交
+    //   待 Phase 6 接线后生效。命令链路正确性已由 presentation_tests 用真实 service +
+    //   Fake gateway 单测覆盖（见 test_motion_controller.cpp）。
+    //   ⚠ 注意：此处为「Phase 4 组件/集成测试已完成，主程序尚未启用摇杆统一链路」的
+    //   安全降级（旧 ViewModel 控制链路在 Phase 4 已从摇杆移除），并非现有程序摇杆
+    //   功能已完成迁移；真机摇杆运动控制须待 Phase 6 注入 service 并驱动 tick 后生效。
+    MotionController motionCtrl(&interpreter, &axisModel, /*service*/nullptr);
 
     AxisSelectionController axisCtrl(&interpreter, &axisModel);
     axisCtrl.setMotionController(&motionCtrl);  // ★ 注入 MotionController，JOG 活跃时阻止左摇杆选轴
     interpreter.start();
 
-    // 注册 Machine_A 轴 → ViewModel 映射（默认选轴列表: Y/Z/R/X）
-    // ★ 注意：registerAxis 使用 AxisId 作为 key，同 key 会覆盖，切勿为多分组重复注册相同 AxisId
-    motionCtrl.registerAxis(AxisId::Y, &qtVM_A_Y);
-    motionCtrl.registerAxis(AxisId::Z, &qtVM_A_Z);
-    motionCtrl.registerAxis(AxisId::R, &qtVM_A_R);
-    motionCtrl.registerAxis(AxisId::X, &qtVM_A_X);
+    // ★ Phase 4：摇杆经 MotionControlService 统一协调，不再把轴映射到 QtAxisViewModel
+    //   （AxisId → AxisTarget 由 MotionController::currentAxisTarget() 内部完成，A 组）。
+    //   旧的逐轴 ViewModel 注册已移除。
 
     // ★ 暴露 AxisSelectionModel 给 QML，让摇杆切换轴能更新 UI
     engine.rootContext()->setContextProperty("axisSelectionModel", &axisModel);

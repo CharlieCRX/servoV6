@@ -12,6 +12,7 @@ include(GoogleTest)
 
 add_executable(presentation_tests
     test_ui_control_adapter.cpp
+    test_motion_controller.cpp   # ★ Phase 4：摇杆改造（提交 ControlCommand）验证
 )
 
 target_include_directories(presentation_tests

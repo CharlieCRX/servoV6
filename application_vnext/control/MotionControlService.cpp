@@ -519,8 +519,15 @@ void MotionControlService::execute(ControlCommand& cmd) {
             case ControlAction::EnableMotor:         r = sysManager_->enableMotor(g, fn, cmd.level); break;
             case ControlAction::SetManualSpeed:      r = sysManager_->setManualSpeed(g, fn, cmd.value); break;
             case ControlAction::SetPositioningSpeed: r = sysManager_->setPositioningSpeed(g, fn, cmd.value); break;
-            case ControlAction::SetAbsTarget:        r = sysManager_->setAbsTarget(g, fn, cmd.value); break;
-            case ControlAction::SetRelTarget:        r = sysManager_->setRelTarget(g, fn, cmd.value); break;
+            case ControlAction::SetAbsTarget:
+                r = sysManager_->setAbsTarget(g, fn, cmd.value);
+                // 记录预填目标供摇杆/UDP/UI 触发 Start*Move 读取（§5.3）。
+                presetTargets_[{g.value(), static_cast<int>(fn)}][0] = cmd.value;
+                break;
+            case ControlAction::SetRelTarget:
+                r = sysManager_->setRelTarget(g, fn, cmd.value);
+                presetTargets_[{g.value(), static_cast<int>(fn)}][1] = cmd.value;
+                break;
             default: break;
         }
         if (appResultOk(r)) setOpState(cmd.operationId, OperationState::Succeeded);
@@ -550,8 +557,15 @@ void MotionControlService::execute(ControlCommand& cmd) {
     switch (cmd.action) {
         case ControlAction::StartAbsMove:
         case ControlAction::StartRelMove: {
-            const float target = cmd.motion ? cmd.motion->target : 0.0f;
-            const float speed  = cmd.motion ? cmd.motion->speed : 0.0f;
+            // 权威校验（§5.3 + Phase 4 P0）：定位必须携带正速度。绝不允许缺失或 0，
+            // 否则会以 0 覆盖 PLC 定位速度造成不运动/无效参数。失败即 Failed 且释放租约，
+            // 不进入会话、不占资源 —— 任何来源（UI/摇杆/UDP）都无法写 0 速度。
+            if (!cmd.motion || cmd.motion->speed <= 0.0f) {
+                failAndRelease("positioning speed must be positive");
+                return;
+            }
+            const float target = cmd.motion->target;
+            const float speed  = cmd.motion->speed;
             const bool abs = (cmd.action == ControlAction::StartAbsMove);
             if (logical) {
                 gantryApi_->setPositioningSpeed(g, speed);
@@ -745,6 +759,13 @@ void MotionControlService::publishSnapshot() {
                             break;
                         }
                     }
+                }
+                // 投影定位目标预填值（SetAbsTarget/SetRelTarget 缓存，§5.3）。
+                const auto pt = presetTargets_.find(
+                    {axis->key().group.value(), static_cast<int>(axis->key().function)});
+                if (pt != presetTargets_.end()) {
+                    a.absMoveTarget = pt->second[0];
+                    a.relMoveTarget = pt->second[1];
                 }
             }
         }

@@ -1,14 +1,19 @@
 #include "MotionController.h"
-#include "presentation/viewmodel/QtAxisViewModel.h"
 #include "AxisSelectionModel.h"
 #include "GamepadInputInterpreter.h"
+#include "presentation/input/JoystickCommandBuilder.h"
+#include "application_vnext/control/MotionControlService.h"
 #include <QDebug>
+
+using namespace presentation::input::joystick;
 
 MotionController::MotionController(GamepadInputInterpreter* interpreter,
                                    AxisSelectionModel* axisModel,
+                                   application_vnext::control::MotionControlService* service,
                                    QObject* parent)
     : QObject(parent)
     , m_axisModel(axisModel)
+    , m_service(service)
 {
     // 1. 消费摇杆 Motion 事件
     bool ok1 = connect(interpreter, &GamepadInputInterpreter::inputEvent,
@@ -24,14 +29,9 @@ MotionController::MotionController(GamepadInputInterpreter* interpreter,
         qWarning() << "[MotionCtrl] ❌ Signal-slot connection FAILED! Motion control will not work.";
     } else {
         qDebug() << "[MotionCtrl] ✅ Ready. Listening for Motion events on currentAxis="
-                 << axisModel->currentAxisName();
+                 << axisModel->currentAxisName()
+                 << (m_service ? "（已接入 MotionControlService）" : "（未接入 service，仅本地模式/视觉反馈）");
     }
-}
-
-void MotionController::registerAxis(AxisId id, QtAxisViewModel* vm)
-{
-    m_vmMap[id] = vm;
-    qDebug() << "[MotionCtrl] registered axis:" << static_cast<int>(id) << "→ VM =" << vm;
 }
 
 void MotionController::setControlMode(int mode)
@@ -75,34 +75,25 @@ void MotionController::setJogActiveDirection(int dir)
         return;
     }
 
-    // ★ 查找当前轴的 ViewModel
-    auto it = m_vmMap.find(m_currentAxis);
-    QtAxisViewModel* vm = (it != m_vmMap.end()) ? it->second : nullptr;
+    // ★ 提交到统一协调层（Phase 4）：先停旧方向（±1 → 0），再启动新方向（0 → ±1）。
+    //   一律构造 Joystick 源业务意图命令，绝不在摇杆侧写 PLC。
+    const auto target = currentAxisTarget();
 
-    // ★ 先停止旧方向的 JOG（如果从 ±1 → 0）
-    if (vm) {
-        if (m_jogActiveDirection == 1) {
-            qDebug() << "[MotionCtrl] 🛑 setJogActiveDirection: releasing Forward JOG";
-            vm->jogPositiveReleased();
-        } else if (m_jogActiveDirection == -1) {
-            qDebug() << "[MotionCtrl] 🛑 setJogActiveDirection: releasing Backward JOG";
-            vm->jogNegativeReleased();
-        }
+    if (m_jogActiveDirection == 1 || m_jogActiveDirection == -1) {
+        qDebug() << "[MotionCtrl] 🛑 setJogActiveDirection: submitting StopJog";
+        submit(makeStopJogCommand(target));
     }
 
     m_jogActiveDirection = dir;
 
-    // ★ 再启动新方向的 JOG（如果需要）
-    if (vm) {
-        if (dir == 1) {
-            qDebug() << "[MotionCtrl] 🎮 setJogActiveDirection: starting Forward JOG";
-            vm->jogPositivePressed();
-        } else if (dir == -1) {
-            qDebug() << "[MotionCtrl] 🎮 setJogActiveDirection: starting Backward JOG";
-            vm->jogNegativePressed();
-        }
-        // dir == 0: 仅停止，不启动
+    if (dir == 1) {
+        qDebug() << "[MotionCtrl] 🎮 setJogActiveDirection: submitting StartJogForward";
+        submit(makeJogForwardCommand(target));
+    } else if (dir == -1) {
+        qDebug() << "[MotionCtrl] 🎮 setJogActiveDirection: submitting StartJogBackward";
+        submit(makeJogBackwardCommand(target));
     }
+    // dir == 0: 仅停止，不启动
 
     qDebug() << "[MotionCtrl] jogActiveDirection changed to" << dir;
     emit jogActiveDirectionChanged();
@@ -185,24 +176,57 @@ void MotionController::handlePositionMotion(const InputEvent& event)
         return;
     }
 
-    // 释放（回中）：触发位置移动
+    // 释放（回中）：触发定位移动（走统一协调层，Phase 4）
     m_motionActive = false;
 
-    auto it = m_vmMap.find(m_currentAxis);
-    if (it == m_vmMap.end()) {
-        qDebug() << "[MotionCtrl] ❌ No ViewModel registered for axis:" << static_cast<int>(m_currentAxis);
+    const auto target = currentAxisTarget();
+    const QString axisName = m_axisModel->currentAxisName();
+
+    // 从统一快照读取同一轴的定位目标预填值 + 定位速度，原子携带到 Start*Move（§5.3）。
+    // 三条件才提交定位：① 快照中找到该轴；② 轴已绑定（bound）且反馈可信（trusted）；
+    // ③ 定位速度为正（speed>0，绝不写 0 覆盖 PLC 速度）。任一不满足 → 记录诊断并跳过，
+    // 由协调层 execute() 的权威校验兜底，保证「任何来源都无法写 0 速度」。
+    bool axisOk  = false;   // 快照中找到目标轴
+    bool ready   = false;   // 绑定且可信
+    float absTarget = 0.0f;
+    float speed     = 0.0f;
+    if (m_service) {
+        for (const auto& a : m_service->store().snapshot().axes) {
+            if (a.group == target.group && a.role == target.function) {
+                axisOk    = true;
+                ready     = a.bound && a.trusted;
+                absTarget = a.absMoveTarget;
+                speed     = a.positioningSpeed;
+                break;
+            }
+        }
+    }
+
+    if (!axisOk) {
+        qWarning() << "[MotionCtrl] ⚠️ 定位跳过：快照未找到目标轴" << axisName
+                   << "，不提交 Start*Move";
         return;
     }
-    QtAxisViewModel* vm = it->second;
-
-    QString axisName = m_axisModel->currentAxisName();
+    if (!ready) {
+        qWarning() << "[MotionCtrl] ⚠️ 定位跳过：轴" << axisName
+                   << "未绑定或反馈不可信，不提交 Start*Move";
+        return;
+    }
+    if (speed <= 0.0f) {
+        qWarning() << "[MotionCtrl] ⚠️ 定位跳过：轴" << axisName
+                   << "定位速度不合法（speed=" << speed << "），不提交 Start*Move";
+        return;
+    }
 
     if (m_isAbsolute) {
-        qDebug() << "[MotionCtrl] 📍 Position Released → triggerAbsMove()  axis=" << axisName;
-        vm->triggerAbsMove();
+        qDebug() << "[MotionCtrl] 📍 Position Released → StartAbsMove  axis=" << axisName
+                 << " target=" << absTarget << " speed=" << speed;
+        submit(makePositionCommand(target, /*abs=*/true, absTarget, speed));
     } else {
-        qDebug() << "[MotionCtrl] 📍 Position Released → triggerRelMove()  axis=" << axisName;
-        vm->triggerRelMove();
+        const float step = static_cast<float>(m_relStep);
+        qDebug() << "[MotionCtrl] 📍 Position Released → StartRelMove  axis=" << axisName
+                 << " step=" << step << " speed=" << speed;
+        submit(makePositionCommand(target, /*abs=*/false, step, speed));
     }
 }
 
@@ -217,6 +241,7 @@ void MotionController::onCurrentAxisChanged(AxisId newAxis)
              << " mode=" << (m_controlMode == 0 ? "JOG" : "Position");
 
     if (m_motionActive && m_controlMode == 0) {
+        // 跨轴跳跃保护：先对旧轴提交 StopJog，再对新轴重放当前摇杆方向
         releaseCurrentMotion();
         m_currentAxis = newAxis;
         pressMotion(m_activeMotionDir);
@@ -229,7 +254,7 @@ void MotionController::releaseCurrentMotion()
 {
     qDebug() << "[MotionCtrl] 🔀 cross-axis release: axis="
              << QString::fromLatin1(axisIdToString(m_currentAxis));
-    // ★ 由 setJogActiveDirection 统一处理：停止当前方向的 JOG
+    // ★ 对当前（旧）轴提交 StopJog，由 setJogActiveDirection 统一处理
     setJogActiveDirection(0);
 }
 
@@ -238,10 +263,41 @@ void MotionController::pressMotion(MotionDirection dir)
     qDebug() << "[MotionCtrl] 🔀 cross-axis press: axis="
              << QString::fromLatin1(axisIdToString(m_currentAxis))
              << " dir=" << (dir == MotionDirection::Forward ? "Forward" : "Backward");
-    // ★ 由 setJogActiveDirection 统一处理：停止旧方向 → 启动新方向
+    // ★ 对新轴重放当前方向：停止旧方向 → 启动新方向（经统一协调层）
     if (dir == MotionDirection::Forward) {
         setJogActiveDirection(1);
     } else {
         setJogActiveDirection(-1);
     }
+}
+
+application_vnext::control::AxisTarget MotionController::currentAxisTarget() const
+{
+    application_vnext::control::AxisTarget t;
+    t.group = joystickGroup();  // 摇杆恒为 A 组（AxisSelectionModel 单组模型）
+    switch (m_currentAxis) {
+        case AxisId::Y:  t.function = domain_vnext::model::AxisFunction::Y;  break;
+        case AxisId::Z:  t.function = domain_vnext::model::AxisFunction::Z;  break;
+        case AxisId::R:  t.function = domain_vnext::model::AxisFunction::R;  break;
+        case AxisId::X:  t.function = domain_vnext::model::AxisFunction::X;  break;
+        case AxisId::X1: t.function = domain_vnext::model::AxisFunction::X1; break;
+        case AxisId::X2: t.function = domain_vnext::model::AxisFunction::X2; break;
+    }
+    return t;
+}
+
+void MotionController::submit(application_vnext::control::ControlCommand cmd)
+{
+    if (!m_service) {
+        qDebug() << "[MotionCtrl]（未接入 MotionControlService）跳过提交"
+                 << controlActionName(cmd.action);
+        return;
+    }
+    cmd.operationId = m_service->submit(std::move(cmd));
+    qDebug() << "[MotionCtrl] ✅ 已提交"
+             << controlActionName(cmd.action)
+             << "axis=" << QString::fromStdString(
+                    application_vnext::control::axisTargetName(
+                        currentAxisTarget()))
+             << "op=" << QString::fromStdString(cmd.operationId);
 }

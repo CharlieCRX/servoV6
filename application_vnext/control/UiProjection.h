@@ -41,6 +41,8 @@ struct AxisUiView {
     float relPosition = 0.0f;
     float manualSpeed = 0.0f;
     float positioningSpeed = 0.0f;
+    float absMoveTarget = 0.0f;       // 最近一次 SetAbsTarget 预填目标（§5.3）
+    float relMoveTarget = 0.0f;       // 最近一次 SetRelTarget 预填距离（§5.3）
     int16_t motionState = 0;          // D128 原样
     std::string motionStateName;      // 可读名
     int16_t motionLimit = 0;
@@ -204,6 +206,8 @@ inline AxisUiView UiProjection::projectAxis(const AxisUiState& a,
     v.relPosition = a.relPosition;
     v.manualSpeed = a.manualSpeed;
     v.positioningSpeed = a.positioningSpeed;
+    v.absMoveTarget = a.absMoveTarget;
+    v.relMoveTarget = a.relMoveTarget;
     v.motionState = a.motionState;
     v.motionStateName = motionStateName(a.motionState);
     v.motionLimit = a.motionLimit;

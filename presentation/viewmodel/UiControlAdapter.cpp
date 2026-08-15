@@ -35,6 +35,8 @@ QVariantMap axisToMap(const AxisUiView& a) {
     m["relPosition"] = static_cast<double>(a.relPosition);
     m["manualSpeed"] = static_cast<double>(a.manualSpeed);
     m["positioningSpeed"] = static_cast<double>(a.positioningSpeed);
+    m["absMoveTarget"] = static_cast<double>(a.absMoveTarget);
+    m["relMoveTarget"] = static_cast<double>(a.relMoveTarget);
     m["motionState"] = static_cast<int>(a.motionState);
     m["motionStateName"] = QString::fromStdString(a.motionStateName);
     m["motionLimit"] = static_cast<int>(a.motionLimit);

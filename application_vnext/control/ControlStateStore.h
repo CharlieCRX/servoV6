@@ -49,6 +49,11 @@ struct AxisUiState {
     int16_t motionLimit = 0;
     uint16_t alarmWord = 0;
 
+    // ---- 定位目标预填值（来自 SetAbsTarget / SetRelTarget 命令，供摇杆/UDP/UI
+    //      触发 Start*Move 时读取；见 §5.3「Set* 仅用于界面预填值」）----
+    float absMoveTarget = 0.0f;             // 最近一次 SetAbsTarget 的目标（EU）
+    float relMoveTarget = 0.0f;             // 最近一次 SetRelTarget 的距离（EU）
+
     // ---- 操作占用（来自 OperationLease）----
     bool leased = false;
     std::string leaseOperationId;           // 空 = 空闲

@@ -2,30 +2,39 @@
 
 #include <QObject>
 #include <QElapsedTimer>
-#include <unordered_map>
 #include "InputEvent.h"
 #include "domain/entity/AxisId.h"
 
-class QtAxisViewModel;
+#include "application_vnext/control/ControlCommand.h"
+
 class AxisSelectionModel;
 class GamepadInputInterpreter;
 
-/// @brief 消费 Motion InputEvent，将右摇杆映射到当前轴的 StartJog/StopJog 或定位移动
+namespace application_vnext::control {
+class MotionControlService;
+}  // namespace application_vnext::control
+
+/// @brief 消费 Motion InputEvent，把右摇杆映射为 ControlCommand 提交给统一协调层
+///
+/// 依据《MotionControlService —— 统一控制协调层阶段实施文档》Phase 4：
+/// `MotionController` 不再持有 QtAxisViewModel、不再直接写 PLC，只负责选轴 / 死区 /
+/// 模式等摇杆侧状态，把业务意图命令（source=Joystick）经 MotionControlService
+/// 的唯一命令入口 submit()，由协调层仲裁后统一执行。
 ///
 /// JOG 模式：
-///   右摇杆向上（Forward Pressed）  → currentAxis.jogPositivePressed()   = StartJog(axis)
-///   右摇杆回中（Forward Released） → currentAxis.jogPositiveReleased()  = StopJog(axis)
-///   右摇杆向下（Backward Pressed）  → currentAxis.jogNegativePressed()   = StartJog(axis, Backward)
-///   右摇杆回中（Backward Released） → currentAxis.jogNegativeReleased()  = StopJog(axis)
+///   右摇杆向上（Forward Pressed）  → StartJogForward (Joystick 源)
+///   右摇杆回中（Forward Released） → StopJog (Joystick 源)
+///   右摇杆向下（Backward Pressed） → StartJogBackward
+///   右摇杆回中（Backward Released）→ StopJog
 ///
 /// Position 模式：
 ///   右摇杆按下（Pressed） → 无操作（仅记录方向）
 ///   右摇杆松开（Released）：
-///     绝对子模式 → triggerAbsMove()
-///     相对子模式 → setRelTarget(±step) + triggerRelMove()
+///     绝对子模式 → StartAbsMove(target=快照 absMoveTarget)
+///     相对子模式 → StartRelMove(target=相对步进)
 ///
-/// 跨轴跳跃保护：
-///   当用户在摇杆推动期间切换轴时，先对旧轴发送 Released，再对新轴重放当前摇杆方向
+/// 跨轴跳跃保护：用户在摇杆推动期间切换轴时，先对旧轴提交 StopJog，再对新轴重放
+/// 当前摇杆方向（StartJogForward/Backward）。
 class MotionController : public QObject
 {
     Q_OBJECT
@@ -44,12 +53,12 @@ class MotionController : public QObject
 public:
     /// @param interpreter  摇杆事件源（emit inputEvent）
     /// @param axisModel    当前选轴模型（emit currentAxisChanged）
+    /// @param service      唯一控制协调层入口（可传 nullptr 以便 UI 预览/离线安全降级；
+    ///                     注入后摇杆才真正提交命令）
     explicit MotionController(GamepadInputInterpreter* interpreter,
                               AxisSelectionModel* axisModel,
+                              application_vnext::control::MotionControlService* service,
                               QObject* parent = nullptr);
-
-    /// @brief 注册轴 → ViewModel 映射（供 onInputEvent 查找对应 ViewModel 发送指令）
-    void registerAxis(AxisId id, QtAxisViewModel* vm);
 
     int controlMode() const { return m_controlMode; }
     Q_INVOKABLE void setControlMode(int mode);
@@ -67,7 +76,7 @@ public slots:
     /// @brief 消费 Motion 类型的 InputEvent
     void onInputEvent(const InputEvent& event);
 
-    /// @brief 轴切换时：先释放旧轴的活跃 jog，再对新轴重放当前摇杆方向
+    /// @brief 轴切换时：先向旧轴提交 StopJog，再对新轴重放当前摇杆方向
     void onCurrentAxisChanged(AxisId newAxis);
 
 signals:
@@ -76,10 +85,10 @@ signals:
     void jogActiveDirectionChanged();
 
 private:
-    /// @brief 释放当前轴的活跃 jog（给旧轴发 Released）
+    /// @brief 释放当前轴的活跃 jog（给旧轴提交 StopJog）
     void releaseCurrentMotion();
 
-    /// @brief 对当前轴发起指定方向的 jog（jogPositivePressed 或 jogNegativePressed）
+    /// @brief 对当前轴发起指定方向的 jog（StartJogForward 或 StartJogBackward）
     void pressMotion(MotionDirection dir);
 
     /// @brief JOG 模式下的 Motion 事件处理
@@ -88,8 +97,17 @@ private:
     /// @brief Position 模式下的 Motion 事件处理（仅 Released 时触发移动）
     void handlePositionMotion(const InputEvent& event);
 
+    /// @brief 把 AxisId 映射为统一业务目标（A 组 + 功能角色），用于构造命令
+    application_vnext::control::AxisTarget currentAxisTarget() const;
+
+    /// @brief 提交一条 Joystick 源命令到协调层（service 为空时仅日志、不写 PLC）
+    void submit(application_vnext::control::ControlCommand cmd);
+
+    /// @brief 相对定位步进距离（EU），可由 QML 预填；默认 1.0
+    double m_relStep = 1.0;
+
     AxisSelectionModel* m_axisModel;
-    std::unordered_map<AxisId, QtAxisViewModel*> m_vmMap;
+    application_vnext::control::MotionControlService* m_service;
 
     AxisId m_currentAxis = AxisId::Y;
 

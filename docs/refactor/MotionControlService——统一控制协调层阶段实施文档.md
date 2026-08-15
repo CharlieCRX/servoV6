@@ -879,10 +879,14 @@ UDP 客户端可获得：
 - `pressMotion/releaseCurrentMotion/setJogActiveDirection` 改发 `StartJogForward/Backward/StopJog`。
 - 跨轴跳跃保护改为提交 `StopJog` 到旧轴 + 新轴 `StartJog`。
 - 死区、选轴仍保留在摇杆侧；不保留任何 PLC 写入。
+- **定位速度零写保护（P0）**：`JoystickCommandBuilder::makePositionCommand` 不再允许省略
+  `speed`（无默认 0）；`MotionControlService::execute()` 对 `Start*Move` 权威校验
+  `speed>0`，否则 `Failed` 并释放租约；摇杆侧在快照找不到目标轴 / 轴未绑定或不可信 /
+  `speed<=0` 时不提交定位命令并记录诊断 —— 构造期 + 协调层双重保护，任何来源都无法写 0 速度。
 
 **验收**：
-- [ ] 摇杆按住 → `Joystick` 源点动；松开 → 只停本会话。
-- [ ] 跨轴切换时旧轴停止、新轴可开始。
+- [x] 摇杆按住 → `Joystick` 源点动；松开 → 只停本会话。（`presentation/tests/test_motion_controller.cpp`：`HoldSubmitsJoystickStartJogAndAccepted` / `ReleaseStopsOwnJogSessionOnly`）
+- [x] 跨轴切换时旧轴停止、新轴可开始。（`CrossAxisSwitchStopsOldAndStartsNew`）
 
 ### Phase 5 —— UDP 改造
 
@@ -962,6 +966,8 @@ UDP 客户端可获得：
 | `application_vnext/control/MotionControlService.h/.cpp` | 唯一协调器 | Phase 1 |
 | `application_vnext/control/UiControlAdapter.h` | UI 命令适配器（提交+定时读快照） | Phase 2/3 |
 | `presentation/input/MotionController.*` | 摇杆适配（改 submit） | Phase 4 |
+| `presentation/input/JoystickCommandBuilder.h` | 摇杆 → ControlCommand 纯命令构造（无 Qt，可单测） | Phase 4 |
+| `presentation/tests/test_motion_controller.cpp` | Phase 4 摇杆命令链路 + 跨轴跳跃保护单测 | Phase 4 |
 | `application/udp/UdpCommandDispatcher.*` | UDP 适配（改异步 operationId） | Phase 5 |
 | `main.cpp` | 唯一调度循环 | Phase 6 |
 

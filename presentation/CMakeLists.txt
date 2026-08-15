@@ -24,6 +24,7 @@ add_library(presentation
     input/AxisSelectionController.cpp
     input/MotionController.h
     input/MotionController.cpp
+    input/JoystickCommandBuilder.h   # ★ Phase 4：摇杆 -> ControlCommand 纯命令构造（无 Qt，可单测）
 )
 
 set_target_properties(presentation PROPERTIES AUTOMOC ON)
