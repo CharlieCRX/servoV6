@@ -326,6 +326,7 @@ bool MotionControlService::isOneShotAction(ControlAction a) {
         case ControlAction::SetPositioningSpeed:
         case ControlAction::SetAbsTarget:
         case ControlAction::SetRelTarget:
+        case ControlAction::SetRelZero:
         case ControlAction::EnableAxis:
         case ControlAction::EnableMotor:
             return true;
@@ -518,7 +519,15 @@ void MotionControlService::execute(ControlCommand& cmd) {
             case ControlAction::EnableAxis:          r = sysManager_->enableAxis(g, fn, cmd.level); break;
             case ControlAction::EnableMotor:         r = sysManager_->enableMotor(g, fn, cmd.level); break;
             case ControlAction::SetManualSpeed:      r = sysManager_->setManualSpeed(g, fn, cmd.value); break;
-            case ControlAction::SetPositioningSpeed: r = sysManager_->setPositioningSpeed(g, fn, cmd.value); break;
+            case ControlAction::SetPositioningSpeed:
+                // 与运动命令一致：定位速度必须为正，任何来源都不能把定位速度写成 0/负。
+                if (cmd.value <= 0.0f) {
+                    setOpState(cmd.operationId, OperationState::Failed,
+                               "positioning speed must be positive");
+                    return;
+                }
+                r = sysManager_->setPositioningSpeed(g, fn, cmd.value);
+                break;
             case ControlAction::SetAbsTarget:
                 r = sysManager_->setAbsTarget(g, fn, cmd.value);
                 // 记录预填目标供摇杆/UDP/UI 触发 Start*Move 读取（§5.3）。
@@ -528,6 +537,7 @@ void MotionControlService::execute(ControlCommand& cmd) {
                 r = sysManager_->setRelTarget(g, fn, cmd.value);
                 presetTargets_[{g.value(), static_cast<int>(fn)}][1] = cmd.value;
                 break;
+            case ControlAction::SetRelZero:       r = sysManager_->setRelZero(g, fn); break;
             default: break;
         }
         if (appResultOk(r)) setOpState(cmd.operationId, OperationState::Succeeded);

@@ -33,5 +33,6 @@ target_link_libraries(application
     PUBLIC
         domain
         infrastructure
+        application_vnext
         Qt6::Core
 )

@@ -56,6 +56,8 @@ enum class ControlAction {
     EnableAxis,
     EnableMotor,
 
+    SetRelZero,   // UDP cmd=5：将当前绝对位置设为相对零点（一次性写入，见 §5.3 Set* 语义）
+
     GantryEnableAndCouple,
     GantryDecoupleAndDisable,
 
@@ -109,6 +111,7 @@ inline const char* controlActionName(ControlAction a) {
         case ControlAction::StopMotion:          return "StopMotion";
         case ControlAction::EnableAxis:          return "EnableAxis";
         case ControlAction::EnableMotor:         return "EnableMotor";
+        case ControlAction::SetRelZero:          return "SetRelZero";
         case ControlAction::GantryEnableAndCouple:   return "GantryEnableAndCouple";
         case ControlAction::GantryDecoupleAndDisable:return "GantryDecoupleAndDisable";
         case ControlAction::EmergencyStop:       return "EmergencyStop";
