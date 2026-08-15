@@ -13,6 +13,7 @@ include(GoogleTest)
 add_executable(presentation_tests
     test_ui_control_adapter.cpp
     test_motion_controller.cpp   # ★ Phase 4：摇杆改造（提交 ControlCommand）验证
+    test_udp_command_dispatcher.cpp  # ★ Phase 5：UDP 异步 operationId 改造验证
 )
 
 target_include_directories(presentation_tests
@@ -26,6 +27,7 @@ target_link_libraries(presentation_tests
         Qt6::Core
         Qt6::Qml
         presentation
+        application          # ★ Phase 5：UdpCommandDispatcher（application/udp）
         application_vnext
         domain_vnext
         plc_vnext
@@ -38,6 +40,10 @@ target_link_libraries(presentation_tests
 get_filename_component(QT6_ROOT_DIR "${Qt6_DIR}/../../.." ABSOLUTE)
 set(QT6_RUNTIME_BIN "${QT6_ROOT_DIR}/bin")
 
+# MinGW 运行时 DLL（libgcc/libstdc++ 等）所在目录，与编译器同目录。
+get_filename_component(QT6_MINGW_BIN "${CMAKE_MAKE_PROGRAM}" DIRECTORY)
+
 gtest_discover_tests(presentation_tests TEST_PREFIX "presentation."
-    PROPERTIES ENVIRONMENT "PATH=${QT6_RUNTIME_BIN};$ENV{PATH}")
+    DISCOVERY_MODE PRE_TEST
+    PROPERTIES ENVIRONMENT "PATH=${QT6_RUNTIME_BIN};${QT6_MINGW_BIN};$ENV{PATH}")
 
