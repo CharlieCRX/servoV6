@@ -73,6 +73,8 @@ QString UiControlCommandAdapter::setManualSpeed(const QString& g, const QString&
 }
 QString UiControlCommandAdapter::setPositioningSpeed(const QString& g, const QString& r,
                                                      double v) {
+    // 定位速度必须为正（与 start*Move 一致）：本地拦截避免无效 operation，服务层仍权威校验。
+    if (v <= 0.0) { d_->lastError = "定位速度必须为正"; return QString(); }
     application_vnext::control::AxisTarget t;
     if (!parseAxis(g, r, t)) return QString();
     return submitUi(t, application_vnext::control::ControlAction::SetPositioningSpeed, v);

@@ -75,6 +75,22 @@ TEST_F(UiControlCommandAdapterTest, StartAbsMove_ZeroSpeed_RejectedByAdapter) {
     EXPECT_EQ(svc_->queuedCount(), 0u);
 }
 
+TEST_F(UiControlCommandAdapterTest, SetPositioningSpeed_NonPositive_RejectedByAdapter) {
+    const QString zero = adapter_->setPositioningSpeed("A", "Y", 0.0);
+    EXPECT_TRUE(zero.isEmpty());
+    EXPECT_FALSE(adapter_->lastError().isEmpty());
+    const QString neg = adapter_->setPositioningSpeed("A", "Y", -1.0);
+    EXPECT_TRUE(neg.isEmpty());
+    EXPECT_FALSE(adapter_->lastError().isEmpty());
+    EXPECT_EQ(svc_->queuedCount(), 0u);
+}
+
+TEST_F(UiControlCommandAdapterTest, SetPositioningSpeed_Positive_Submits) {
+    const QString opId = adapter_->setPositioningSpeed("A", "Y", 12.0);
+    EXPECT_FALSE(opId.isEmpty());
+    EXPECT_TRUE(adapter_->lastError().isEmpty());
+}
+
 TEST_F(UiControlCommandAdapterTest, StartRelMove_CarriesMotion) {
     const QString opId = adapter_->startRelMove("A", "Z", 10.0, 2.0);
     EXPECT_FALSE(opId.isEmpty());

@@ -150,5 +150,21 @@ Window {
             groupLetter: currentGroup === "Machine_A" ? "A" : "B"
             role: currentAxis
         }
+
+        // ===== 6. ★ UI-2：vnext 单轴控制面板（首轮 A.Y / A.Z）=====
+        // 经 controlSnapshot 读取 + controlCommand（UiControlCommandAdapter，UI 唯一可写入口）
+        // 写入。Unified 模式可用；Legacy 模式两适配器为 nullptr，按钮禁用（安全，不直写 PLC）。
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 330 * Theme.scale
+            SingleAxisControlBlock {
+                groupLetter: "A"; role: "Y"
+                Layout.fillWidth: true; Layout.fillHeight: true
+            }
+            SingleAxisControlBlock {
+                groupLetter: "A"; role: "Z"
+                Layout.fillWidth: true; Layout.fillHeight: true
+            }
+        }
     }
 }

@@ -116,6 +116,7 @@ qt_add_qml_module(appservoV6
         presentation/qml/blocks/ActionControlBlock.qml
         presentation/qml/blocks/ErrorPanelBlock.qml
         presentation/qml/blocks/ControlSnapshotBlock.qml
+        presentation/qml/blocks/SingleAxisControlBlock.qml
         presentation/qml/views/MainDashboard.qml
 )
 
