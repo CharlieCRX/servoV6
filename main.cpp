@@ -30,6 +30,7 @@
 #include "presentation/input/AxisSelectionController.h"
 #include "presentation/input/MotionController.h"
 #include "presentation/viewmodel/UiControlAdapter.h"   // ★ Phase 2：统一快照 -> QML 只读
+#include "presentation/viewmodel/UiControlCommandAdapter.h"  // ★ UI-1：UI 唯一可写入口（ControlCommand source=Ui）
 #include "infrastructure/joystick/AndroidGamepadJoystick.h"
 #include "infrastructure/logger/Logger.h"
 // ★ Phase 5：UDP 链路统一协调层最小接线（MotionControlService + 生产 IControlRuntime）
@@ -174,6 +175,12 @@ int main(int argc, char *argv[])
             std::make_unique<application_vnext::control::GatewayControlRuntime>(*s.gateway);
         s.service = std::make_unique<application_vnext::control::MotionControlService>(*s.driver,
                                                                                         *s.runtime);
+        // ⚠ P0-A（龙门 UI 放开阻断项）：必须在每次成功 boot / Topology Revision 变化后，
+        //   从 PLC D1600 `GantryParam` 读取、解码、校验，并调用
+        //   s.service->applyGantryConfig(g, cfg) 注入 service；读取失败或 valid=false 时
+        //   UI 必须禁用「建立联动」。当前 D1600 C++ 读路径尚未落地（readGantryParam 为
+        //   Python 探针 + 布局 gantryParamBase），此注入点为待接线占位 —— 未接线前逻辑 X
+        //   UI 不放开。
         if constexpr (kEnableUdpVnext) {
             UdpServer::Config udpCfg;
             udpCfg.listenPort = 62000;
@@ -410,6 +417,12 @@ int main(int argc, char *argv[])
     UiControlAdapter snapshotAdapter(
         kUnifiedLoopEnabled ? ustack->service.get() : nullptr);
 
+    // ★ UI-1：UI 唯一可写入口（ControlCommand source=Ui -> MotionControlService）。
+    //   - Unified 开启时注入真实 service，QML 经 controlCommand 提交；
+    //   - Legacy / 未注入时传 nullptr，所有提交返回空（安全：QML 按钮禁用，绝不直写 PLC）。
+    UiControlCommandAdapter commandAdapter(
+        kUnifiedLoopEnabled ? ustack->service.get() : nullptr);
+
     // ============================
     // 5. QML 引擎初始化与依赖注入
     // ============================
@@ -464,6 +477,8 @@ int main(int argc, char *argv[])
 
     // ★ Phase 2：统一状态快照（UiControlAdapter）暴露给 QML（只读对照面板）
     engine.rootContext()->setContextProperty("controlSnapshot", &snapshotAdapter);
+    // ★ UI-1：UI 唯一可写入口（UiControlCommandAdapter）暴露给 QML
+    engine.rootContext()->setContextProperty("controlCommand", &commandAdapter);
 
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
         &app, []() { QCoreApplication::exit(-1); }, Qt::QueuedConnection);

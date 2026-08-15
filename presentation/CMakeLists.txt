@@ -14,6 +14,10 @@ add_library(presentation
     viewmodel/UiControlAdapter.h
     viewmodel/UiControlAdapter.cpp
 
+    # ★ Phase 2/3：UI 唯一可写入口（ControlCommand source=Ui -> MotionControlService）
+    viewmodel/UiControlCommandAdapter.h
+    viewmodel/UiControlCommandAdapter.cpp
+
     # ★ 游戏手柄输入事件系统
     input/InputEvent.h
     input/GamepadInputInterpreter.h

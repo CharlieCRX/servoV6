@@ -12,6 +12,7 @@ include(GoogleTest)
 
 add_executable(presentation_tests
     test_ui_control_adapter.cpp
+    test_ui_control_command_adapter.cpp   # ★ UI-1：UI 唯一可写入口适配器
     test_motion_controller.cpp   # ★ Phase 4：摇杆改造（提交 ControlCommand）验证
     test_udp_command_dispatcher.cpp  # ★ Phase 5：UDP 异步 operationId 改造验证
 )
