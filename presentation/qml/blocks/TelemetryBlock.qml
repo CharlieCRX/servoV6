@@ -26,6 +26,7 @@ Rectangle {
     readonly property double effectiveRelPos: viewModel ? viewModel.relPos : (vAxis.relPosition ?? 0.0)
     readonly property int effectiveState: viewModel ? viewModel.state : (vAxis.motionState ?? 0)
     readonly property string effectiveStateText: viewModel ? viewModel.stateText : (vAxis.motionStateName ?? "--")
+    readonly property string effectiveStateDisplayText: motorStateDisplayText(root.effectiveState, root.effectiveStateText)
     readonly property bool connected: connectionViewModel ? connectionViewModel.connected
                                                           : (snapshotAdapter ? snapshotAdapter.connected : false)
     readonly property string connectionText: connectionViewModel ? connectionViewModel.statusText
@@ -83,6 +84,20 @@ Rectangle {
             case 4: return Theme.colorMoving;      // Jogging / Moving
             case 6: return Theme.colorError;       // Error
             default: return Theme.textDim;
+        }
+    }
+
+    function motorStateDisplayText(stateCode, fallbackText) {
+        if (viewModel) return fallbackText
+        switch(stateCode) {
+            case 0: return "尚未启用(0)"
+            case 1: return "无动作(1)"
+            case 2: return "已上电(2)"
+            case 3: return "点动正向(3)"
+            case 4: return "点动反向(4)"
+            case 5: return "绝对定位中(5)"
+            case 6: return "相对定位中(6)"
+            default: return "未知"
         }
     }
 
@@ -308,7 +323,7 @@ Rectangle {
                     border.width: 1
                 }
                 Text {
-                    text: "电机状态：" + root.effectiveStateText
+                    text: "电机状态：" + root.effectiveStateDisplayText
                     color: getStateColor(root.effectiveState)
                     font.pixelSize: Theme.fontNormal
                     font.bold: true
