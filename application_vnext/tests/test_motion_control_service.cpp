@@ -36,6 +36,7 @@ namespace {
 
 using application_vnext::PlcRuntimeDriverAdapter;
 using plc_vnext::contracts::CommunicationResult;
+using plc_vnext::contracts::PlcAxisCommandKind;
 using plc_vnext::contracts::SafetySnapshot;
 using plc_vnext::fake::FakePlcRuntimeGateway;
 using plc_vnext::fake::makeRole;
@@ -118,6 +119,13 @@ ControlCommand startYJogForward(ControlSource src) {
     jog.target.function = domain_vnext::model::AxisFunction::Y;
     jog.action = ControlAction::StartJogForward;
     return jog;
+}
+
+bool wroteAxis(const FakePlcRuntimeGateway& gw, PlcAxisCommandKind kind, bool level) {
+    for (const auto& w : gw.writtenAxis()) {
+        if (w.cmd.kind == kind && w.cmd.boolValue == level) return true;
+    }
+    return false;
 }
 
 // 把 Y(slot2) motionState 置为 2（电机使能空闲），驱动服务使点动会话真正进入 Jogging：
@@ -657,6 +665,9 @@ TEST_F(MotionControlServiceTest, Phase3_StopJogCancelsSession) {
     stop.action = ControlAction::StopJog;
     svc->submit(stop);
     svc->tick();   // Jogging -> IssuingStop
+    EXPECT_TRUE(wroteAxis(gw_, PlcAxisCommandKind::JogHeartbeat, false));
+    EXPECT_TRUE(wroteAxis(gw_, PlcAxisCommandKind::JogForward, false));
+    EXPECT_TRUE(wroteAxis(gw_, PlcAxisCommandKind::JogBackward, false));
     svc->tick();   // -> WaitingForIdle
     svc->tick();   // WaitingForIdle (ms==2) -> PostStopDelay
     std::this_thread::sleep_for(std::chrono::milliseconds(600));  // 过 PostStopDelay(0.5s)

@@ -124,12 +124,12 @@ public:
 
     void requestStop() override {
         if (policy_.isDone() || policy_.hasError()) return;
-        policy_.requestStop();
+        policy_.forceStopNow();
         stopping_ = true;
     }
     void cancel(std::string_view reason) override {
         if (policy_.isDone() || policy_.hasError()) return;
-        policy_.requestStop();
+        policy_.forceStopNow();
         stopping_ = true;
         cancelReason_ = std::string(reason);
     }

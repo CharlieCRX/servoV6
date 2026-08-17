@@ -203,13 +203,13 @@ TEST_F(AxisMotionPolicyTest, Jog_ExplicitStopThenDisable) {
     EXPECT_EQ(p.currentStep(), JogPolicy::Step::Jogging);
     EXPECT_TRUE(wrote(PlcAxisCommandKind::JogForward, true));
 
-    // 显式停止：本周期 Jogging 判定停止 → IssuingStop；下一周期执行方向 OFF+心跳 OFF。
+    // Explicit stop must write the PLC hold bits OFF immediately on release.
     p.requestStop();
-    cycle(p, /*ms=*/3);
-    EXPECT_EQ(p.currentStep(), JogPolicy::Step::IssuingStop);
+    EXPECT_TRUE(wrote(PlcAxisCommandKind::JogHeartbeat, false));
+    EXPECT_TRUE(wrote(PlcAxisCommandKind::JogForward, false));
+    EXPECT_TRUE(wrote(PlcAxisCommandKind::JogBackward, false));
     cycle(p, /*ms=*/3);
     EXPECT_EQ(p.currentStep(), JogPolicy::Step::WaitingForIdle);
-    EXPECT_TRUE(wrote(PlcAxisCommandKind::JogForward, false));
 
     // 等空闲(2) → PostStopDelay → 掉电 → Done。
     cycle(p, /*ms=*/2);
