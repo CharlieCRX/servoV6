@@ -1,7 +1,9 @@
 #include "AxisSelectionController.h"
+
 #include "AxisSelectionModel.h"
 #include "GamepadInputInterpreter.h"
 #include "presentation/input/MotionController.h"
+
 #include <QDebug>
 
 AxisSelectionController::AxisSelectionController(GamepadInputInterpreter* interpreter,
@@ -10,12 +12,11 @@ AxisSelectionController::AxisSelectionController(GamepadInputInterpreter* interp
     : QObject(parent)
     , m_model(model)
 {
-    // 连接信号链：Interpreter::inputEvent → Controller::onInputEvent → Model::selectLeft/Right
-    bool ok = connect(interpreter, &GamepadInputInterpreter::inputEvent,
-                      this, &AxisSelectionController::onInputEvent);
-    qDebug() << "[AxisCtrl] connect(interpreter::inputEvent -> onInputEvent) returned" << ok;
+    const bool ok = connect(interpreter, &GamepadInputInterpreter::inputEvent,
+                            this, &AxisSelectionController::onInputEvent);
+    qDebug() << "[AxisCtrl] connect inputEvent -> onInputEvent:" << ok;
     if (!ok) {
-        qWarning() << "[AxisCtrl] ❌ Signal-slot connection FAILED! No axis events will reach the model.";
+        qWarning() << "[AxisCtrl] Signal-slot connection failed; axis events will not reach model";
     }
 }
 
@@ -23,22 +24,21 @@ void AxisSelectionController::onInputEvent(const InputEvent& event)
 {
     qDebug() << "[AxisCtrl] onInputEvent type=" << static_cast<int>(event.type);
     if (event.type != InputEvent::Type::AxisSelect) {
-        qDebug() << "[AxisCtrl] ignoring: not AxisSelect (type=" << static_cast<int>(event.type) << ")";
+        qDebug() << "[AxisCtrl] ignoring non-axis event type=" << static_cast<int>(event.type);
         return;
     }
 
-    // ★ JOG 点动活跃时（摇杆正在推），阻止左摇杆切换轴
     if (m_motionCtrl && m_motionCtrl->jogActiveDirection() != 0) {
-        qDebug() << "[AxisCtrl] 🚫 axis select blocked: JOG is active (direction="
-                 << m_motionCtrl->jogActiveDirection() << ")";
+        qDebug() << "[AxisCtrl] axis select blocked: JOG active direction="
+                 << m_motionCtrl->jogActiveDirection();
         return;
     }
 
     if (event.axisDir == AxisSelectDirection::Left) {
-        qDebug() << "[AxisCtrl] → Left → calling axisModel->selectLeft()";
+        qDebug() << "[AxisCtrl] selecting left";
         m_model->selectLeft();
     } else {
-        qDebug() << "[AxisCtrl] → Right → calling axisModel->selectRight()";
+        qDebug() << "[AxisCtrl] selecting right";
         m_model->selectRight();
     }
 }
