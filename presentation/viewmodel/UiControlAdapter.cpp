@@ -155,6 +155,9 @@ QVariantMap UiControlAdapter::axisFor(const QString& groupLetter, const QString&
     const std::string g = groupLetter.toStdString();
     const std::string r = role.toStdString();
     for (const auto& a : d_->projected.axes) {
+        if (a.bound && a.groupLetter == g && a.roleName == r) return axisToMap(a);
+    }
+    for (const auto& a : d_->projected.axes) {
         if (a.groupLetter == g && a.roleName == r) return axisToMap(a);
     }
     return {};

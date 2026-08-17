@@ -19,7 +19,7 @@ MotionController::MotionController(GamepadInputInterpreter* interpreter,
     , m_axisModel(axisModel)
     , m_service(service)
 {
-    const bool ok1 = connect(interpreter, &GamepadInputInterpreter::inputEvent,
+    const bool ok1 = connect(interpreter, &GamepadInputInterpreter::inputEvent, 
                              this, &MotionController::onInputEvent);
     qDebug() << "[MotionCtrl] connect inputEvent -> onInputEvent:" << ok1;
 

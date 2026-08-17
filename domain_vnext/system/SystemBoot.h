@@ -105,6 +105,7 @@ public:
                 gm.bind(fn, *sys.registry().find(slot));
                 ++result.registeredAxes;
             }
+
         }
 
         result.ok = !result.degraded;

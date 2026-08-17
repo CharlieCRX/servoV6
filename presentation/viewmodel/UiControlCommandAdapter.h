@@ -11,9 +11,7 @@
 // 约束：
 //   - 只做轻量输入校验（空目标 / 非正速度 / 未注入 service），最终权威校验在
 //     MotionControlService（租约 / 会话 / 全局锁定 / 零速度拒绝）；
-//   - 急停 / 解除急停 / 停止不受普通按钮锁定规则影响，始终可提交；
-//   - 龙门生命周期动作（GantryEnableAndCouple / Decouple）**不在首轮单轴 UI 暴露**，
-//     逻辑 X 放开依赖「真实 GantryParam 注入 + 生命周期取消安全收口」两项 P0。
+//   - 急停 / 解除急停 / 停止不受普通按钮锁定规则影响，始终可提交。
 //
 // 依赖 Qt（QObject/QString）+ application_vnext（ControlCommand/MotionControlService）。
 // ============================================================================

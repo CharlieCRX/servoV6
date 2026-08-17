@@ -66,6 +66,9 @@ RuntimeSnapshot makeBaselineRuntime() {
                                     /*abs=*/12.5f, /*rel=*/3.25f,
                                     /*motionState=*/2, /*motionLimit=*/0, /*alarm=*/0);
     snap.axes[1] = makeAxisSnapshot(1);
+    snap.axes[13] = makeAxisSnapshot(13, /*manual=*/10, /*positioning=*/20,
+                                     /*abs=*/23.5f, /*rel=*/23.5f,
+                                     /*motionState=*/1, /*motionLimit=*/0, /*alarm=*/0);
     snap.gantry[0] = makeGantryStatusSnapshot(0, /*state=*/3, /*ack=*/9,
                                               /*cmdResult=*/2,
                                               /*x1InGear=*/true, /*x2InGear=*/true);
@@ -121,6 +124,15 @@ TEST_F(UiControlAdapterIntegrationTest, ProjectsRealServiceSnapshot) {
     EXPECT_DOUBLE_EQ(ax["relPosition"].toDouble(), 3.25);
     EXPECT_EQ(ax["motionState"].toInt(), 2);
     EXPECT_EQ(ax["motionStateName"].toString(), "MotorIdle(2)");
+
+    auto logicalX = adapter.axisFor("A", "X");
+    ASSERT_FALSE(logicalX.isEmpty());
+    EXPECT_EQ(logicalX["slot"].toInt(), 13);
+    EXPECT_EQ(logicalX["group"].toString(), "A");
+    EXPECT_EQ(logicalX["role"].toString(), "X");
+    EXPECT_TRUE(logicalX["bound"].toBool());
+    EXPECT_TRUE(logicalX["hmiVisible"].toBool());
+    EXPECT_DOUBLE_EQ(logicalX["absPosition"].toDouble(), 23.5);
 
     auto g = adapter.gantry(0);
     ASSERT_FALSE(g.isEmpty());

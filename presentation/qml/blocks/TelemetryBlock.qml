@@ -36,25 +36,6 @@ Rectangle {
     readonly property bool locked: (emergencyViewModel && emergencyViewModel.isSystemLocked)
                                    || (root.vnextActive && snapshotAdapter && snapshotAdapter.globallyLocked)
 
-    // 龙门控制区是否可见（仅在选中 X 轴且有龙门 ViewModel 时显示）
-    readonly property bool gantryAreaVisible: selectedAxis === "X" && gantryViewModel !== null
-
-    // 龙门耦合状态快捷属性
-    readonly property bool gantryCoupled: {
-        if (!gantryViewModel) return false
-        return gantryViewModel.isCoupled || false
-    }
-    readonly property bool gantryEnabled: {
-        if (!gantryViewModel) return false
-        return gantryViewModel.isEnabled || false
-    }
-    readonly property bool gantryCoupling: {
-        if (!gantryViewModel) return false
-        return gantryViewModel.isOrchestratorBusy || false
-    }
-    // 龙门是否已启用（使能 ON + 联动 ON）
-    readonly property bool gantryActivated: root.gantryEnabled && root.gantryCoupled
-
     // 分组切换信号
     signal groupChanged(string newGroup)
 
@@ -90,7 +71,7 @@ Rectangle {
     function motorStateDisplayText(stateCode, fallbackText) {
         if (viewModel) return fallbackText
         switch(stateCode) {
-            case 0: return "尚未启用(0)"
+            case 0: return "轴控关闭(0)"
             case 1: return "无动作(1)"
             case 2: return "已上电(2)"
             case 3: return "点动正向(3)"
@@ -143,8 +124,7 @@ Rectangle {
                 model: ["Machine_A", "Machine_B"]
                 currentIndex: root.groupName === "Machine_B" ? 1 : 0
                 enabled: viewModel ? !root.locked : (root.commandAdapter && root.commandAdapter.available
-                                                      && !root.locked && vAxis.bound && vAxis.trusted
-                                                      && vAxis.hmiVisible && !vAxis.leased)
+                                                      && !root.locked)
                 opacity: enabled ? 1.0 : 0.4
 
                 // 自定义样式适配工业深色主题
@@ -231,76 +211,6 @@ Rectangle {
                 border.width: 1
                 onClicked: {
                     if (connectionViewModel) connectionViewModel.reconnect()
-                }
-            }
-        }
-
-        // ===== 1.5 龙门耦合控制区（仅在选中 X 轴时显示） =====
-        Rectangle {
-            Layout.fillWidth: true
-            height: root.gantryAreaVisible ? 44 * Theme.scale : 0
-            visible: root.gantryAreaVisible
-            color: root.gantryCoupled ? "#1F2F1F" : "#1F1F2F"
-            radius: 8 * Theme.scale
-            border.color: root.gantryCoupled ? Theme.colorIdle : Theme.borderMain
-            border.width: 1
-
-            RowLayout {
-                anchors.fill: parent
-                anchors.margins: 6 * Theme.scale
-                spacing: 8 * Theme.scale
-
-                // 左侧：耦合状态指示灯 + 文本
-                Rectangle {
-                    width: 12 * Theme.scale
-                    height: 12 * Theme.scale
-                    radius: width / 2
-                    color: {
-                        if (root.gantryCoupling) return Theme.colorWarning
-                        if (root.gantryCoupled) return Theme.colorIdle
-                        return Theme.colorDisabled
-                    }
-                    border.color: Qt.lighter(color, 1.5)
-                    border.width: 1
-                    // 耦合过渡中闪烁
-                    SequentialAnimation on opacity {
-                        running: root.gantryCoupling
-                        loops: Animation.Infinite
-                        NumberAnimation { from: 1.0; to: 0.3; duration: 400 }
-                        NumberAnimation { from: 0.3; to: 1.0; duration: 400 }
-                    }
-                }
-
-                Text {
-                    text: {
-                        if (root.gantryCoupling) return "启用中..."
-                        if (root.gantryActivated) return "已启用"
-                        if (root.gantryCoupled) return "龙门已耦合"
-                        return "未启用"
-                    }
-                    color: root.gantryActivated ? Theme.colorIdle : Theme.textDim
-                    font.pixelSize: Theme.fontSmall
-                    font.bold: true
-                    Layout.fillWidth: true
-                }
-
-                // 右侧：启用 / 停用按钮
-                IndustrialButton {
-                    text: root.gantryActivated ? "停用" : "启用"
-                    buttonSize: 60 * Theme.scale
-                    baseColor: root.locked ? Theme.colorDisabled : (root.gantryActivated ? "#5D4037" : "#2E7D32")
-                    enabled: !root.locked && !root.gantryCoupling
-                    opacity: enabled ? 1.0 : 0.4
-                    border.color: root.gantryActivated ? "#795548" : "#4CAF50"
-                    border.width: 1
-                    onClicked: {
-                        if (!root.gantryViewModel) return
-                        if (root.gantryActivated) {
-                            root.gantryViewModel.stopCouplingAndDisable()
-                        } else {
-                            root.gantryViewModel.startCoupling()
-                        }
-                    }
                 }
             }
         }

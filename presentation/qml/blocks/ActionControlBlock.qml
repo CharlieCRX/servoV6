@@ -22,8 +22,10 @@ Rectangle {
                                         && snapshotAdapter
                                         && commandAdapter
                                         && commandAdapter.available
-    readonly property bool vnextIndependentAxis: currentAxis === "Y" || currentAxis === "Z" || currentAxis === "R"
-    readonly property bool vnextCanControl: vnextActive && vnextIndependentAxis
+    readonly property bool vnextControlAxis: currentAxis === "Y" || currentAxis === "Z"
+                                             || currentAxis === "R" || currentAxis === "X"
+                                             || currentAxis === "X1" || currentAxis === "X2"
+    readonly property bool vnextCanControl: vnextActive && vnextControlAxis
                                             && snapshotAdapter.connected
                                             && snapshotAdapter.safetyTrusted
                                             && !snapshotAdapter.emergencyStop
@@ -51,26 +53,14 @@ Rectangle {
         return false
     }
 
-    // ── 龙门操作锁定 ──
-    // 启用前（使能 OFF + 联动 OFF）屏蔽右侧所有操作
-    // 启用后（使能 ON + 联动 ON）解除右侧所有操作
-    readonly property bool gantryActivated: {
-        if (!gantryViewModel) return true  // 非龙门轴默认允许
-        if (currentAxis !== "X") return true  // 非 X 轴不限制
-        return gantryViewModel.isEnabled && gantryViewModel.isCoupled
-    }
-
     readonly property bool gantryOperationLocked: {
         if (!gantryViewModel) return false
-        if (currentAxis === "X" && !gantryActivated) return true
         if ((currentAxis === "X1" || currentAxis === "X2") && gantryViewModel.isCoupled) return true
         return false
     }
 
     readonly property string gantryLockReason: {
         if (!gantryOperationLocked) return ""
-        if (currentAxis === "X" && gantryViewModel && !gantryActivated)
-            return "X 轴未启用（请先启用）"
         if ((currentAxis === "X1" || currentAxis === "X2") && gantryViewModel && gantryViewModel.isCoupled)
             return "受龙门控制"
         return ""

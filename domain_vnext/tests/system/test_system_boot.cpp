@@ -122,6 +122,32 @@ TEST(SystemBootTest, GantrySyncInjected_ByFunctionRole) {
               state::AxisStateMachine::SubmitResult::Accepted);
 }
 
+TEST(SystemBootTest, LogicalXRole5_MapsToConfiguredSlot13AndHmiVisible) {
+    TopologySnapshot topo;
+    std::vector<TopologyRole> r0;
+    r0.push_back(role(true, true, 0, 1));    // X1
+    r0.push_back(role(true, true, 1, 2));    // X2
+    r0.push_back(role(true, true, 2, 3));    // Y
+    r0.push_back(role(true, true, 3, 3));    // Z
+    r0.push_back(role(true, true, 4, 4));    // R
+    r0.push_back(role(true, true, 13, 5));   // X logical
+    r0.push_back(role(false, false, -1));
+    r0.push_back(role(false, false, -1));
+    topo.groups.push_back(group(true, true, r0));
+
+    AxisSystem sys;
+    const auto res = SystemBoot::initialize(sys, topo);
+    const auto g0 = PlcGroupIndex(0);
+
+    EXPECT_TRUE(res.ok);
+    EXPECT_FALSE(res.degraded);
+    ASSERT_NE(sys.find({g0, model::AxisFunction::X}), nullptr);
+    EXPECT_EQ(sys.find({g0, model::AxisFunction::X})->slot(),
+              *PlcAxisSlot::tryCreate(13));
+    EXPECT_TRUE(sys.find({g0, model::AxisFunction::X})->hmiVisible());
+    EXPECT_EQ(sys.group(g0).axisCount(), 6u);
+}
+
 // ---------- ③ HmiVisible 展示判定 ----------
 
 TEST(SystemBootTest, HmiVisible_IsGroupAndRoleAnded) {
@@ -257,4 +283,3 @@ TEST(SystemBootTest, Reboot_ReplacesPreviousBinding) {
 
 }  // namespace
 }  // namespace domain_vnext::system
-

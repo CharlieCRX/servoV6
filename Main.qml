@@ -25,6 +25,28 @@ Window {
 
     /// @brief JOG 点动活跃时阻止轴切换（只读状态，供 UI disable 绑定）
     readonly property bool jogAxisSwitchLocked: motionController ? motionController.jogActiveDirection !== 0 : false
+    readonly property string currentGroupLetter: currentGroup === "Machine_B" ? "B" : "A"
+
+    function axisSnapshot(axisName) {
+        return controlSnapshot ? controlSnapshot.axisFor(currentGroupLetter, axisName) : ({})
+    }
+
+    function axisAvailable(axisName) {
+        var ax = axisSnapshot(axisName)
+        return (ax.bound === true) && (ax.hmiVisible === true)
+    }
+
+    function selectFirstAvailableAxis() {
+        if (jogAxisSwitchLocked || axisAvailable(currentAxis)) return
+        var order = ["Y", "Z", "R", "X", "X1", "X2"]
+        for (var i = 0; i < order.length; ++i) {
+            if (axisAvailable(order[i])) {
+                currentAxis = order[i]
+                if (axisSelectionModel) axisSelectionModel.setCurrentAxisByName(order[i])
+                return
+            }
+        }
+    }
 
     // ★ 监听 C++ AxisSelectionModel，摇杆切换轴时同步更新 UI
     Connections {
@@ -35,6 +57,14 @@ Window {
             var newAxis = map[axisId] || "Y";
             console.log("[QML] axisSelectionModel.currentAxisChanged  axisId=" + axisId + " → " + newAxis);
             currentAxis = newAxis;
+            selectFirstAvailableAxis();
+        }
+    }
+
+    Connections {
+        target: controlSnapshot
+        function onStateChanged() {
+            mainWindow.selectFirstAvailableAxis()
         }
     }
 
@@ -98,6 +128,7 @@ Window {
                 currentAxisName: mainWindow.currentAxis   // ★ 反向同步：摇杆切换时高亮对应轴
                 emergencyViewModel: currentEmergencyViewModel
                 gantryViewModel: currentGantryViewModel
+                groupName: currentGroup
                 jogAxisSwitchLocked: mainWindow.jogAxisSwitchLocked  // ★ JOG 点动时禁用轴切换
                 onAxisChanged: (axisName) => {
                     currentAxis = axisName;

@@ -10,42 +10,32 @@ Rectangle {
     property string currentAxisName: "Y" // 默认选中 Y 轴
     property var emergencyViewModel: null
     property var gantryViewModel: null
+    property var snapshotAdapter: controlSnapshot
+    property string groupName: "Machine_A"
     property bool jogAxisSwitchLocked: false  // ★ JOG 点动活跃时阻止轴切换
     signal axisChanged(string axisName)  // 切换轴时发出的信号
 
+    readonly property string groupLetter: groupName === "Machine_B" ? "B" : "A"
+    readonly property int snapshotRevision: snapshotAdapter ? snapshotAdapter.revision : 0
+
+    function axisSnapshot(axisName) {
+        root.snapshotRevision
+        return snapshotAdapter ? snapshotAdapter.axisFor(groupLetter, axisName) : ({})
+    }
+
+    function axisAvailable(axisName) {
+        var ax = axisSnapshot(axisName)
+        return ax.bound === true && ax.hmiVisible === true
+    }
+
+    function axisStatus(axisName, isActive) {
+        if (root.jogAxisSwitchLocked && isActive) return "点动中..."
+        if (!axisAvailable(axisName)) return "未绑定"
+        return isActive ? "控制中" : "待机"
+    }
+
     // 急停锁定状态
     readonly property bool locked: emergencyViewModel && emergencyViewModel.isSystemLocked
-
-    // ── 龙门耦合状态快捷属性（从 GantryViewModel 投影） ──
-    // isCoupled: 龙门已耦合（允许逻辑 X 轴运动）
-    readonly property bool isCoupled: {
-        if (!gantryViewModel) return false
-        return gantryViewModel.isCoupled || false
-    }
-    // isCouplingTransition: 耦合过渡中（orchestrator 忙碌 = 解耦/耦合进行中）
-    readonly property bool isCouplingTransition: {
-        if (!gantryViewModel) return false
-        return gantryViewModel.isOrchestratorBusy || false
-    }
-
-    // ── X 轴（逻辑龙门）的状态文字 ──
-    readonly property string gantryStatusText: {
-        if (!gantryViewModel || currentAxisName !== "X") return ""
-        if (isCouplingTransition) return "启用中..."
-        if (isCoupled) return "已启用"
-        return "未启用"
-    }
-
-    // ── X 轴状态指示灯颜色 ──
-    readonly property string gantryStatusColor: {
-        if (!gantryViewModel) return Theme.textDim
-        if (isCouplingTransition) return Theme.colorWarning
-        if (isCoupled) return Theme.colorIdle
-        return Theme.textDim
-    }
-
-    // ── X1/X2 物理轴是否可独立操作（仅当龙门已解耦时） ──
-    readonly property bool physicalAxesAvailable: !gantryViewModel || !gantryViewModel.isCoupled
 
     color: "transparent"
     border.color: Theme.borderMain
@@ -80,9 +70,10 @@ Rectangle {
                 // --- Y 轴 ---
                 AxisItemDelegate {
                     name: root.jogAxisSwitchLocked && !isActive ? "Y 轴 (水平) 🔒" : "Y 轴 (水平)"
+                    visible: root.axisAvailable("Y")
                     isActive: root.currentAxisName === "Y"
-                    statusText: root.jogAxisSwitchLocked && isActive ? "点动中..." : (isActive ? "控制中" : "待机")
-                    enabled: !root.locked && (!root.jogAxisSwitchLocked || isActive)
+                    statusText: root.axisStatus("Y", isActive)
+                    enabled: !root.locked && (root.axisSnapshot("Y").trusted === true) && (!root.jogAxisSwitchLocked || isActive)
                     opacity: enabled ? 1.0 : 0.4
                     onClicked: {
                         if (root.jogAxisSwitchLocked) return
@@ -93,9 +84,10 @@ Rectangle {
                 // --- Z 轴 ---
                 AxisItemDelegate {
                     name: root.jogAxisSwitchLocked && !isActive ? "Z 轴 (垂直) 🔒" : "Z 轴 (垂直)"
+                    visible: root.axisAvailable("Z")
                     isActive: root.currentAxisName === "Z"
-                    statusText: root.jogAxisSwitchLocked && isActive ? "点动中..." : (isActive ? "控制中" : "待机")
-                    enabled: !root.locked && (!root.jogAxisSwitchLocked || isActive)
+                    statusText: root.axisStatus("Z", isActive)
+                    enabled: !root.locked && (root.axisSnapshot("Z").trusted === true) && (!root.jogAxisSwitchLocked || isActive)
                     opacity: enabled ? 1.0 : 0.4
                     onClicked: {
                         if (root.jogAxisSwitchLocked) return
@@ -106,9 +98,10 @@ Rectangle {
                 // --- R 轴 ---
                 AxisItemDelegate {
                     name: root.jogAxisSwitchLocked && !isActive ? "R 轴 (旋转) 🔒" : "R 轴 (旋转)"
+                    visible: root.axisAvailable("R")
                     isActive: root.currentAxisName === "R"
-                    statusText: root.jogAxisSwitchLocked && isActive ? "点动中..." : (isActive ? "控制中" : "待机")
-                    enabled: !root.locked && (!root.jogAxisSwitchLocked || isActive)
+                    statusText: root.axisStatus("R", isActive)
+                    enabled: !root.locked && (root.axisSnapshot("R").trusted === true) && (!root.jogAxisSwitchLocked || isActive)
                     opacity: enabled ? 1.0 : 0.4
                     onClicked: {
                         if (root.jogAxisSwitchLocked) return
@@ -119,56 +112,53 @@ Rectangle {
                 // --- X 轴（逻辑龙门轴） ---
                 AxisItemDelegate {
                     name: root.jogAxisSwitchLocked && !isActive ? "X 轴 (前后) 🔒" : "X 轴 (前后)"
+                    visible: root.axisAvailable("X")
                     isActive: root.currentAxisName === "X"
-                    statusText: {
-                        if (root.jogAxisSwitchLocked && isActive) return "点动中..."
-                        if (root.currentAxisName === "X") {
-                            return root.gantryStatusText || "控制中"
-                        }
-                        return root.gantryStatusText || "待机"
-                    }
+                    statusText: root.axisStatus("X", isActive)
                     isDual: true
-                    enabled: !root.locked && (!root.jogAxisSwitchLocked || isActive)
+                    enabled: !root.locked && (root.axisSnapshot("X").trusted === true) && (!root.jogAxisSwitchLocked || isActive)
                     opacity: enabled ? 1.0 : 0.4
-                    // 龙门耦合状态指示色
-                    indicatorColor: root.gantryStatusColor
                     onClicked: {
                         if (root.jogAxisSwitchLocked) return
                         root.axisChanged("X")
                     }
                 }
 
-                Item { height: 10 * Theme.scale } // 分隔线
+                Item {
+                    height: (root.axisAvailable("X1") || root.axisAvailable("X2"))
+                            ? 10 * Theme.scale : 0
+                    visible: root.axisAvailable("X1") || root.axisAvailable("X2")
+                }
 
-                // // --- X1 轴（物理龙门轴1） ---
-                // AxisItemDelegate {
-                //     name: "X1 轴 (物理)"
-                //     isActive: root.currentAxisName === "X1"
-                //     statusText: isActive ? "控制中" : "待机"
-                //     // 物理轴在龙门耦合时需要标记为"受龙门控制"
-                //     subLabel: (!root.gantryViewModel || root.gantryViewModel.isCoupled) ? "↳ 龙门" : ""
-                //     enabled: !root.locked
-                //     opacity: enabled ? 1.0 : 0.4
-                //     onClicked: {
-                //         // 仅当龙门已解耦或该轴独立可用时允许切换
-                //         root.currentAxisName = "X1"
-                //         root.axisChanged("X1")
-                //     }
-                // }
+                // --- X1 轴（物理龙门轴1） ---
+                AxisItemDelegate {
+                    name: root.jogAxisSwitchLocked && !isActive ? "X1 轴 (物理) 🔒" : "X1 轴 (物理)"
+                    visible: root.axisAvailable("X1")
+                    isActive: root.currentAxisName === "X1"
+                    statusText: root.axisStatus("X1", isActive)
+                    subLabel: (root.gantryViewModel && root.gantryViewModel.isCoupled) ? "受龙门控制" : ""
+                    enabled: !root.locked && (root.axisSnapshot("X1").trusted === true) && (!root.jogAxisSwitchLocked || isActive)
+                    opacity: enabled ? 1.0 : 0.4
+                    onClicked: {
+                        if (root.jogAxisSwitchLocked) return
+                        root.axisChanged("X1")
+                    }
+                }
 
-                // // --- X2 轴（物理龙门轴2） ---
-                // AxisItemDelegate {
-                //     name: "X2 轴 (物理)"
-                //     isActive: root.currentAxisName === "X2"
-                //     statusText: isActive ? "控制中" : "待机"
-                //     subLabel: (!root.gantryViewModel || root.gantryViewModel.isCoupled) ? "↳ 龙门" : ""
-                //     enabled: !root.locked
-                //     opacity: enabled ? 1.0 : 0.4
-                //     onClicked: {
-                //         root.currentAxisName = "X2"
-                //         root.axisChanged("X2")
-                //     }
-                // }
+                // --- X2 轴（物理龙门轴2） ---
+                AxisItemDelegate {
+                    name: root.jogAxisSwitchLocked && !isActive ? "X2 轴 (物理) 🔒" : "X2 轴 (物理)"
+                    visible: root.axisAvailable("X2")
+                    isActive: root.currentAxisName === "X2"
+                    statusText: root.axisStatus("X2", isActive)
+                    subLabel: (root.gantryViewModel && root.gantryViewModel.isCoupled) ? "受龙门控制" : ""
+                    enabled: !root.locked && (root.axisSnapshot("X2").trusted === true) && (!root.jogAxisSwitchLocked || isActive)
+                    opacity: enabled ? 1.0 : 0.4
+                    onClicked: {
+                        if (root.jogAxisSwitchLocked) return
+                        root.axisChanged("X2")
+                    }
+                }
             } // end inner ColumnLayout
         } // end ScrollView
     } // end outer ColumnLayout
