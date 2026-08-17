@@ -33,6 +33,7 @@
 #include <utility>
 #include <algorithm>
 #include <optional>
+#include <sstream>
 #include <string_view>
 
 
@@ -44,6 +45,7 @@
 #include "application_vnext/control/SessionAdapter.h"
 #include "domain_vnext/model/AxisKey.h"
 #include "domain_vnext/system/AxisRegistry.h"
+#include "infrastructure/logger/Logger.h"
 
 
 namespace application_vnext::control {
@@ -87,6 +89,21 @@ bool isUrgent(ControlAction a) {
         default:
             return false;
     }
+}
+
+const char* operationStateName(OperationState s) {
+    switch (s) {
+        case OperationState::Queued:          return "Queued";
+        case OperationState::Accepted:        return "Accepted";
+        case OperationState::Rejected:        return "Rejected";
+        case OperationState::Running:         return "Running";
+        case OperationState::Succeeded:       return "Succeeded";
+        case OperationState::Failed:          return "Failed";
+        case OperationState::Cancelled:       return "Cancelled";
+        case OperationState::TimedOut:        return "TimedOut";
+        case OperationState::CommitUncertain: return "CommitUncertain";
+    }
+    return "?";
 }
 
 }  // namespace
@@ -137,18 +154,32 @@ void MotionControlService::ensureBootedIfNeeded() {
 std::string MotionControlService::submit(ControlCommand cmd) {
     // Enqueue + register atomically under qMtx_ (id generation / queue / operations_
     // are all thread-safe). Called from UI/UDP/joystick threads concurrently.
-    std::lock_guard<std::mutex> lock(qMtx_);
-    if (cmd.operationId.empty()) cmd.operationId = nextOperationId(cmd.source);
-    const std::string opId = cmd.operationId;  // copy before moving entry below
-    OperationEntry entry;
-    entry.operationId = opId;
-    entry.source = cmd.source;
-    entry.axis = axisTargetName(cmd.target);
-    entry.kind = kindOf(cmd.action);
-    entry.state = OperationState::Queued;
-    entry.updatedAt = std::chrono::steady_clock::now();
-    queue_.push_back(std::move(cmd));
-    operations_[opId] = std::move(entry);
+    const std::string sourceName = controlSourceName(cmd.source);
+    const std::string actionName = controlActionName(cmd.action);
+    const std::string targetName = axisTargetName(cmd.target);
+    std::string opId;
+    std::size_t queued = 0;
+    {
+        std::lock_guard<std::mutex> lock(qMtx_);
+        if (cmd.operationId.empty()) cmd.operationId = nextOperationId(cmd.source);
+        opId = cmd.operationId;  // copy before moving entry below
+        OperationEntry entry;
+        entry.operationId = opId;
+        entry.source = cmd.source;
+        entry.axis = targetName;
+        entry.kind = kindOf(cmd.action);
+        entry.state = OperationState::Queued;
+        entry.updatedAt = std::chrono::steady_clock::now();
+        queue_.push_back(std::move(cmd));
+        queued = queue_.size();
+        operations_[opId] = std::move(entry);
+    }
+    LOG_INFO(LogLayer::APP, "MotionControl",
+             "queued opId=" + opId
+             + " source=" + sourceName
+             + " action=" + actionName
+             + " target=" + targetName
+             + " queueSize=" + std::to_string(queued));
     return opId;
 }
 
@@ -226,14 +257,42 @@ void MotionControlService::handleUrgent(const std::vector<ControlCommand>& cmds)
         if (p.action == ControlAction::EmergencyStop) {
             cancelAllSessions("emergency stop");
         }
+        // Drive the domain safety state machine so it can actually leave the
+        // latched EmergencyStopped state. EmergencyStopped->applyFeedback() is a
+        // deliberate no-op (safety latch must be explicitly released), so feedback
+        // alone can NEVER return the machine to Running. Without this, after an
+        // estop+release, isSystemLocked() stays true forever and every jog is
+        // aborted with "safety locked, aborted" (Phase 6 regression: the old
+        // UseCase path called requestEmergencyStop/requestReleaseEmergencyStop).
+        if (sysManager_) {
+            if (p.action == ControlAction::EmergencyStop)
+                sysManager_->requestEmergencyStop();           // Running -> EmergencyStopping
+            else
+                sysManager_->requestReleaseEmergencyStop();    // EmergencyStopped -> ReleasingEmergencyStop
+        }
+
+
 
         // Re-lock to record the result into OperationEntry.
-        std::lock_guard<std::mutex> lock(qMtx_);
-        const auto it = operations_.find(p.operationId);
-        if (it != operations_.end()) {
-            it->second.state = st;
-            it->second.diag = diag;
-            it->second.updatedAt = now;
+        std::string axisForLog;
+        bool logged = false;
+        {
+            std::lock_guard<std::mutex> lock(qMtx_);
+            const auto it = operations_.find(p.operationId);
+            if (it != operations_.end()) {
+                it->second.state = st;
+                it->second.diag = diag;
+                it->second.updatedAt = now;
+                axisForLog = it->second.axis;
+                logged = true;
+            }
+        }
+        if (logged) {
+            LOG_INFO(LogLayer::APP, "MotionControl",
+                     "opId=" + p.operationId
+                     + " axis=" + axisForLog
+                     + " state=Queued->" + operationStateName(st)
+                     + " diag=" + diag);
         }
     }
 
@@ -344,12 +403,32 @@ bool MotionControlService::isOneShotAction(ControlAction a) {
 }
 
 void MotionControlService::setOpState(const std::string& id, OperationState st, std::string diag) {
-    std::lock_guard<std::mutex> lock(qMtx_);  // operations_ shared with submit()
-    const auto it = operations_.find(id);
-    if (it == operations_.end()) return;
-    it->second.state = st;
-    if (!diag.empty()) it->second.diag = std::move(diag);
-    it->second.updatedAt = std::chrono::steady_clock::now();
+    OperationState oldState = OperationState::Queued;
+    std::string axis;
+    std::string finalDiag;
+    bool shouldLog = false;
+    {
+        std::lock_guard<std::mutex> lock(qMtx_);  // operations_ shared with submit()
+        const auto it = operations_.find(id);
+        if (it == operations_.end()) return;
+        oldState = it->second.state;
+        const std::string oldDiag = it->second.diag;
+        it->second.state = st;
+        if (!diag.empty()) it->second.diag = std::move(diag);
+        it->second.updatedAt = std::chrono::steady_clock::now();
+        axis = it->second.axis;
+        finalDiag = it->second.diag;
+        shouldLog = oldState != st || oldDiag != finalDiag;
+    }
+    if (shouldLog) {
+        std::ostringstream oss;
+        oss << "opId=" << id
+            << " axis=" << axis
+            << " state=" << operationStateName(oldState)
+            << "->" << operationStateName(st);
+        if (!finalDiag.empty()) oss << " diag=" << finalDiag;
+        LOG_INFO(LogLayer::APP, "MotionControl", oss.str());
+    }
 }
 
 void MotionControlService::setOpMotion(const std::string& id, int16_t motionState, float position) {

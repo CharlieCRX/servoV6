@@ -13,7 +13,11 @@ Rectangle {
     property string groupLetter: "A"
     property string currentAxis: ""        // 当前选中的轴名（用于龙门逻辑判断）
 
-    readonly property var vAxis: snapshotAdapter ? snapshotAdapter.axisFor(groupLetter, currentAxis) : ({})
+    readonly property int snapshotRevision: snapshotAdapter ? snapshotAdapter.revision : 0
+    readonly property var vAxis: {
+        root.snapshotRevision
+        return snapshotAdapter ? snapshotAdapter.axisFor(groupLetter, currentAxis) : ({})
+    }
     readonly property bool vnextActive: viewModel === null
                                         && snapshotAdapter
                                         && commandAdapter
@@ -273,14 +277,19 @@ Rectangle {
                     isCircle: false
                     buttonSize: 170 * Theme.scale
                     Layout.alignment: Qt.AlignHCenter
-                    // ★ 按钮互斥：前进活跃时不允许后退操作，反之亦然
-                    enabled: root.jogEnabled && (motionController ? motionController.jogActiveDirection !== -1 : true)
+                    // ★ 按钮互斥：前进活跃时不允许后退操作，反之亦然。
+                    // 关键：自身方向活跃时按钮必须保持 enabled（不被禁用），否则 Qt 会把按下的
+                    // 鼠标触发 onCanceled -> 立刻 StopJog，导致“按住无法持续点动”。
+                    enabled: (motionController && motionController.jogActiveDirection === 1)
+                             || (root.jogEnabled && (motionController ? motionController.jogActiveDirection !== -1 : true))
                     isActive: motionController ? motionController.jogActiveDirection === 1 : false
                     onPressed: {
                         if(motionController && root.jogEnabled) motionController.jogActiveDirection = 1
                     }
                     onReleased: {
-                        if(motionController && root.jogEnabled) motionController.jogActiveDirection = 0
+                        // 松开/取消必须无条件复位（复位是安全兜底，不能因 jogEnabled 在点动期间
+                        // 因轴占用变 false 而被吞掉），否则点动停不下来、按钮卡在按下态。
+                        if(motionController) motionController.jogActiveDirection = 0
                     }
                 }
 
@@ -292,13 +301,16 @@ Rectangle {
                     isCircle: false
                     buttonSize: 170 * Theme.scale
                     Layout.alignment: Qt.AlignHCenter
-                    enabled: root.jogEnabled && (motionController ? motionController.jogActiveDirection !== 1 : true)
+                    enabled: (motionController && motionController.jogActiveDirection === -1)
+                             || (root.jogEnabled && (motionController ? motionController.jogActiveDirection !== 1 : true))
                     isActive: motionController ? motionController.jogActiveDirection === -1 : false
                     onPressed: {
                         if(motionController && root.jogEnabled) motionController.jogActiveDirection = -1
                     }
                     onReleased: {
-                        if(motionController && root.jogEnabled) motionController.jogActiveDirection = 0
+                        // 松开/取消必须无条件复位（复位是安全兜底，不能因 jogEnabled 在点动期间
+                        // 因轴占用变 false 而被吞掉），否则点动停不下来、按钮卡在按下态。
+                        if(motionController) motionController.jogActiveDirection = 0
                     }
                 }
 
