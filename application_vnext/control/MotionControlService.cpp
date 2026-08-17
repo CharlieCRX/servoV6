@@ -78,6 +78,27 @@ OperationKind kindOf(ControlAction a) {
     }
 }
 
+std::string topologyAxisMap(const application_vnext::SystemManagerVnext& manager) {
+    using plc_vnext::contracts::PlcAxisSlot;
+    std::ostringstream oss;
+    bool first = true;
+    for (int slotValue = 0; slotValue < 16; ++slotValue) {
+        const auto slot = PlcAxisSlot::tryCreate(slotValue);
+        if (!slot) continue;
+        const auto* axis = manager.system().findBySlot(*slot);
+        if (!axis) continue;
+        if (!first) oss << ", ";
+        first = false;
+        const auto group = axis->key().group.value() == 0 ? "A" : "B";
+        oss << group << "."
+            << domain_vnext::model::axisFunctionName(axis->key().function)
+            << "(slot=" << slotValue
+            << ",hmi=" << (axis->hmiVisible() ? 1 : 0)
+            << ")";
+    }
+    return first ? "(none)" : oss.str();
+}
+
 /// whether it is "estop / release / stop": not dropped by TTL, handled before read.
 bool isUrgent(ControlAction a) {
     switch (a) {
@@ -131,9 +152,36 @@ std::string MotionControlService::nextOperationId(ControlSource src) {
 }
 
 void MotionControlService::ensureBootedIfNeeded() {
-    if (bootOk_) return;
     using clock = std::chrono::steady_clock;
     const auto now = clock::now();
+
+    if (bootOk_) {
+        if (now < topologyRefreshDeadline_) return;
+        topologyRefreshDeadline_ = now + std::chrono::seconds(1);
+
+        const auto topoRes = driver_.readTopology();
+        if (!topoRes.hasValue()) return;
+        if ((*topoRes).header.revision == lastTopo_.header.revision) return;
+
+        const auto oldRevision = lastTopo_.header.revision;
+        cancelAllSessions("topology revision changed");
+        if (sysManager_ && sysManager_->bootFromTopology(*topoRes)) {
+            lastTopo_ = *topoRes;
+            LOG_INFO(LogLayer::APP, "MotionControl",
+                     "topology revision changed old=" + std::to_string(oldRevision)
+                     + " new=" + std::to_string(lastTopo_.header.revision)
+                     + "; rebuilt axis topology axes="
+                     + topologyAxisMap(*sysManager_));
+        } else {
+            bootOk_ = false;
+            globallyLocked_ = true;
+            LOG_INFO(LogLayer::APP, "MotionControl",
+                     "topology revision changed old=" + std::to_string(oldRevision)
+                     + " but rebuild failed; global lock enabled");
+        }
+        return;
+    }
+
     if (now < bootRetryDeadline_) return;  // within backoff window, skip this tick
     // Read topology only (NO runtime read); the coordinator owns the single runtime
     // read per tick in readFeedbackAndSafety().
@@ -142,6 +190,11 @@ void MotionControlService::ensureBootedIfNeeded() {
         lastTopo_ = *topoRes;
         bootOk_ = true;
         bootRetryCount_ = 0;
+        topologyRefreshDeadline_ = now + std::chrono::seconds(1);
+        LOG_INFO(LogLayer::APP, "MotionControl",
+                 "axis topology booted revision="
+                 + std::to_string(lastTopo_.header.revision)
+                 + " axes=" + topologyAxisMap(*sysManager_));
         return;
     }
     // Transient failure: exponential backoff (50ms,100ms,200ms,... cap 1600ms) so a
@@ -593,7 +646,20 @@ void MotionControlService::execute(ControlCommand& cmd) {
 
     const auto g = cmd.target.group;
     const auto fn = cmd.target.function;
-    const bool logical = (fn == AxisFunction::X);   // 逻辑轴 X 走龙门 API（含组资源）
+    // X 是龙门逻辑轴（A 组解析为 slot13）：必须先建立联动（State=3/InternalStep=80/
+    // LogicalControlAllowed=ON/InGear 等）后，它才以"单轴"名义被控制。因此龙门 X 的
+    // 点动/定位必须走 GantryMotionApi（PowerOwnership::LifecycleManaged +
+    // GantryMotionGuard 严格准入），与 plc_vnext_motion_probe gantry-run-jog 链路一致；
+    // 绝不能走单轴自管理路径（axisApi_ SelfManaged 会自行使能电机 13 且不校验逻辑许可）。
+    // requiredResources() 已把 function==X 的运动命令判为龙门资源集合，这里必须保持一致。
+    const bool logical = (fn == AxisFunction::X);
+
+    LOG_INFO(LogLayer::APP, "MotionControl",
+             "[execute] opId=" + cmd.operationId
+             + " action=" + controlActionName(cmd.action)
+             + " target=" + axisTargetName(cmd.target)
+             + " route=" + std::string(logical ? "gantry" : "single-axis")
+             + " group=" + std::to_string(g.value()));
 
     // 一次性写入（Set*/Enable*）：直接落地，成功即 Succeeded（无会话、无租约）。
     if (isOneShotAction(cmd.action)) {
@@ -708,10 +774,13 @@ void MotionControlService::execute(ControlCommand& cmd) {
             const bool forward = (cmd.action == ControlAction::StartJogForward);
             constexpr int kHeartbeatMs = 500;
             if (logical) {
-                auto p = gantryApi_->beginJog(g, forward, 0, kHeartbeatMs);
-                session = std::make_shared<session_adapter::JogSession>(
-                    std::move(p), cmd.operationId, cmd.source, cmd.target,
-                    required, OperationKind::Jog);
+                // 复刻 gantry-run-jog 组合闭环：建立联动+使能 -> 点动 -> 解除+掉电，逐段顺序驱动。
+                auto couple    = gantryApi_->beginEnableAndCouple(g);
+                auto jog       = gantryApi_->beginJog(g, forward, 0, kHeartbeatMs);
+                auto decouple  = gantryApi_->beginDecoupleAndDisable(g);
+                session = std::make_shared<session_adapter::GantryAutoJogSession>(
+                    *sysManager_, g, std::move(couple), std::move(jog), std::move(decouple),
+                    cmd.operationId, cmd.source, cmd.target, required, OperationKind::Jog);
             } else {
                 const auto slot = resolveSlot(cmd);
                 if (!slot) { failAndRelease("axis not bound in topology"); return; }

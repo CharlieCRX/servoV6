@@ -33,6 +33,7 @@
 #include "domain_vnext/model/AxisKey.h"
 #include "infrastructure/plc_vnext/contracts/PlcAxisSlot.h"
 #include "infrastructure/plc_vnext/contracts/PlcGroupIndex.h"
+#include "infrastructure/logger/Logger.h"
 
 namespace application_vnext::policy {
 
@@ -102,6 +103,12 @@ public:
             bad.setUnavailable("logical axis X not bound in group");
             return bad;
         }
+        LOG_INFO(LogLayer::APP, "GantryMotion",
+                 "[gantry] beginJog group=" + std::to_string(g.value())
+                 + " forward=" + (forward ? "true" : "false")
+                 + " logicalSlot=" + std::to_string(slot.value())
+                 + " durationMs=" + std::to_string(durationMs)
+                 + " heartbeatMs=" + std::to_string(heartbeatPeriodMs));
         JogPolicy p(*m_, slot, forward, durationMs, heartbeatPeriodMs);
         p.setPowerOwnership(PowerOwnership::LifecycleManaged);
         p.setGantryGuard(&guards_[static_cast<std::size_t>(g.value())]);

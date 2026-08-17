@@ -156,6 +156,7 @@ private:
     bool bootOk_ = false;            // 经 bootFromTopology 成功初始化（topology 读取+校验通过）
     std::size_t bootRetryCount_ = 0; // 连续 boot 失败次数（指数退避用）
     std::chrono::steady_clock::time_point bootRetryDeadline_{};  // 退避期间不再尝试
+    std::chrono::steady_clock::time_point topologyRefreshDeadline_{};  // boot 后低频检测拓扑 revision
     std::size_t idCounter_ = 0;      // nextOperationId 序号来源
 
     ControlStateStore store_;

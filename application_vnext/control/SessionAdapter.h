@@ -185,4 +185,94 @@ private:
     GantryLifecyclePolicy policy_;
 };
 
+/// 龙门自动点动会话：复刻 plc_vnext_motion_probe 的 gantry-run-jog 组合闭环。
+/// 顺序驱动三段策略：建立联动+使能（couple -> Ready）→ 点动（jog）→ 解除+掉电（decouple -> Done）。
+/// 每次"按下"从 couple 开始（已联动则跳过直接点动）；"松开/停止/取消"在点动结束后进入 decouple，
+/// 无论运动成败都安全解除（与探针 [3] 一致）。要求：目标为龙门逻辑轴 X，资源占完整龙门集合。
+class GantryAutoJogSession : public SessionBase {
+public:
+    GantryAutoJogSession(SystemManagerVnext& m, plc_vnext::contracts::PlcGroupIndex g,
+                         GantryLifecyclePolicy couple, JogPolicy jog,
+                         GantryLifecyclePolicy decouple, std::string opId,
+                         ControlSource owner, AxisTarget target,
+                         std::vector<ControlResource> res, OperationKind kind)
+        : SessionBase(std::move(opId), owner, target, std::move(res), kind),
+          m_(&m), g_(g), couple_(std::move(couple)),
+          jog_(std::move(jog)), decouple_(std::move(decouple)) {}
+
+    void tick() override {
+        if (phase_ == Phase::Done) return;
+        switch (phase_) {
+        case Phase::Coupling:
+            if (!stateLogged_) {
+                stateLogged_ = true;
+                const auto& gs = m_->gantryStatus(g_);
+                LOG_WARN(LogLayer::APP, "GantryAutoJog",
+                         "[gantry] auto-jog start group=" + std::to_string(g_.value())
+                         + " gantryState=" + std::to_string(gs.rawState) + " "
+                         + domain_vnext::model::gantryCouplingStateName(gs.coupling)
+                         + " trusted=" + (gs.trusted ? "1" : "0"));
+            }
+            // 已联动则跳过建立（幂等：couple 策略要求 state!=1 会报错，故直接点动）。
+            if (m_->gantryStatus(g_).rawState == 3) { phase_ = Phase::Jogging; break; }
+            couple_.tick();
+            if (couple_.hasError()) { error_ = couple_.diag(); phase_ = Phase::Done; return; }
+            if (couple_.isDone()) { phase_ = Phase::Done; return; }   // 建立中被打断（已取消）：不点动、不解除
+            if (couple_.isReady()) phase_ = Phase::Jogging;           // 联动成功 -> 点动
+            break;
+        case Phase::Jogging:
+            jog_.tick();
+            if (jog_.hasError()) error_ = jog_.diag();                // 运动异常：记录，仍进解除收口
+            if (jog_.isDone()) phase_ = Phase::Decoupling;            // 点动结束（停止/限位/异常）-> 解除
+            break;
+        case Phase::Decoupling:
+            decouple_.tick();
+            if (decouple_.hasError()) { error_ = decouple_.diag(); phase_ = Phase::Done; return; }
+            if (decouple_.isDone()) phase_ = Phase::Done;
+            break;
+        case Phase::Done:
+            break;
+        }
+    }
+
+    void requestStop() override {
+        stopping_ = true;
+        if (phase_ == Phase::Coupling) couple_.cancel();
+        else if (phase_ == Phase::Jogging) jog_.forceStopNow();
+        else if (phase_ == Phase::Decoupling) decouple_.cancel();
+    }
+    void cancel(std::string_view reason) override {
+        stopping_ = true;
+        cancelReason_ = std::string(reason);
+        if (phase_ == Phase::Coupling) couple_.cancel();
+        else if (phase_ == Phase::Jogging) jog_.forceStopNow();
+        else if (phase_ == Phase::Decoupling) decouple_.cancel();
+    }
+
+    bool isDone() const override { return phase_ == Phase::Done; }
+    bool hasError() const override { return !error_.empty(); }
+    std::string diag() const override { return error_; }
+    std::string currentStepName() const override {
+        switch (phase_) {
+            case Phase::Coupling:   return std::string("gantry-jog[couple] ") + GantryLifecyclePolicy::stepName(couple_.currentStep());
+            case Phase::Jogging:    return std::string("gantry-jog[jog] ") + JogPolicy::stepName(jog_.currentStep());
+            case Phase::Decoupling: return std::string("gantry-jog[decouple] ") + GantryLifecyclePolicy::stepName(decouple_.currentStep());
+            case Phase::Done:       return "gantry-jog[done]";
+        }
+        return "gantry-jog[?]";
+    }
+
+private:
+    enum class Phase { Coupling, Jogging, Decoupling, Done };
+    Phase phase_ = Phase::Coupling;
+    SystemManagerVnext* m_;
+    plc_vnext::contracts::PlcGroupIndex g_;
+    GantryLifecyclePolicy couple_;
+    JogPolicy jog_;
+    GantryLifecyclePolicy decouple_;
+    std::string error_;
+    bool stateLogged_ = false;
+};
+
+
 }  // namespace application_vnext::control::session_adapter

@@ -9,6 +9,7 @@
 #include "application_vnext/SystemManagerVnext.h"
 #include "application_vnext/policy/AxisMotionCommon.h"
 #include "application_vnext/policy/GantryMotionGuard.h"
+#include "infrastructure/logger/Logger.h"
 #include "domain_vnext/model/AxisFunction.h"
 #include "domain_vnext/system/AxisRegistry.h"
 #include "infrastructure/plc_vnext/contracts/PlcAxisSlot.h"
@@ -69,6 +70,7 @@ public:
     void setUnavailable(const char* reason) { m_step = Step::Error; m_diag = reason; }
 
     void tick() {
+        const Step prev = m_step;
         if (m_step == Step::Done || m_step == Step::Error) return;
 
         if (m_->isSystemLocked()) {
@@ -111,6 +113,11 @@ public:
             if (!gr.allowed) {
                 stopHeartbeatAndDirection();
                 m_step = Step::Error;
+                LOG_WARN(LogLayer::APP, "JogPolicy",
+                         "[gantry] jog permit rejected, target="
+                         + std::to_string(m_group.value()) + "."
+                         + std::string(domain_vnext::model::axisFunctionName(m_fn))
+                         + " reason=" + gr.reason);
                 m_diag = std::string("gantry permit lost: ") + gr.reason;
                 return;
             }
@@ -222,6 +229,11 @@ public:
         case Step::Error:
             break;
         }
+        if (m_step != prev) {
+            LOG_DEBUG(LogLayer::APP, "JogPolicy",
+                      std::string("[jog] step ") + stepName(prev) + " -> " + stepName(m_step));
+        }
+
     }
 
     Step currentStep() const { return m_step; }

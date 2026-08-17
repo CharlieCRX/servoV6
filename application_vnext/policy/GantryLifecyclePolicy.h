@@ -32,6 +32,7 @@
 #include "domain_vnext/model/AxisKey.h"
 #include "domain_vnext/system/AxisRegistry.h"
 #include "infrastructure/plc_vnext/contracts/PlcGroupIndex.h"
+#include "infrastructure/logger/Logger.h"
 
 namespace application_vnext::policy {
 
@@ -101,7 +102,12 @@ private:
     bool resetFinalSatisfied(int32_t seq) const;
     /// 记录本次已提交请求的 RequestSeq（供 AckSeq 闭环）。
     void recordSubmittedSeq() { currentSeq_ = m_->lastGantryRequestSeq(g_); }
-    void toError(const char* reason) { step_ = Step::Error; diag_ = reason; }
+    void toError(const std::string& reason) {
+        LOG_ERROR(LogLayer::APP, "GantryLifecycle",
+                  "[gantry] group=" + std::to_string(g_.value())
+                  + " step=" + stepName(step_) + " error=" + reason);
+        step_ = Step::Error; diag_ = reason;
+    }
 
     SystemManagerVnext* m_;
     plc_vnext::contracts::PlcGroupIndex g_;
@@ -115,6 +121,7 @@ private:
     bool motorSent_ = false;
     bool stopSent_ = false;
     bool disableSent_ = false;
+    bool resetFromFault_ = false;   // 本次建立是否由"故障复位"进入（复位后需完整使能+联动序列）
 };
 
 // ---------------------------------------------------------------------------
@@ -128,6 +135,8 @@ inline void GantryLifecyclePolicy::beginCouple() {
     enabledSent_ = false; motorSent_ = false; stopSent_ = false; disableSent_ = false;
     currentSeq_ = 0;
     logical_ = nullptr;
+    resetFromFault_ = false;
+    LOG_INFO(LogLayer::APP, "GantryLifecycle", "[gantry] begin couple group=" + std::to_string(g_.value()));
     step_ = Step::ValidatePreconditions;
     stepStart_ = clock::now();
 }
@@ -140,6 +149,7 @@ inline void GantryLifecyclePolicy::beginDecouple() {
     currentSeq_ = 0;
     // P0：解除入口立即解析逻辑轴，避免 motionState() 恒 0 卡在停止判断。
     if (!findLogicalAxis()) { toError("logical axis X not bound in group"); return; }
+    LOG_INFO(LogLayer::APP, "GantryLifecycle", "[gantry] begin decouple group=" + std::to_string(g_.value()));
     step_ = Step::EnsureLogicalAxisStopped;
     stepStart_ = clock::now();
 }
@@ -188,6 +198,7 @@ inline bool GantryLifecyclePolicy::resetFinalSatisfied(int32_t seq) const {
 inline void GantryLifecyclePolicy::tick() {
     if (step_ == Step::Idle || step_ == Step::Ready ||
         step_ == Step::Done || step_ == Step::Error || step_ == Step::Cancelled) return;
+    const Step prev = step_;
     const auto now = clock::now();
     const double el = std::chrono::duration<double>(now - stepStart_).count();
 
@@ -213,8 +224,17 @@ inline void GantryLifecyclePolicy::tick() {
         if (m_->isSystemLocked()) { toError("system safety locked"); return; }
         if (!gs().trusted) { toError("gantry status not trusted"); return; }
         if (!m_->system().group(g_).isReady()) { toError("group not ready"); return; }
-        if (gs().rawState != 1) { toError("gantry not decoupled (state!=1)"); return; }
-        if (gs().fault) { toError("gantry fault"); return; }
+        // 故障（State=5 / fault 标志）：先复位（Command=3 + RequestSeq++）清错，
+        // 复位完成后走完整使能+联动序列，而不是直接报错拒绝。
+        if (gs().fault || gs().rawState == 5) {
+            step_ = Step::SubmitReset; resetFromFault_ = true; stepStart_ = now; break;
+        }
+        if (gs().rawState != 1) {
+            // 带实际状态值与名称，便于排查：0未配置 / 2建立中 / 4解除中。
+            toError("gantry not decoupled (state=" + std::to_string(gs().rawState) + " "
+                    + domain_vnext::model::gantryCouplingStateName(gs().coupling) + ")");
+            return;
+        }
         step_ = Step::EnsureAxisControl; stepStart_ = now; break;
 
     case Step::EnsureAxisControl:
@@ -259,13 +279,20 @@ inline void GantryLifecyclePolicy::tick() {
             toError("gantryReset submit failed"); return;
         }
         recordSubmittedSeq();   // 记录本次 Reset 的 RequestSeq（供 AckSeq 闭环）
+        LOG_INFO(LogLayer::APP, "GantryLifecycle",
+                 "[gantry] submit Reset group=" + std::to_string(g_.value())
+                 + " reqSeq=" + std::to_string(currentSeq_));
         step_ = Step::WaitResetFinal; stepStart_ = now; break;
 
     case Step::WaitResetFinal:
         if (resetFinalSatisfied(currentSeq_)) {
-            // 已取消时不进入 SubmitCouple（会产生 Couple 写），直接 Cancelled；未取消则继续
-            // CheckGantryError 后的建立序列。Reset 的 AckSeq 闭环在观察模式下保持租约完成。
-            step_ = cancelled_ ? Step::Cancelled : Step::SubmitCouple;
+            // 已取消时不进入后续（会产生写），直接 Cancelled。
+            // 故障复位（resetFromFault_）：复位后需完整使能+联动序列（EnsureAxisControl 起）；
+            // 否则（CheckGantryError 的清错复位，此时电机已使能）直接 SubmitCouple。
+            const bool fromFault = resetFromFault_;
+            resetFromFault_ = false;
+            step_ = cancelled_ ? Step::Cancelled
+                               : (fromFault ? Step::EnsureAxisControl : Step::SubmitCouple);
             if (step_ != Step::Cancelled) stepStart_ = now;
             break;
         }
@@ -280,6 +307,9 @@ inline void GantryLifecyclePolicy::tick() {
             toError("gantryCouple submit failed"); return;
         }
         recordSubmittedSeq();   // 记录本次 Couple 的 RequestSeq
+        LOG_INFO(LogLayer::APP, "GantryLifecycle",
+                 "[gantry] submit Couple group=" + std::to_string(g_.value())
+                 + " reqSeq=" + std::to_string(currentSeq_));
         step_ = Step::WaitCoupleFinal; stepStart_ = now; break;
 
     case Step::WaitCoupleFinal:
@@ -312,6 +342,9 @@ inline void GantryLifecyclePolicy::tick() {
             toError("gantryDecouple submit failed"); return;
         }
         recordSubmittedSeq();   // 记录本次 Decouple 的 RequestSeq
+        LOG_INFO(LogLayer::APP, "GantryLifecycle",
+                 "[gantry] submit Decouple group=" + std::to_string(g_.value())
+                 + " reqSeq=" + std::to_string(currentSeq_));
         step_ = Step::WaitDecoupleFinal; stepStart_ = now; break;
 
     case Step::WaitDecoupleFinal:
@@ -339,6 +372,12 @@ inline void GantryLifecyclePolicy::tick() {
     case Step::Idle: case Step::Ready: case Step::Done:
     case Step::Error: default: break;
     }
+    if (step_ != prev) {
+        LOG_DEBUG(LogLayer::APP, "GantryLifecycle",
+                  "[gantry] step group=" + std::to_string(g_.value())
+                  + " " + stepName(prev) + " -> " + stepName(step_));
+    }
+
 }
 
 inline const char* GantryLifecyclePolicy::stepName(Step s) {
