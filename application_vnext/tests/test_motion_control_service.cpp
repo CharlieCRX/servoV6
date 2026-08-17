@@ -14,6 +14,7 @@
 // Uses FakeControlRuntime (IControlRuntime fake) + PlcRuntimeDriverAdapter over
 // FakePlcRuntimeGateway (IPlcDriver source for boot/topology).
 // ============================================================================
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <mutex>
@@ -28,6 +29,7 @@
 #include "domain_vnext/model/GantryParam.h"
 #include "infrastructure/plc_vnext/contracts/CommunicationResult.h"
 #include "infrastructure/plc_vnext/contracts/SafetySnapshot.h"
+#include "infrastructure/plc_vnext/contracts/GantryRequest.h"
 #include "infrastructure/plc_vnext/fake/FakePlcRuntimeGateway.h"
 #include "infrastructure/plc_vnext/fake/PlcFixtureBuilder.h"
 
@@ -120,6 +122,16 @@ ControlCommand startYJogForward(ControlSource src) {
     jog.action = ControlAction::StartJogForward;
     return jog;
 }
+ControlCommand startXJogForward(ControlSource src) {
+    ControlCommand jog;
+    jog.source = src;
+    jog.target.group = plc_vnext::contracts::PlcGroupIndex(0);
+    jog.target.function = domain_vnext::model::AxisFunction::X;  // 龙门逻辑轴（A 组=slot13）
+    jog.action = ControlAction::StartJogForward;
+    return jog;
+}
+
+
 
 bool wroteAxis(const FakePlcRuntimeGateway& gw, PlcAxisCommandKind kind, bool level) {
     for (const auto& w : gw.writtenAxis()) {
@@ -651,6 +663,84 @@ TEST_F(MotionControlServiceTest, Phase7_CancelDuringResetWait_ObservesThenCancel
     // 观察期不得提交新龙门请求（未新增 Couple）。
     EXPECT_EQ(gw_.gantrySubmissions().size(), resetCount);
 }
+
+// 龙门逻辑轴 X 点动必须走 GantryMotionApi（LifecycleManaged + GantryMotionGuard）。
+// 已联动（State=3/Step=80/CommandResult=2/err=0/InGear/LogicalControlAllowed）时放行，
+// 跳过自管理使能、直接进入 Jogging，并向逻辑轴 slot13 写方向/心跳线圈。
+TEST_F(MotionControlServiceTest, Phase7_GantryXJogRunsWhenCoupled) {
+    gw_.setTopologySnapshot(makeSixAxisTopology());
+    auto svc = makeService();
+    bootAndConfigureGantry(*svc);
+    // 龙门已联动：逻辑轴 ms=2（电机空闲），guard 全部满足。
+    setGantryRuntime(runtime_, /*ms=*/2, /*ackSeq=*/0, /*state=*/3, /*step=*/80,
+                     /*result=*/2, /*err=*/0, /*x1=*/true, /*x2=*/true,
+                     /*logical=*/true, /*member=*/false);
+    const auto id = svc->submit(startXJogForward(ControlSource::Ui));
+    svc->tick();   // 建会话 -> PostEnableDelay（LifecycleManaged 不自行使能电机）
+    std::this_thread::sleep_for(std::chrono::milliseconds(450));
+    svc->tick();   // PostEnableDelay -> IssuingJog
+    svc->tick();   // IssuingJog -> Jogging
+    EXPECT_EQ(svc->queryOperation(id)->state, OperationState::Running);
+    EXPECT_TRUE(wroteAxis(gw_, PlcAxisCommandKind::JogHeartbeat, true));
+    EXPECT_TRUE(wroteAxis(gw_, PlcAxisCommandKind::JogForward, true));
+}
+
+// 龙门未联动（State=1/readyToCouple）时，龙门 X 点动走 GantryAutoJogSession 自动建立联动
+// （复刻 gantry-run-jog）：会话首段进入 Couple，向 PLC 提交 Couple 请求，操作保持 Running。
+TEST_F(MotionControlServiceTest, Phase7_GantryXJog_AutoCouplesWhenDecoupled) {
+    gw_.setTopologySnapshot(makeSixAxisTopology());
+    auto svc = makeService();
+    bootAndConfigureGantry(*svc);
+    // 未联动：State=1/Step=10/member 开放、logical 关闭，readyToCouple=true。
+    setGantryRuntime(runtime_, /*ms=*/2, /*ackSeq=*/0, /*state=*/1, /*step=*/10,
+                     /*result=*/0, /*err=*/0, /*x1=*/false, /*x2=*/false,
+                     /*logical=*/false, /*member=*/true);
+    const auto id = svc->submit(startXJogForward(ControlSource::Ui));
+    // 推进会话 couple 段：直到 fake 网关收到 Couple 提交（进入 WaitCoupleFinal）。
+    for (int i = 0; i < 80 && gw_.gantrySubmissions().empty(); ++i) svc->tick();
+    ASSERT_FALSE(gw_.gantrySubmissions().empty());
+    EXPECT_EQ(gw_.gantrySubmissions().back().req.command, plc_vnext::contracts::GantryCommandKind::Couple);
+    EXPECT_EQ(svc->queryOperation(id)->state, OperationState::Running);
+    EXPECT_TRUE(svc->store().snapshot().gantries[0].lifecycleLeased);
+}
+// 龙门故障（State=5）时，建立联动应先复位（GantryCommand=3 + RequestSeq++）清错，
+// 复位完成后（State=1/Step=10/err=0）再走完整使能+联动序列，最终提交 Couple。
+TEST_F(MotionControlServiceTest, Phase7_GantryCouple_FaultResetsThenCouples) {
+    gw_.setTopologySnapshot(makeSixAxisTopology());
+    auto svc = makeService();
+    bootAndConfigureGantry(*svc);
+    // 故障：State=5、err=123，readyToCouple=false。
+    setGantryRuntime(runtime_, /*ms=*/2, /*ackSeq=*/0, /*state=*/5, /*step=*/0,
+                     /*result=*/0, /*err=*/123, /*x1=*/false, /*x2=*/false,
+                     /*logical=*/false, /*member=*/false);
+    const auto id = svc->submit(gantryCmd(ControlAction::GantryEnableAndCouple));
+    // ValidatePreconditions 识别故障 -> SubmitReset -> 提交 Reset。
+    for (int i = 0; i < 40 && gw_.gantrySubmissions().empty(); ++i) svc->tick();
+    ASSERT_FALSE(gw_.gantrySubmissions().empty());
+    EXPECT_EQ(gw_.gantrySubmissions().back().req.command,
+              plc_vnext::contracts::GantryCommandKind::Reset);
+    EXPECT_EQ(svc->queryOperation(id)->state, OperationState::Running);
+    // 注入复位完成：State=1/Step=10/result=2/err=0/member 开放。
+    setGantryRuntime(runtime_, /*ms=*/2, /*ackSeq=*/1, /*state=*/1, /*step=*/10,
+                     /*result=*/2, /*err=*/0, /*x1=*/false, /*x2=*/false,
+                     /*logical=*/false, /*member=*/true);
+    // 复位后走完整序列并提交 Couple（循环直到提交 Couple 或达到上限）。
+    bool sawCouple = false;
+    for (int i = 0; i < 200 && svc->queryOperation(id)->state == OperationState::Running; ++i) {
+        svc->tick();
+        if (!gw_.gantrySubmissions().empty() &&
+            gw_.gantrySubmissions().back().req.command ==
+                plc_vnext::contracts::GantryCommandKind::Couple) {
+            sawCouple = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(sawCouple);
+    EXPECT_EQ(svc->queryOperation(id)->state, OperationState::Running);
+}
+
+
+
 
 TEST_F(MotionControlServiceTest, Phase3_StopJogCancelsSession) {
     gw_.setTopologySnapshot(makeSixAxisTopology());

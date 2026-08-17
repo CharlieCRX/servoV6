@@ -39,6 +39,8 @@
 #include "application_vnext/control/MotionControlService.h"
 #include "infrastructure/plc_vnext/PlcRuntimeGateway.h"
 #include "infrastructure/plc_vnext/transport/AsioModbusTcpClient.h"
+#include "domain_vnext/model/GantryParam.h"
+#include "infrastructure/plc_vnext/contracts/PlcGroupIndex.h"
 #include <sstream>
 #include <iomanip>
 #include <memory>
@@ -566,7 +568,17 @@ int main(int argc, char *argv[])
             //     → 发布不可变快照。
             //   snapshotAdapter.refresh(): GUI 线程把统一快照投影到 QML（只读）。
             if (ustack->server)  ustack->server->tick();   // UDP 收包 → submit
-            if (ustack->service) ustack->service->tick();  // 仲裁/执行（含本轮 UDP 命令）
+            if (ustack->service) {
+                ustack->service->tick();  // 仲裁/执行（含本轮 UDP 命令）
+                // P0-A 占位：D1600 `GantryParam` 的 C++ 读路径尚未落地前，注入有效配置使
+                // 龙门联动准入通过（`GantryCouplingStateMachine::requestCouple` 要求
+                // configValid==true，否则会在写 GantryCommand=1 之前返回 RejectedNotReady）。
+                // 与 plc_vnext_motion_probe 一致；待实现真实 D1600 读取后替换为真实参数。
+                domain_vnext::model::GantryParamModel gcfg;
+                gcfg.valid = true;
+                ustack->service->applyGantryConfig(
+                    plc_vnext::contracts::PlcGroupIndex(0), gcfg);
+            }
             snapshotAdapter.refresh();
         } else {
             // ---- Legacy 链路（现状）：物理引擎 + 反馈注入 + ViewModel 推进 ----

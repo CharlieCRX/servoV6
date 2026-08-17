@@ -317,4 +317,3 @@ TEST_F(GantryPolicyTest, Api_SetTargetAndStop_WriteLogicalAxis) {
 }  // namespace
 }  // namespace application_vnext::policy
 
-
