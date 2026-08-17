@@ -6,12 +6,41 @@
 // ============================================================================
 #include "presentation/viewmodel/UiControlCommandAdapter.h"
 
+#include <sstream>
 #include <utility>
 
 #include "application_vnext/control/ControlCommand.h"
 #include "application_vnext/control/MotionControlService.h"
 #include "domain_vnext/model/AxisFunction.h"
+#include "infrastructure/logger/Logger.h"
 #include "infrastructure/plc_vnext/contracts/PlcGroupIndex.h"
+
+namespace {
+
+std::string uiCommandLog(application_vnext::control::AxisTarget target,
+                         application_vnext::control::ControlAction action,
+                         double value,
+                         bool level,
+                         bool hasMotion,
+                         double motionTarget,
+                         double motionSpeed) {
+    std::ostringstream oss;
+    oss << "action=" << application_vnext::control::controlActionName(action)
+        << " target=" << application_vnext::control::axisTargetName(target)
+        << " value=" << value
+        << " level=" << (level ? "true" : "false");
+    if (hasMotion) {
+        oss << " motionTarget=" << motionTarget
+            << " motionSpeed=" << motionSpeed;
+    }
+    return oss.str();
+}
+
+void logUiRejected(const QString& error) {
+    LOG_WARN(LogLayer::UI, "UiControl", error.toStdString());
+}
+
+}  // namespace
 
 struct UiControlCommandAdapter::Impl {
     application_vnext::control::MotionControlService* svc = nullptr;
@@ -33,6 +62,9 @@ void UiControlCommandAdapter::setLastError(const QString& error) {
     if (d_->lastError == error) return;
     d_->lastError = error;
     emit lastErrorChanged();
+    if (!d_->lastError.isEmpty()) {
+        logUiRejected(d_->lastError);
+    }
 }
 
 bool UiControlCommandAdapter::parseAxis(const QString& group, const QString& role,
@@ -58,7 +90,14 @@ QString UiControlCommandAdapter::submitUi(application_vnext::control::AxisTarget
                                           bool hasMotion, double motionTarget,
                                           double motionSpeed) {
     setLastError({});
+    const std::string payload = uiCommandLog(target, action, value, level,
+                                             hasMotion, motionTarget, motionSpeed);
+    if (!d_->svc) {
+        LOG_WARN(LogLayer::UI, "UiControl", "submit rejected: " + payload + " reason=no service");
+    }
     if (!d_->svc) { setLastError("控制服务未注入"); return QString(); }
+
+    LOG_INFO(LogLayer::UI, "UiControl", "submit " + payload);
 
     application_vnext::control::ControlCommand cmd;
     cmd.source = application_vnext::control::ControlSource::Ui;
@@ -70,7 +109,9 @@ QString UiControlCommandAdapter::submitUi(application_vnext::control::AxisTarget
         cmd.motion = application_vnext::control::MotionRequest{
             static_cast<float>(motionTarget), static_cast<float>(motionSpeed)};
     }
-    return QString::fromStdString(d_->svc->submit(std::move(cmd)));
+    const std::string opId = d_->svc->submit(std::move(cmd));
+    LOG_INFO(LogLayer::UI, "UiControl", "queued opId=" + opId + " " + payload);
+    return QString::fromStdString(opId);
 }
 
 QString UiControlCommandAdapter::setManualSpeed(const QString& g, const QString& r, double v) {
