@@ -87,6 +87,7 @@ QVariantMap operationToMap(const OperationView& op) {
 struct UiControlAdapter::Impl {
     application_vnext::control::MotionControlService* svc = nullptr;
     ProjectedUiState projected;
+    int revision = 0;
 };
 
 UiControlAdapter::UiControlAdapter(application_vnext::control::MotionControlService* svc,
@@ -106,6 +107,7 @@ QString UiControlAdapter::connectionDiagnostic() const {
 bool UiControlAdapter::emergencyStop() const { return d_->projected.emergencyStop; }
 bool UiControlAdapter::safetyTrusted() const { return d_->projected.safetyTrusted; }
 bool UiControlAdapter::globallyLocked() const { return d_->projected.globallyLocked; }
+int UiControlAdapter::revision() const { return d_->revision; }
 
 QVariantList UiControlAdapter::axes() const {
     QVariantList out;
@@ -138,6 +140,7 @@ void UiControlAdapter::refresh() {
         d_->projected = application_vnext::control::UiProjection::project(
             application_vnext::control::ControlStateSnapshot{}, /*globallyLocked=*/true);
     }
+    ++d_->revision;
     emit stateChanged();
 }
 

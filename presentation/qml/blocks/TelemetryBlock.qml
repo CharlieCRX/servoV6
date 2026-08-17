@@ -16,7 +16,11 @@ Rectangle {
     property string selectedAxis: ""
     property string groupName: ""
     readonly property string groupLetter: groupName === "Machine_B" ? "B" : "A"
-    readonly property var vAxis: snapshotAdapter ? snapshotAdapter.axisFor(groupLetter, selectedAxis) : ({})
+    readonly property int snapshotRevision: snapshotAdapter ? snapshotAdapter.revision : 0
+    readonly property var vAxis: {
+        root.snapshotRevision
+        return snapshotAdapter ? snapshotAdapter.axisFor(groupLetter, selectedAxis) : ({})
+    }
     readonly property bool vnextActive: viewModel === null && snapshotAdapter
     readonly property double effectiveAbsPos: viewModel ? viewModel.absPos : (vAxis.absPosition ?? 0.0)
     readonly property double effectiveRelPos: viewModel ? viewModel.relPos : (vAxis.relPosition ?? 0.0)

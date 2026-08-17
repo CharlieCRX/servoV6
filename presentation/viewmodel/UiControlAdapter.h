@@ -41,6 +41,7 @@ class UiControlAdapter : public QObject {
     Q_PROPERTY(bool emergencyStop READ emergencyStop NOTIFY stateChanged)
     Q_PROPERTY(bool safetyTrusted READ safetyTrusted NOTIFY stateChanged)
     Q_PROPERTY(bool globallyLocked READ globallyLocked NOTIFY stateChanged)
+    Q_PROPERTY(int revision READ revision NOTIFY stateChanged)
 
     // ---- 轴 / 龙门 / 操作条目（只读，QML 可遍历）----
     Q_PROPERTY(QVariantList axes READ axes NOTIFY stateChanged)
@@ -60,6 +61,7 @@ public:
     bool emergencyStop() const;
     bool safetyTrusted() const;
     bool globallyLocked() const;
+    int revision() const;
     QVariantList axes() const;
     QVariantList gantries() const;
     QVariantList operations() const;

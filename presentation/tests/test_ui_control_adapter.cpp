@@ -140,6 +140,7 @@ TEST_F(UiControlAdapterIntegrationTest, ReflectsTickChangesAcrossSamples) {
     svc_->tick();
     UiControlAdapter adapter(svc_.get());
     adapter.refresh();
+    const int firstRevision = adapter.revision();
     EXPECT_DOUBLE_EQ(adapter.axisFor("A", "X1")["absPosition"].toDouble(), 12.5);
     EXPECT_EQ(adapter.axisFor("A", "X1")["motionStateName"].toString(), "MotorIdle(2)");
 
@@ -152,6 +153,7 @@ TEST_F(UiControlAdapterIntegrationTest, ReflectsTickChangesAcrossSamples) {
     runtime_.setRuntimeSnapshot(rt);
     svc_->tick();
     adapter.refresh();
+    EXPECT_GT(adapter.revision(), firstRevision);
     EXPECT_DOUBLE_EQ(adapter.axisFor("A", "X1")["absPosition"].toDouble(), 25.0);
     EXPECT_EQ(adapter.axisFor("A", "X1")["motionStateName"].toString(), "AbsMove(5)");
     EXPECT_EQ(adapter.gantry(0)["stateName"].toString(), "故障");
@@ -182,7 +184,8 @@ TEST_F(UiControlAdapterIntegrationTest, QmlBindingReflectsRealServiceSnapshot) {
         "    property bool conn: adapter.connected\n"
         "    property bool estop: adapter.emergencyStop\n"
         "    property bool gl: adapter.globallyLocked\n"
-        "    property var ax: adapter.axisFor(\"A\",\"X1\")\n"
+        "    property int rev: adapter.revision\n"
+        "    property var ax: { rev; return adapter.axisFor(\"A\",\"X1\") }\n"
         "    property var gn: adapter.gantry(0)\n"
         "}\n",
         QUrl());
@@ -203,6 +206,16 @@ TEST_F(UiControlAdapterIntegrationTest, QmlBindingReflectsRealServiceSnapshot) {
     const auto gn = QQmlProperty(root.data(), "gn").read().toMap();
     EXPECT_EQ(gn["stateName"].toString(), "已联动");
     EXPECT_TRUE(gn["logicalControlAllowed"].toBool());
+
+    auto rt = makeBaselineRuntime();
+    rt.axes[0].absPosition = 33.0f;
+    runtime_.setRuntimeSnapshot(rt);
+    svc_->tick();
+    adapter.refresh();
+    QCoreApplication::processEvents();
+
+    const auto updatedAx = QQmlProperty(root.data(), "ax").read().toMap();
+    EXPECT_DOUBLE_EQ(updatedAx["absPosition"].toDouble(), 33.0);
 }
 
 // ---------- 测试 4：nullptr 构造的安全默认离线/锁定态 ----------
