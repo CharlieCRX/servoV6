@@ -35,6 +35,8 @@ enum class AxisFunction;
 
 class UiControlCommandAdapter : public QObject {
     Q_OBJECT
+    Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
+    Q_PROPERTY(bool available READ available CONSTANT)
 
 public:
     /// svc 可传 nullptr：真实 vnext 链路接入前，所有提交返回 ""（安全默认）。
@@ -72,8 +74,13 @@ public:
 
     /// 最近一次提交失败的本地诊断（成功/未提交返回空）。
     Q_INVOKABLE QString lastError() const;
+    bool available() const;
+
+signals:
+    void lastErrorChanged();
 
 private:
+    void setLastError(const QString& error);
     QString submitUi(application_vnext::control::AxisTarget target,
                      application_vnext::control::ControlAction action,
                      double value = 0.0, bool level = false,

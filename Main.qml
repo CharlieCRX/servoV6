@@ -131,6 +131,7 @@ Window {
                 viewModel: currentViewModel
                 emergencyViewModel: currentEmergencyViewModel
                 gantryViewModel: currentGantryViewModel
+                groupLetter: currentGroup === "Machine_A" ? "A" : "B"
                 currentAxis: mainWindow.currentAxis
             }
         }
@@ -141,30 +142,5 @@ Window {
             viewModel: currentViewModel
         }
 
-        // ===== 5. ★ Phase 2：统一状态快照只读对照面板 =====
-        // 只读展示统一快照（位置/运动态/急停/全局锁定/龙门许可/操作队列），
-        // 用于对照验证投影正确性；本面板不提交任何命令。
-        ControlSnapshotBlock {
-            Layout.fillWidth: true
-            snapshotAdapter: controlSnapshot
-            groupLetter: currentGroup === "Machine_A" ? "A" : "B"
-            role: currentAxis
-        }
-
-        // ===== 6. ★ UI-2：vnext 单轴控制面板（首轮 A.Y / A.Z）=====
-        // 经 controlSnapshot 读取 + controlCommand（UiControlCommandAdapter，UI 唯一可写入口）
-        // 写入。Unified 模式可用；Legacy 模式两适配器为 nullptr，按钮禁用（安全，不直写 PLC）。
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 330 * Theme.scale
-            SingleAxisControlBlock {
-                groupLetter: "A"; role: "Y"
-                Layout.fillWidth: true; Layout.fillHeight: true
-            }
-            SingleAxisControlBlock {
-                groupLetter: "A"; role: "Z"
-                Layout.fillWidth: true; Layout.fillHeight: true
-            }
-        }
     }
 }

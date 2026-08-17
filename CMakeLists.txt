@@ -3,6 +3,9 @@ project(servoV6)
 
 set(CMAKE_CXX_STANDARD 20)
 
+option(SERVO_V6_UNIFIED_CONTROL "Run the app through the vnext MotionControlService stack" ON)
+option(SERVO_V6_ENABLE_VNEXT_UDP "Enable the vnext UDP command server in unified mode" OFF)
+
 # ==========================================
 # 1. 先引入 Qt 环境 (务必加上 Qml)
 # ==========================================
@@ -90,6 +93,18 @@ qt_add_executable(appservoV6
 )
 
 set_target_properties(appservoV6 PROPERTIES AUTOMOC ON)
+
+if(SERVO_V6_UNIFIED_CONTROL)
+    target_compile_definitions(appservoV6 PRIVATE SERVO_V6_UNIFIED_CONTROL=1)
+else()
+    target_compile_definitions(appservoV6 PRIVATE SERVO_V6_UNIFIED_CONTROL=0)
+endif()
+
+if(SERVO_V6_ENABLE_VNEXT_UDP)
+    target_compile_definitions(appservoV6 PRIVATE SERVO_V6_ENABLE_VNEXT_UDP=1)
+else()
+    target_compile_definitions(appservoV6 PRIVATE SERVO_V6_ENABLE_VNEXT_UDP=0)
+endif()
 
 # ★ 指定 Android 项目模板目录（包含自定义 MainActivity、GamepadBridge）★
 if(ANDROID)

@@ -2,6 +2,37 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Debug appservoV6 UI",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/appservoV6.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build",
+            "environment": [
+                {
+                    "name": "PATH",
+                    "value": "${config:servo.qtBinDir};${config:servo.mingwBinDir};${env:PATH}"
+                },
+                {
+                    "name": "QML_IMPORT_TRACE",
+                    "value": "0"
+                }
+            ],
+            "console": "integratedTerminal",
+            "MIMode": "gdb",
+            "miDebuggerPath": "${config:servo.mingwBinDir}/gdb.exe",
+            "preLaunchTask": "cmake-build-appservoV6",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "visualizerFile": "c:\\Users\\Administrator\\AppData\\Roaming\\Code\\User\\workspaceStorage\\4e5d2f5d9528eacdab6e8377eb68db3c\\tonka3000.qtvsctools\\qt.natvis.xml"
+        },
+        {
             "name": "Debug domain_vnext_tests",
             "type": "cppdbg",
             "request": "launch",

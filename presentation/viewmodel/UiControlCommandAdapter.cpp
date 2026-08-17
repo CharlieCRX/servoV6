@@ -27,13 +27,20 @@ UiControlCommandAdapter::UiControlCommandAdapter(
 UiControlCommandAdapter::~UiControlCommandAdapter() { delete d_; }
 
 QString UiControlCommandAdapter::lastError() const { return d_->lastError; }
+bool UiControlCommandAdapter::available() const { return d_->svc != nullptr; }
+
+void UiControlCommandAdapter::setLastError(const QString& error) {
+    if (d_->lastError == error) return;
+    d_->lastError = error;
+    emit lastErrorChanged();
+}
 
 bool UiControlCommandAdapter::parseAxis(const QString& group, const QString& role,
                                         application_vnext::control::AxisTarget& out) {
     using domain_vnext::model::AxisFunction;
     if (group == "A") out.group = plc_vnext::contracts::PlcGroupIndex(0);
     else if (group == "B") out.group = plc_vnext::contracts::PlcGroupIndex(1);
-    else { d_->lastError = "未知组: " + group; return false; }
+    else { setLastError("未知组: " + group); return false; }
     const QString r = role.toUpper();
     if (r == "X")  out.function = AxisFunction::X;
     else if (r == "X1") out.function = AxisFunction::X1;
@@ -41,7 +48,7 @@ bool UiControlCommandAdapter::parseAxis(const QString& group, const QString& rol
     else if (r == "Y")  out.function = AxisFunction::Y;
     else if (r == "Z")  out.function = AxisFunction::Z;
     else if (r == "R")  out.function = AxisFunction::R;
-    else { d_->lastError = "未知角色: " + role; return false; }
+    else { setLastError("未知角色: " + role); return false; }
     return true;
 }
 
@@ -50,8 +57,8 @@ QString UiControlCommandAdapter::submitUi(application_vnext::control::AxisTarget
                                           double value, bool level,
                                           bool hasMotion, double motionTarget,
                                           double motionSpeed) {
-    d_->lastError.clear();
-    if (!d_->svc) { d_->lastError = "控制服务未注入"; return QString(); }
+    setLastError({});
+    if (!d_->svc) { setLastError("控制服务未注入"); return QString(); }
 
     application_vnext::control::ControlCommand cmd;
     cmd.source = application_vnext::control::ControlSource::Ui;
@@ -74,7 +81,7 @@ QString UiControlCommandAdapter::setManualSpeed(const QString& g, const QString&
 QString UiControlCommandAdapter::setPositioningSpeed(const QString& g, const QString& r,
                                                      double v) {
     // 定位速度必须为正（与 start*Move 一致）：本地拦截避免无效 operation，服务层仍权威校验。
-    if (v <= 0.0) { d_->lastError = "定位速度必须为正"; return QString(); }
+    if (v <= 0.0) { setLastError("定位速度必须为正"); return QString(); }
     application_vnext::control::AxisTarget t;
     if (!parseAxis(g, r, t)) return QString();
     return submitUi(t, application_vnext::control::ControlAction::SetPositioningSpeed, v);
@@ -121,7 +128,7 @@ QString UiControlCommandAdapter::stopJog(const QString& g, const QString& r) {
 }
 QString UiControlCommandAdapter::startAbsMove(const QString& g, const QString& r,
                                               double target, double speed) {
-    if (speed <= 0.0) { d_->lastError = "定位速度必须为正"; return QString(); }
+    if (speed <= 0.0) { setLastError("定位速度必须为正"); return QString(); }
     application_vnext::control::AxisTarget t;
     if (!parseAxis(g, r, t)) return QString();
     return submitUi(t, application_vnext::control::ControlAction::StartAbsMove,
@@ -129,7 +136,7 @@ QString UiControlCommandAdapter::startAbsMove(const QString& g, const QString& r
 }
 QString UiControlCommandAdapter::startRelMove(const QString& g, const QString& r,
                                               double delta, double speed) {
-    if (speed <= 0.0) { d_->lastError = "定位速度必须为正"; return QString(); }
+    if (speed <= 0.0) { setLastError("定位速度必须为正"); return QString(); }
     application_vnext::control::AxisTarget t;
     if (!parseAxis(g, r, t)) return QString();
     return submitUi(t, application_vnext::control::ControlAction::StartRelMove,
@@ -152,4 +159,3 @@ QString UiControlCommandAdapter::requestEmergencyStopRelease() {
     t.function = domain_vnext::model::AxisFunction::Y;
     return submitUi(t, application_vnext::control::ControlAction::ReleaseEmergencyStop);
 }
-

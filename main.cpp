@@ -54,6 +54,14 @@
 #undef NO_ERROR
 #endif
 
+#ifndef SERVO_V6_UNIFIED_CONTROL
+#define SERVO_V6_UNIFIED_CONTROL 1
+#endif
+
+#ifndef SERVO_V6_ENABLE_VNEXT_UDP
+#define SERVO_V6_ENABLE_VNEXT_UDP 0
+#endif
+
 // 辅助：将单个轴的摘要格式化为紧凑字符串
 // 输出如 "Y: pos=+0041.4 Standstill"
 static std::string formatAxisSummary(QtAxisViewModel& vm)
@@ -148,9 +156,9 @@ int main(int argc, char *argv[])
     //       （旧 UI 控制入口随之不存在，无法写 PLC），实现「单 client / 单 poll / 单写链路」；
     //     - kUnifiedLoopEnabled = false : Legacy 模式 —— 旧 client + legacy manager +
     //       旧 UI 控制链（现状），不创建统一栈。
-    constexpr bool kUnifiedLoopEnabled = false;
+    constexpr bool kUnifiedLoopEnabled = (SERVO_V6_UNIFIED_CONTROL != 0);
     // UDP 子开关：仅 Unified 模式下有意义，控制是否启动真实 UDP server。
-    constexpr bool kEnableUdpVnext = false;
+    constexpr bool kEnableUdpVnext = (SERVO_V6_ENABLE_VNEXT_UDP != 0);
     (void)kEnableUdpVnext;  // Unified 关闭时未被 if constexpr 引用，此处消解未使用警告
 
     // 两套组合根的持有者（长生命周期，声明逆序析构，避免 service 引用悬空）。

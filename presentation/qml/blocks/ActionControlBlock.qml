@@ -8,7 +8,31 @@ Rectangle {
     property var viewModel: null
     property var emergencyViewModel: null  // 急停安全 ViewModel
     property var gantryViewModel: null     // 龙门 ViewModel
+    property var snapshotAdapter: controlSnapshot
+    property var commandAdapter: controlCommand
+    property string groupLetter: "A"
     property string currentAxis: ""        // 当前选中的轴名（用于龙门逻辑判断）
+
+    readonly property var vAxis: snapshotAdapter ? snapshotAdapter.axisFor(groupLetter, currentAxis) : ({})
+    readonly property bool vnextActive: viewModel === null
+                                        && snapshotAdapter
+                                        && commandAdapter
+                                        && commandAdapter.available
+    readonly property bool vnextIndependentAxis: currentAxis === "Y" || currentAxis === "Z" || currentAxis === "R"
+    readonly property bool vnextCanControl: vnextActive && vnextIndependentAxis
+                                            && snapshotAdapter.connected
+                                            && snapshotAdapter.safetyTrusted
+                                            && !snapshotAdapter.emergencyStop
+                                            && !snapshotAdapter.globallyLocked
+                                            && vAxis.bound && vAxis.trusted
+                                            && vAxis.hmiVisible && !vAxis.leased
+    readonly property int effectiveState: viewModel ? viewModel.state : (vAxis.motionState ?? 0)
+    readonly property double effectiveJogVelocity: viewModel ? viewModel.jogVelocity : (vAxis.manualSpeed ?? 0.0)
+    readonly property double effectiveMoveVelocity: viewModel ? viewModel.moveVelocity : (vAxis.positioningSpeed ?? 0.0)
+    readonly property double effectiveAbsTarget: viewModel ? viewModel.absMoveTarget : (vAxis.absMoveTarget ?? 0.0)
+    readonly property double effectiveRelTarget: viewModel ? viewModel.relMoveTarget : (vAxis.relMoveTarget ?? 0.0)
+    readonly property bool effectiveLoading: viewModel ? viewModel.isLoading : (vAxis.leased ?? false)
+    readonly property bool effectiveBlockingError: viewModel ? viewModel.hasBlockingError : false
 
     // ★ 绑定到 C++ MotionController，摇杆操作根据此模式自动分发到 JOG 或 Position
     // 内部状态：0 = 点动模式 (Jog), 1 = 定位模式 (Position)
@@ -19,6 +43,7 @@ Rectangle {
     // ── 系统锁定 = 安全锁定 + 轴本身不可用 ──
     property bool systemLocked: {
         if (emergencyViewModel && emergencyViewModel.isSystemLocked) return true
+        if (root.vnextActive && snapshotAdapter && snapshotAdapter.globallyLocked) return true
         return false
     }
 
@@ -47,18 +72,21 @@ Rectangle {
         return ""
     }
 
-    property bool jogEnabled: !systemLocked && !gantryOperationLocked && viewModel !== null
+    property bool jogEnabled: !systemLocked && !gantryOperationLocked
+                              && (viewModel !== null || root.vnextCanControl)
 
     // R轴（旋转轴）判定
     readonly property bool isRAxis: currentAxis === "R"
 
     // ★ 定位模式下触发是否就绪：仅 Modal 错误阻断操作
-    property bool isReadyForTrigger: !systemLocked && !gantryOperationLocked && viewModel ? 
-        (!viewModel.hasBlockingError && viewModel.state <= 2 && !viewModel.isLoading) : false
+    property bool isReadyForTrigger: !systemLocked && !gantryOperationLocked
+        && (viewModel ? (!viewModel.hasBlockingError && viewModel.state <= 2 && !viewModel.isLoading)
+                      : root.vnextCanControl)
 
     // ★ 设置目标是否就绪：仅 Modal 错误阻断操作
-    property bool isReadyForSetTarget: !systemLocked && !gantryOperationLocked && viewModel ? 
-        (!viewModel.hasBlockingError && viewModel.state <= 2) : false
+    property bool isReadyForSetTarget: !systemLocked && !gantryOperationLocked
+        && (viewModel ? (!viewModel.hasBlockingError && viewModel.state <= 2)
+                      : root.vnextCanControl)
 
         color: "transparent"
 
@@ -211,7 +239,7 @@ Rectangle {
                         font.family: "Monospace"
                     }
                     Text {
-                        text: viewModel ? viewModel.jogVelocity.toFixed(1) : "0.0"
+                        text: root.effectiveJogVelocity.toFixed(1)
                         color: Theme.colorIdle
                         font.pixelSize: Theme.fontNormal
                         font.bold: true
@@ -231,7 +259,7 @@ Rectangle {
                         baseColor: Theme.panelBg
                         enabled: root.jogEnabled
                         onClicked: {
-                            jogVelocityNumPad.inputText = viewModel ? viewModel.jogVelocity.toString() : "0.00"
+                            jogVelocityNumPad.inputText = root.effectiveJogVelocity.toString()
                             jogVelocityNumPad.open()
                         }
                     }
@@ -296,7 +324,7 @@ Rectangle {
                         font.family: "Monospace"
                     }
                     Text {
-                        text: viewModel ? viewModel.moveVelocity.toFixed(1) : "0.0"
+                        text: root.effectiveMoveVelocity.toFixed(1)
                         color: Theme.colorIdle
                         font.pixelSize: Theme.fontNormal
                         font.bold: true
@@ -316,7 +344,7 @@ Rectangle {
                         baseColor: Theme.panelBg
                         enabled: root.isReadyForSetTarget
                         onClicked: {
-                            moveVelocityNumPad.inputText = viewModel ? viewModel.moveVelocity.toString() : "0.00"
+                            moveVelocityNumPad.inputText = root.effectiveMoveVelocity.toString()
                             moveVelocityNumPad.open()
                         }
                     }
@@ -335,7 +363,7 @@ Rectangle {
                         font.family: "Monospace"
                     }
                     Text {
-                        text: viewModel ? viewModel.absMoveTarget.toFixed(1) : "0.0"
+                        text: root.effectiveAbsTarget.toFixed(1)
                         color: Theme.colorIdle
                         font.pixelSize: Theme.fontNormal
                         font.bold: true
@@ -355,7 +383,7 @@ Rectangle {
                         baseColor: Theme.panelBg
                         enabled: root.isReadyForSetTarget
                         onClicked: {
-                            absTargetNumPad.inputText = viewModel ? viewModel.absMoveTarget.toFixed(2) : "0.00"
+                            absTargetNumPad.inputText = root.effectiveAbsTarget.toFixed(2)
                             absTargetNumPad.open()
                         }
                     }
@@ -374,7 +402,7 @@ Rectangle {
                         font.family: "Monospace"
                     }
                     Text {
-                        text: viewModel ? viewModel.relMoveTarget.toFixed(1) : "0.0"
+                        text: root.effectiveRelTarget.toFixed(1)
                         color: Theme.colorIdle
                         font.pixelSize: Theme.fontNormal
                         font.bold: true
@@ -394,7 +422,7 @@ Rectangle {
                         baseColor: Theme.panelBg
                         enabled: root.isReadyForSetTarget
                         onClicked: {
-                            relTargetNumPad.inputText = viewModel ? viewModel.relMoveTarget.toFixed(2) : "0.00"
+                            relTargetNumPad.inputText = root.effectiveRelTarget.toFixed(2)
                             relTargetNumPad.open()
                         }
                     }
@@ -504,7 +532,7 @@ Rectangle {
                     Layout.alignment: Qt.AlignHCenter
                     visible: root.isAbsolute
                     text: root.isReadyForTrigger ? "绝对定位" : (
-                        viewModel && viewModel.isLoading ? "运行中..." : "不可用"
+                        root.effectiveLoading ? "运行中..." : "不可用"
                     )
                     isCircle: false
                     buttonSize: 170 * Theme.scale
@@ -514,6 +542,10 @@ Rectangle {
                         if (!root.isReadyForTrigger) return
                         if (viewModel) {
                             viewModel.triggerAbsMove()
+                        } else if (root.vnextCanControl) {
+                            commandAdapter.startAbsMove(root.groupLetter, root.currentAxis,
+                                                        root.effectiveAbsTarget,
+                                                        root.effectiveMoveVelocity)
                         }
                     }
                 }
@@ -523,7 +555,7 @@ Rectangle {
                     Layout.alignment: Qt.AlignHCenter
                     visible: !root.isAbsolute
                     text: root.isReadyForTrigger ? "相对定位" : (
-                        viewModel && viewModel.isLoading ? "运行中..." : "不可用"
+                        root.effectiveLoading ? "运行中..." : "不可用"
                     )
                     isCircle: false
                     buttonSize: 170 * Theme.scale
@@ -533,6 +565,10 @@ Rectangle {
                         if (!root.isReadyForTrigger) return
                         if (viewModel) {
                             viewModel.triggerRelMove()
+                        } else if (root.vnextCanControl) {
+                            commandAdapter.startRelMove(root.groupLetter, root.currentAxis,
+                                                        root.effectiveRelTarget,
+                                                        root.effectiveMoveVelocity)
                         }
                     }
                 }
@@ -560,6 +596,9 @@ Rectangle {
             Layout.alignment: Qt.AlignHCenter
 
             text: {
+                if (!emergencyViewModel && root.vnextActive) {
+                    return snapshotAdapter.emergencyStop ? "解除急停" : "急 停"
+                }
                 if (!emergencyViewModel) return "急 停"
                 if (emergencyViewModel.isNotSynchronized)    return "急 停"
                 if (emergencyViewModel.isEmergencyStopped)   return "解除急停"
@@ -568,6 +607,9 @@ Rectangle {
             }
 
             baseColor: {
+                if (!emergencyViewModel && root.vnextActive) {
+                    return snapshotAdapter.emergencyStop ? "#FF5252" : Theme.colorError
+                }
                 if (!emergencyViewModel) return Theme.colorError
                 if (emergencyViewModel.isNotSynchronized)    return Theme.colorDisabled
                 if (emergencyViewModel.isEmergencyStopped)   return "#FF5252"
@@ -582,6 +624,7 @@ Rectangle {
             }
 
             enabled: {
+                if (!emergencyViewModel && root.vnextActive) return true
                 if (!emergencyViewModel) return false
                 if (emergencyViewModel.isNotSynchronized)    return false
                 if (emergencyViewModel.isTransitioning)      return false
@@ -589,6 +632,14 @@ Rectangle {
             }
 
             onClicked: {
+                if (!emergencyViewModel && root.vnextActive) {
+                    if (snapshotAdapter.emergencyStop) {
+                        commandAdapter.requestEmergencyStopRelease()
+                    } else {
+                        commandAdapter.triggerEmergencyStop()
+                    }
+                    return
+                }
                 if (!emergencyViewModel) return
 
                 if (emergencyViewModel.isEmergencyStopped) {
@@ -615,6 +666,8 @@ Rectangle {
         onConfirmed: (value) => {
             if (root.viewModel) {
                 root.viewModel.setJogVelocity(parseFloat(value))
+            } else if (root.vnextCanControl) {
+                root.commandAdapter.setManualSpeed(root.groupLetter, root.currentAxis, parseFloat(value))
             }
         }
     }
@@ -632,6 +685,8 @@ Rectangle {
         onConfirmed: (value) => {
             if (root.viewModel) {
                 root.viewModel.setMoveVelocity(parseFloat(value))
+            } else if (root.vnextCanControl) {
+                root.commandAdapter.setPositioningSpeed(root.groupLetter, root.currentAxis, parseFloat(value))
             }
         }
     }
@@ -655,6 +710,8 @@ Rectangle {
                     absTargetErrorDialog.errorText = errMsg
                     absTargetErrorDialog.open()
                 }
+            } else if (root.vnextCanControl) {
+                root.commandAdapter.setAbsTarget(root.groupLetter, root.currentAxis, parseFloat(value))
             }
         }
     }
@@ -678,6 +735,8 @@ Rectangle {
                     relTargetErrorDialog.errorText = errMsg
                     relTargetErrorDialog.open()
                 }
+            } else if (root.vnextCanControl) {
+                root.commandAdapter.setRelTarget(root.groupLetter, root.currentAxis, parseFloat(value))
             }
         }
     }

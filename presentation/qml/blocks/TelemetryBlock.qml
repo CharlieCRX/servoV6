@@ -11,11 +11,25 @@ Rectangle {
     property var emergencyViewModel: null
     property var gantryViewModel: null
     property var connectionViewModel: null
+    property var snapshotAdapter: controlSnapshot
+    property var commandAdapter: controlCommand
     property string selectedAxis: ""
     property string groupName: ""
+    readonly property string groupLetter: groupName === "Machine_B" ? "B" : "A"
+    readonly property var vAxis: snapshotAdapter ? snapshotAdapter.axisFor(groupLetter, selectedAxis) : ({})
+    readonly property bool vnextActive: viewModel === null && snapshotAdapter
+    readonly property double effectiveAbsPos: viewModel ? viewModel.absPos : (vAxis.absPosition ?? 0.0)
+    readonly property double effectiveRelPos: viewModel ? viewModel.relPos : (vAxis.relPosition ?? 0.0)
+    readonly property int effectiveState: viewModel ? viewModel.state : (vAxis.motionState ?? 0)
+    readonly property string effectiveStateText: viewModel ? viewModel.stateText : (vAxis.motionStateName ?? "--")
+    readonly property bool connected: connectionViewModel ? connectionViewModel.connected
+                                                          : (snapshotAdapter ? snapshotAdapter.connected : false)
+    readonly property string connectionText: connectionViewModel ? connectionViewModel.statusText
+                                                                 : (root.connected ? "已连接" : "断连")
 
     // 急停锁定状态
-    readonly property bool locked: emergencyViewModel && emergencyViewModel.isSystemLocked
+    readonly property bool locked: (emergencyViewModel && emergencyViewModel.isSystemLocked)
+                                   || (root.vnextActive && snapshotAdapter && snapshotAdapter.globallyLocked)
 
     // 龙门控制区是否可见（仅在选中 X 轴且有龙门 ViewModel 时显示）
     readonly property bool gantryAreaVisible: selectedAxis === "X" && gantryViewModel !== null
@@ -41,8 +55,7 @@ Rectangle {
 
     // 相对零点位置 = 绝对位置 - 相对位置（即设置零点时的绝对坐标）
     readonly property double relZeroPosition: {
-        if (!viewModel) return 0.0
-        return viewModel.absPos - viewModel.relPos
+        return root.effectiveAbsPos - root.effectiveRelPos
     }
 
     // 相对零点位置不为 0 时才展示清除行
@@ -58,7 +71,7 @@ Rectangle {
 
     // --- 状态颜色函数（保留用于指示灯）---
     function getStateColor(stateCode) {
-        if (!viewModel) return Theme.colorDisabled;
+        if (!viewModel && !root.vnextActive) return Theme.colorDisabled;
         switch(stateCode) {
             case 1: return Theme.colorDisabled;   // Disabled
             case 2: return Theme.colorIdle;        // Idle / Standstill
@@ -110,7 +123,9 @@ Rectangle {
                 id: groupCombo
                 model: ["Machine_A", "Machine_B"]
                 currentIndex: root.groupName === "Machine_B" ? 1 : 0
-                enabled: !root.locked
+                enabled: viewModel ? !root.locked : (root.commandAdapter && root.commandAdapter.available
+                                                      && !root.locked && vAxis.bound && vAxis.trusted
+                                                      && vAxis.hmiVisible && !vAxis.leased)
                 opacity: enabled ? 1.0 : 0.4
 
                 // 自定义样式适配工业深色主题
@@ -160,14 +175,14 @@ Rectangle {
                 width: 12 * Theme.scale
                 height: 12 * Theme.scale
                 radius: width / 2
-                color: connectionViewModel && connectionViewModel.connected
+                color: root.connected
                        ? Theme.colorIdle : Theme.colorError
                 border.color: Qt.lighter(color, 1.5)
                 border.width: 1
 
                 // 断连时闪烁动画
                 SequentialAnimation on opacity {
-                    running: connectionViewModel && !connectionViewModel.connected
+                    running: !root.connected
                     loops: Animation.Infinite
                     NumberAnimation { from: 1.0; to: 0.2; duration: 500 }
                     NumberAnimation { from: 0.2; to: 1.0; duration: 500 }
@@ -175,8 +190,8 @@ Rectangle {
             }
 
             Text {
-                text: "PLC连接状态：" + (connectionViewModel ? connectionViewModel.statusText : "未知")
-                color: connectionViewModel && connectionViewModel.connected
+                text: "PLC连接状态：" + root.connectionText
+                color: root.connected
                        ? Theme.colorIdle : Theme.colorError
                 font.pixelSize: Theme.fontSmall
                 font.bold: true
@@ -284,13 +299,13 @@ Rectangle {
                     width: 14 * Theme.scale
                     height: 14 * Theme.scale
                     radius: width / 2
-                    color: getStateColor(viewModel ? viewModel.state : 0)
+                    color: getStateColor(root.effectiveState)
                     border.color: Qt.lighter(color, 1.5)
                     border.width: 1
                 }
                 Text {
-                    text: "电机状态：" + (viewModel ? viewModel.stateText : "--")
-                    color: getStateColor(viewModel ? viewModel.state : 0)
+                    text: "电机状态：" + root.effectiveStateText
+                    color: getStateColor(root.effectiveState)
                     font.pixelSize: Theme.fontNormal
                     font.bold: true
                 }
@@ -322,7 +337,7 @@ Rectangle {
                 }
 
                 Text {
-                    text: viewModel ? viewModel.absPos.toFixed(3) : "0.000"
+                    text: root.effectiveAbsPos.toFixed(3)
                     color: Theme.textMain
                     font.pixelSize: Theme.fontLarge
                     font.family: "Monospace"
@@ -367,8 +382,7 @@ Rectangle {
 
                 Text {
                     text: {
-                        if (!viewModel) return "0.000"
-                        let r = viewModel.relPos
+                        let r = root.effectiveRelPos
                         return (r >= 0 ? "+" : "") + r.toFixed(3)
                     }
                     color: Theme.textMain
@@ -389,7 +403,11 @@ Rectangle {
                 border.width: 1
                 Layout.alignment: Qt.AlignRight
                 onClicked: {
-                    if (viewModel) viewModel.setRelativeZero()
+                    if (viewModel) {
+                        viewModel.setRelativeZero()
+                    } else if (commandAdapter && commandAdapter.available && enabled) {
+                        commandAdapter.setRelZero(root.groupLetter, root.selectedAxis)
+                    }
                 }
             }
         }
@@ -408,7 +426,6 @@ Rectangle {
 
             Text {
                 text: {
-                    if (!viewModel) return "0.000"
                     return root.relZeroPosition.toFixed(3)
                 }
                 color: Theme.colorWarning
@@ -423,7 +440,7 @@ Rectangle {
                 text: "⊗ 清除"
                 buttonSize: 65 * Theme.scale
                 baseColor: root.locked ? Theme.colorDisabled : Theme.panelBg
-                enabled: !root.locked
+                enabled: viewModel ? !root.locked : false
                 opacity: enabled ? 1.0 : 0.4
                 border.color: Theme.borderMain
                 border.width: 1
@@ -458,7 +475,7 @@ Rectangle {
             border.color: Theme.borderMain
             border.width: 1
 
-            readonly property double safePos: viewModel ? viewModel.absPos : 0.0
+            readonly property double safePos: root.effectiveAbsPos
             readonly property double safePLim: (viewModel && viewModel.posLimit < 999999) ? viewModel.posLimit : 1000.0
             readonly property double safeNLim: (viewModel && viewModel.negLimit > -999999) ? viewModel.negLimit : -1000.0
 
