@@ -86,6 +86,23 @@ protected:
         ASSERT_TRUE(mgr_->poll());
     }
 
+    /// 设置 slot2 的 motionState + motionLimit（D144）并注入反馈。
+    void setMotionAndLimit(int16_t ms, int16_t limit) {
+        auto rt = makeTrustedRuntimeSnapshot();
+        rt.axes[2].motionState = ms;
+        rt.axes[2].motionLimit = limit;
+        gw_.setRuntimeSnapshot(rt);
+        ASSERT_TRUE(mgr_->poll());
+    }
+
+    /// 带限位注入的周期推进（验证限位方向感知行为）。
+    template <typename Policy>
+    void cycleLimit(Policy& p, int16_t ms, int16_t limit, int delayMs = 0) {
+        setMotionAndLimit(ms, limit);
+        if (delayMs > 0) std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
+        p.tick();
+    }
+
     /// 一次"刷新反馈 + 推进策略"周期（支持 Abs/Rel/Jog 各策略）。
     template <typename Policy>
     void cycle(Policy& p, int16_t ms, int delayMs = 0) {
@@ -219,6 +236,62 @@ TEST_F(AxisMotionPolicyTest, Jog_ExplicitStopThenDisable) {
     cycle(p, /*ms=*/2);
     EXPECT_TRUE(p.isDone());
     EXPECT_TRUE(wrote(PlcAxisCommandKind::EnableMotor, false));
+}
+
+// ---------- JogPolicy：限位方向感知（负限位下正向撤离不被误停）----------
+// 回归：轴到负限位后 motionLimit(D144)=2 仍锁存（回差区 0.1 未退出），
+// 若按方向无关的 limit!=0 判定会在撤离时立即停机（卡顿），这里验证撤离方向允许继续。
+
+TEST_F(AxisMotionPolicyTest, Jog_ForwardWithdrawAtNegativeLimit_KeepsJogging) {
+    JogPolicy p(*mgr_, slotOf(2), /*forward=*/true, /*durationMs=*/0,
+                /*heartbeatPeriodMs=*/1000);
+    p.start();
+    ASSERT_FALSE(p.hasError());
+    cycle(p, /*ms=*/0);                          // → EnsuringEnabled
+    cycle(p, /*ms=*/2);                          // → PostEnableDelay
+    cycle(p, /*ms=*/2, /*delayMs=*/450);         // → IssuingJog
+    cycle(p, /*ms=*/3);                          // → Jogging
+    EXPECT_EQ(p.currentStep(), JogPolicy::Step::Jogging);
+
+    // 负软限位（motionLimit=2）激活：正向点动为撤离方向，必须允许继续。
+    cycleLimit(p, /*ms=*/3, /*limit=*/2);
+    EXPECT_EQ(p.currentStep(), JogPolicy::Step::Jogging);
+
+    // 持续退出回差区域（motionLimit 归 0）后仍保持点动。
+    cycleLimit(p, /*ms=*/3, /*limit=*/0);
+    EXPECT_EQ(p.currentStep(), JogPolicy::Step::Jogging);
+}
+
+TEST_F(AxisMotionPolicyTest, Jog_BackwardBlockedAtNegativeLimit_Stops) {
+    JogPolicy p(*mgr_, slotOf(2), /*forward=*/false, /*durationMs=*/0,
+                /*heartbeatPeriodMs=*/1000);
+    p.start();
+    ASSERT_FALSE(p.hasError());
+    cycle(p, /*ms=*/0);
+    cycle(p, /*ms=*/2);
+    cycle(p, /*ms=*/2, /*delayMs=*/450);
+    cycle(p, /*ms=*/4);                          // 反向点动
+    EXPECT_EQ(p.currentStep(), JogPolicy::Step::Jogging);
+
+    // 负限位阻挡反向点动：应立即停止。
+    cycleLimit(p, /*ms=*/4, /*limit=*/2);
+    EXPECT_EQ(p.currentStep(), JogPolicy::Step::IssuingStop);
+}
+
+TEST_F(AxisMotionPolicyTest, Jog_ForwardBlockedAtPositiveLimit_Stops) {
+    JogPolicy p(*mgr_, slotOf(2), /*forward=*/true, /*durationMs=*/0,
+                /*heartbeatPeriodMs=*/1000);
+    p.start();
+    ASSERT_FALSE(p.hasError());
+    cycle(p, /*ms=*/0);
+    cycle(p, /*ms=*/2);
+    cycle(p, /*ms=*/2, /*delayMs=*/450);
+    cycle(p, /*ms=*/3);                          // 正向点动
+    EXPECT_EQ(p.currentStep(), JogPolicy::Step::Jogging);
+
+    // 正软限位（motionLimit=1）阻挡正向点动：应立即停止。
+    cycleLimit(p, /*ms=*/3, /*limit=*/1);
+    EXPECT_EQ(p.currentStep(), JogPolicy::Step::IssuingStop);
 }
 
 // ---------- AxisMotionApi：slot→AxisFunction 解析 + 阻塞便利 ----------

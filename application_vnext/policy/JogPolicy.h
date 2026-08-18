@@ -98,7 +98,15 @@ public:
         const auto& fb = axis->feedback();
         const int16_t ms = fb.motionState;
         const bool alarm = fb.alarmWord != 0;
-        const bool limit = fb.motionLimit != 0;
+        // 运动限制编码（D144）：0=无限位 1=正软 2=负软 3=正硬 4=负硬。
+        const bool posLimitActive = (fb.motionLimit == 1 || fb.motionLimit == 3);
+        const bool negLimitActive = (fb.motionLimit == 2 || fb.motionLimit == 4);
+        // 仅当活动限位阻挡当前点动方向时才停止：
+        //   正限位阻挡正向点动；负限位阻挡负向点动。
+        //   撤离方向（负限位下正向点动 / 正限位下负向点动）PLC 已保留方向线圈，
+        //   必须允许继续，否则一进限位就反复启停（卡顿），无法撤离。
+        const bool limitBlocks =
+            (forward_ && posLimitActive) || (!forward_ && negLimitActive);
 
         if (m_step != Step::Idle && alarm) {
             m_step = Step::Error;
@@ -185,14 +193,14 @@ public:
         case Step::Jogging: {
             const bool timedOut = durationMs_ > 0 &&
                 elapsedSince(m_jogStartTime) >= static_cast<double>(durationMs_) / 1000.0;
-            if (!timedOut && !m_stopRequested && !limit) {
+            if (!timedOut && !m_stopRequested && !limitBlocks) {
                 if (elapsedSince(m_lastHeartbeatTime) >=
                     static_cast<double>(heartbeatPeriodMs_) / 1000.0) {
                     if (!appResultOk(m_->jogHeartbeat(m_group, m_fn, true))) m_heartbeatFailed = true;
                     m_lastHeartbeatTime = now;
                 }
             }
-            if (m_stopRequested || m_heartbeatFailed || timedOut || limit) {
+            if (m_stopRequested || m_heartbeatFailed || timedOut || limitBlocks) {
                 m_step = Step::IssuingStop;
             }
             break;
