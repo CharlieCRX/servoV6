@@ -49,6 +49,15 @@ Rectangle {
     // 底部限位滑动条是否展示（vnext）：参数区可信 + HMI 可见 + 反馈可信。
     readonly property bool vSoftLimitBarVisible: root.vSoftLimitTrusted
                                                  && (vAxis.hmiVisible === true) && (vAxis.trusted === true)
+
+    // 软限位控制字（D1228）：bit0 正限位启用，bit1 负限位启用。
+    // 未启用的一侧视为无限（限位条显示 ±∞）。
+    readonly property bool vPositiveLimitEnabled: root.vnextActive
+                                                  && ((root.vAxis.softLimitControl ?? 0) & 0x01) !== 0
+    readonly property bool vNegativeLimitEnabled: root.vnextActive
+                                                  && ((root.vAxis.softLimitControl ?? 0) & 0x02) !== 0
+    // 未启用侧在进度条计算中视为极大的有限值（避免除以 0 / 数值溢出）。
+    readonly property double vInfiniteLimit: 1000000000.0
     readonly property bool connected: connectionViewModel ? connectionViewModel.connected
                                                           : (snapshotAdapter ? snapshotAdapter.connected : false)
     readonly property string connectionText: connectionViewModel ? connectionViewModel.statusText
@@ -429,12 +438,13 @@ Rectangle {
 
             readonly property double safePos: root.effectiveAbsPos
             // legacy 用 ViewModel 的真实限位；vnext 用参数区软限位（同帧读取）。
+            // 未启用的一侧按软限位控制字视为 ±∞（用大数近似，标签单独显示 ±∞）。
             readonly property double safePLim: viewModel
                 ? ((viewModel.posLimit < 999999) ? viewModel.posLimit : 1000.0)
-                : root.vSoftPosLimit
+                : (root.vPositiveLimitEnabled ? root.vSoftPosLimit : root.vInfiniteLimit)
             readonly property double safeNLim: viewModel
                 ? ((viewModel.negLimit > -999999) ? viewModel.negLimit : -1000.0)
-                : root.vSoftNegLimit
+                : (root.vNegativeLimitEnabled ? root.vSoftNegLimit : -root.vInfiniteLimit)
 
             readonly property double progressRatio: {
                 let range = safePLim - safeNLim;
@@ -467,7 +477,9 @@ Rectangle {
             visible: viewModel != null || root.vSoftLimitBarVisible
             Text {
                 text: root.vnextActive
-                      ? ("负限位: " + root.vSoftNegLimit.toFixed(3))
+                      ? (root.vNegativeLimitEnabled
+                         ? ("负限位: " + root.vSoftNegLimit.toFixed(3))
+                         : "负限位: -∞")
                       : (viewModel && viewModel.negLimit > -999999 ? "负限位: " + viewModel.negLimit : "负限位: 未设")
                 color: Theme.textDim
                 font.pixelSize: Theme.fontSmall
@@ -475,7 +487,9 @@ Rectangle {
             Item { Layout.fillWidth: true }
             Text {
                 text: root.vnextActive
-                      ? ("正限位: " + root.vSoftPosLimit.toFixed(3))
+                      ? (root.vPositiveLimitEnabled
+                         ? ("正限位: " + root.vSoftPosLimit.toFixed(3))
+                         : "正限位: ＋∞")
                       : (viewModel && viewModel.posLimit < 999999 ? "正限位: " + viewModel.posLimit : "正限位: 未设")
                 color: Theme.textDim
                 font.pixelSize: Theme.fontSmall
