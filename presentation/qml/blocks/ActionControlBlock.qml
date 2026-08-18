@@ -76,11 +76,16 @@ Rectangle {
     property bool isReadyForTrigger: !systemLocked && !gantryOperationLocked
         && (viewModel ? (!viewModel.hasBlockingError && viewModel.state <= 2 && !viewModel.isLoading)
                       : root.vnextCanControl)
+        && !root.limitLocked
 
     // ★ 设置目标是否就绪：仅 Modal 错误阻断操作
     property bool isReadyForSetTarget: !systemLocked && !gantryOperationLocked
         && (viewModel ? (!viewModel.hasBlockingError && viewModel.state <= 2)
                       : root.vnextCanControl)
+        && !root.limitLocked
+
+    // ★ 到达任意限位（motionLimit != 0）：禁止定位（位置移动），仅允许点动撤离。
+    readonly property bool limitLocked: root.vnextActive && (root.vAxis.motionLimit ?? 0) > 0
 
         color: "transparent"
 
@@ -151,7 +156,7 @@ Rectangle {
             color: Theme.bgDark
             border.color: Theme.borderMain
             border.width: 1
-            opacity: systemLocked ? 0.4 : 1.0
+            opacity: (systemLocked || root.limitLocked) ? 0.4 : 1.0
 
             RowLayout {
                 anchors.fill: parent
@@ -195,9 +200,20 @@ Rectangle {
                         font.bold: root.currentMode === 1
                         font.pixelSize: Theme.fontSmall
                     }
+                    // ★ 到达限位：锁定定位模式，显示小锁标志。
+                    Text {
+                        anchors.right: parent.right
+                        anchors.top: parent.top
+                        anchors.margins: 4 * Theme.scale
+                        text: "🔒"
+                        visible: root.limitLocked
+                        color: Theme.colorWarning
+                        font.pixelSize: Theme.fontSmall
+                        font.bold: true
+                    }
                     MouseArea {
                         anchors.fill: parent
-                        enabled: !systemLocked
+                        enabled: !systemLocked && !root.limitLocked
                         onClicked: {
                             if (motionController) motionController.controlMode = 1
                         }
