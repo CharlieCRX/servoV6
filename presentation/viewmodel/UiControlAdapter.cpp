@@ -40,7 +40,12 @@ QVariantMap axisToMap(const AxisUiView& a) {
     m["motionState"] = static_cast<int>(a.motionState);
     m["motionStateName"] = QString::fromStdString(a.motionStateName);
     m["motionLimit"] = static_cast<int>(a.motionLimit);
+    m["motionLimitName"] = QString::fromStdString(a.motionLimitName);
     m["alarmWord"] = static_cast<int>(a.alarmWord);
+    m["softNegLimit"] = static_cast<double>(a.softNegLimit);
+    m["softPosLimit"] = static_cast<double>(a.softPosLimit);
+    m["softLimitControl"] = static_cast<int>(a.softLimitControl);
+    m["softLimitTrusted"] = a.softLimitTrusted;
     m["leased"] = a.leased;
     m["leaseOwnerName"] = QString::fromStdString(a.leaseOwnerName);
     return m;

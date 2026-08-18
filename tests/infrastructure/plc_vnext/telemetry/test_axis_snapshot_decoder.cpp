@@ -77,5 +77,34 @@ TEST(AxisSnapshotDecoderTest, InvalidEnum_KeepsRawValue) {
     EXPECT_EQ(s.motionState, 99);  // 原样保留，不拒绝、不篡改
 }
 
+// 参数区（D1064..D1243）解码：软负 D1160 / 软正 D1192 / 控制字 D1228，低字在前 CDAB。
+codec::RawRegisterBlock toParamBlock(std::vector<uint16_t> words) {
+    return codec::RawRegisterBlock(layout::relZeroRecord(0).value(),
+                                   std::move(words), 0, {}, 0);
+}
+
+TEST(AxisSnapshotDecoderTest, DecodesSoftLimitParams) {
+    const int slot = 2;
+    const int base = layout::relZeroRecord(0).value();   // D1064
+    auto regs = std::vector<uint16_t>(180, 0);           // D1064..D1243，下标0 == D1064
+
+    test::writeFloat(regs, layout::softNegLimit(slot).value() - base, -100.0f);
+    test::writeFloat(regs, layout::softPosLimit(slot).value() - base, 200.0f);
+    test::writeWord(regs, layout::softLimitControl(slot).value() - base, 0x0003);  // bit0正 bit1负
+
+    auto s = AxisSnapshotDecoder::decodeParams(toParamBlock(std::move(regs)), slot);
+    EXPECT_TRUE(s.trusted);
+    EXPECT_FLOAT_EQ(s.softNegLimit, -100.0f);
+    EXPECT_FLOAT_EQ(s.softPosLimit, 200.0f);
+    EXPECT_EQ(s.softLimitControl, 0x0003u);
+}
+
+TEST(AxisSnapshotDecoderTest, MissingParamBlock_MarksParamsUntrusted) {
+    // 参数区缺数据 → params.trusted=false（不把 0 冒充正常）。
+    auto s = AxisSnapshotDecoder::decodeParams(toParamBlock({}), 5);
+    EXPECT_FALSE(s.trusted);
+    EXPECT_EQ(s.slot, 5);
+}
+
 }  // namespace
 }  // namespace plc_vnext::telemetry

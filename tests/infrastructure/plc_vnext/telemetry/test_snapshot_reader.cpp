@@ -84,6 +84,14 @@ void loadGantry(fake::FakeModbusClient& fake, const std::vector<uint16_t>& block
     }
 }
 
+// 参数区（下标 0 == D1064，覆盖 D1064..D1243）写入 Fake RAM。
+void loadParam(fake::FakeModbusClient& fake, const std::vector<uint16_t>& block) {
+    const uint16_t base = static_cast<uint16_t>(layout::relZeroRecord(0).value());
+    for (std::size_t i = 0; i < block.size(); ++i) {
+        fake.setHoldingRegister(static_cast<uint16_t>(base + i), block[i]);
+    }
+}
+
 TEST(SnapshotReaderTest, ExecutesPlan_ProduceRuntimeSnapshot) {
     auto fake = std::make_shared<fake::FakeModbusClient>();
 
@@ -188,6 +196,32 @@ TEST(SnapshotReaderTest, AxisOverlongChunk_MarksRegionUntrusted_Partial) {
     for (const auto& g : snap.gantry) {
         EXPECT_TRUE(g.trusted);
     }
+}
+
+TEST(SnapshotReaderTest, DecodesSoftLimitParamsFromParamRegion) {
+    auto fake = std::make_shared<fake::FakeModbusClient>();
+    loadAxis(*fake, test::makeAxisBlock());
+    loadGantry(*fake, test::makeGantryBlock());
+
+    // 参数区 D1064..D1243：预置槽位 0 软负/软正/控制字。
+    const int base = layout::relZeroRecord(0).value();
+    auto param = std::vector<uint16_t>(180, 0);
+    test::writeFloat(param, layout::softNegLimit(0).value() - base, -500.0f);
+    test::writeFloat(param, layout::softPosLimit(0).value() - base, 500.0f);
+    test::writeWord(param, layout::softLimitControl(0).value() - base, 0x0003);
+    loadParam(*fake, param);
+
+    PlcSnapshotReader reader(fake);
+    auto snap = reader.read();
+
+    // 整体 quality 只看轴/龙门区，不受参数区影响。
+    EXPECT_EQ(snap.quality, SnapshotQuality::Trusted);
+    EXPECT_TRUE(snap.params[0].trusted);
+    EXPECT_FLOAT_EQ(snap.params[0].softNegLimit, -500.0f);
+    EXPECT_FLOAT_EQ(snap.params[0].softPosLimit, 500.0f);
+    EXPECT_EQ(snap.params[0].softLimitControl, 0x0003u);
+    // 未预置的槽位 1：参数区整块读出（全 0），trusted 仍为 true。
+    EXPECT_TRUE(snap.params[1].trusted);
 }
 
 }  // namespace

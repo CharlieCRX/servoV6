@@ -23,10 +23,15 @@ namespace {
 //   - 轴区：manualSpeed(0)=D0 .. alarmWord(15)=D175 → D0..D175（176 字）。
 //   - 龙门状态区：gantryStatusBase(0)=D190 .. gantryStatusBase(1)+18=D226
 //     → D190..D225（36 字）。
+//   - 参数区（RW，含软限位）：relZeroRecord(0)=D1064 .. softLimitControl(15)=D1243
+//     → D1064..D1243（180 字）。与运行反馈同帧读取，供限位展示。
 constexpr int kAxisStart  = layout::manualSpeed(0).value();              // 0
 constexpr int kAxisWords  = layout::alarmWord(15).value() + 1 - kAxisStart;  // 176
 constexpr int kGantryWords = (layout::gantryStatusBase(1).value() + 18) -
                              layout::gantryStatusBase(0).value();         // 36
+constexpr int kParamStart = layout::relZeroRecord(0).value();             // 1064
+constexpr int kParamWords = layout::softLimitControl(15).value() + 1 -
+                            kParamStart;                                   // 180
 
 }  // namespace
 
@@ -60,6 +65,8 @@ contracts::RuntimeSnapshot PlcSnapshotReader::read() {
         layout::ReadPlanBuilder::buildHolding({{kAxisStart, kAxisWords}});
     const layout::ReadPlan gantryPlan = layout::ReadPlanBuilder::buildHolding(
         {{layout::gantryStatusBase(0).value(), kGantryWords}});
+    const layout::ReadPlan paramPlan =
+        layout::ReadPlanBuilder::buildHolding({{kParamStart, kParamWords}});
 
     std::vector<uint16_t> axisWords;
     const bool axisOk = readRegion(axisPlan, axisWords, kAxisWords);
@@ -67,12 +74,24 @@ contracts::RuntimeSnapshot PlcSnapshotReader::read() {
     std::vector<uint16_t> gantryWords;
     const bool gantryOk = readRegion(gantryPlan, gantryWords, kGantryWords);
 
+    // 参数区（RW，含软限位）与运行反馈同帧读取。读取失败不影响整体 quality，
+    // 只让对应槽位 params[i].trusted=false（软限位缺失不锁定运动）。
+    std::vector<uint16_t> paramWords;
+    readRegion(paramPlan, paramWords, kParamWords);
+
     contracts::RuntimeSnapshot snap;
 
     // 轴区：读取失败时 axisWords 为空，解码各槽位自然得到 trusted=false。
     codec::RawRegisterBlock axisBlock(kAxisStart, std::move(axisWords), 0, {}, 0);
     for (int i = 0; i < static_cast<int>(contracts::kRuntimeAxisCount); ++i) {
         snap.axes[static_cast<std::size_t>(i)] = AxisSnapshotDecoder::decode(axisBlock, i);
+    }
+
+    // 参数区：解码软限位等参数（失败时 paramWords 为空 → 各槽位 trusted=false）。
+    codec::RawRegisterBlock paramBlock(kParamStart, std::move(paramWords), 0, {}, 0);
+    for (int i = 0; i < static_cast<int>(contracts::kRuntimeAxisCount); ++i) {
+        snap.params[static_cast<std::size_t>(i)] =
+            AxisSnapshotDecoder::decodeParams(paramBlock, i);
     }
 
     // 龙门区：wordStart 为 D190（gantryStatusBase(0)），getWords 用绝对地址。

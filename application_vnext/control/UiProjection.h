@@ -45,8 +45,15 @@ struct AxisUiView {
     float relMoveTarget = 0.0f;       // 最近一次 SetRelTarget 预填距离（§5.3）
     int16_t motionState = 0;          // D128 原样
     std::string motionStateName;      // 可读名
-    int16_t motionLimit = 0;
+    int16_t motionLimit = 0;          // D144 原样（0=无 1=正软 2=负软 3=正硬 4=负硬）
+    std::string motionLimitName;      // 限位可读名
     uint16_t alarmWord = 0;
+
+    // ---- 软限位配置（参数区，与运行反馈同帧读取）----
+    float softNegLimit = 0.0f;        // 软件负限位（EU）
+    float softPosLimit = 0.0f;        // 软件正限位（EU）
+    uint16_t softLimitControl = 0;    // 控制字 bit0正 bit1负
+    bool softLimitTrusted = false;    // 参数区是否可信
     bool leased = false;              // 是否被某操作占用
     std::string leaseOwnerName;       // "UI"/"Joystick"/"UDP"/"Maintenance"
 };
@@ -121,6 +128,9 @@ struct UiProjection {
     /// D128 motionState（0..6）可读名（复制语义，不依赖 policy 层）。
     static std::string motionStateName(int16_t s);
 
+    /// D144 motionLimit（0..4）可读名（无限位/正软/负软/正硬/负硬）。
+    static std::string motionLimitName(int16_t v);
+
     /// 龙门 state（0..5）可读名。
     static std::string gantryStateName(int16_t state);
 
@@ -149,6 +159,17 @@ inline std::string UiProjection::motionStateName(int16_t s) {
         case 5:  return "AbsMove(5)";
         case 6:  return "RelMove(6)";
         default: return "?";
+    }
+}
+
+inline std::string UiProjection::motionLimitName(int16_t v) {
+    switch (v) {
+        case 0:  return "无限位";
+        case 1:  return "正软限位";
+        case 2:  return "负软限位";
+        case 3:  return "正硬限位";
+        case 4:  return "负硬限位";
+        default: return "未知限位";
     }
 }
 
@@ -211,7 +232,12 @@ inline AxisUiView UiProjection::projectAxis(const AxisUiState& a,
     v.motionState = a.motionState;
     v.motionStateName = motionStateName(a.motionState);
     v.motionLimit = a.motionLimit;
+    v.motionLimitName = motionLimitName(a.motionLimit);
     v.alarmWord = a.alarmWord;
+    v.softNegLimit = a.softNegLimit;
+    v.softPosLimit = a.softPosLimit;
+    v.softLimitControl = a.softLimitControl;
+    v.softLimitTrusted = a.softLimitTrusted;
     v.leased = a.leased;
     v.leaseOwnerName = a.leaseOwnerName;
     return v;

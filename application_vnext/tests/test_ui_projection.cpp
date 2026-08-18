@@ -166,10 +166,49 @@ TEST(UiProjection, EmptySnapshotDefaultsToLockedOffline) {
     for (const auto& v : proj.axes) EXPECT_TRUE(v.locked);
 }
 
+TEST(UiProjection, AxisCarriesMotionLimitName) {
+    auto snap = makeBaselineSnapshot();
+    // 限位编码直接映射到可读名（Phase 2 验收：位置/motionState/报警/限位均读快照）。
+    snap.axes[0].motionLimit = 2;                // 负软限位
+    auto proj = UiProjection::project(snap, false);
+    EXPECT_EQ(proj.axes[0].motionLimit, 2);
+    EXPECT_EQ(proj.axes[0].motionLimitName, "负软限位");
+
+    // 0 = 无限位。
+    snap.axes[0].motionLimit = 0;
+    proj = UiProjection::project(snap, false);
+    EXPECT_EQ(proj.axes[0].motionLimitName, "无限位");
+}
+
+TEST(UiProjection, AxisCarriesSoftLimits) {
+    auto snap = makeBaselineSnapshot();
+    auto& ax = snap.axes[0];
+    ax.softNegLimit = -100.0f;
+    ax.softPosLimit = 200.0f;
+    ax.softLimitControl = 0x03u;
+    ax.softLimitTrusted = true;
+
+    const auto proj = UiProjection::project(snap, false);
+    EXPECT_FLOAT_EQ(proj.axes[0].softNegLimit, -100.0f);
+    EXPECT_FLOAT_EQ(proj.axes[0].softPosLimit, 200.0f);
+    EXPECT_EQ(proj.axes[0].softLimitControl, 0x03u);
+    EXPECT_TRUE(proj.axes[0].softLimitTrusted);
+
+    // 参数区未可信时 softLimitTrusted 透传为 false。
+    snap.axes[0].softLimitTrusted = false;
+    const auto proj2 = UiProjection::project(snap, false);
+    EXPECT_FALSE(proj2.axes[0].softLimitTrusted);
+}
+
 TEST(UiProjection, NameMappersCoverKnownValues) {
     EXPECT_EQ(UiProjection::groupLetter(PlcGroupIndex(0)), "A");
     EXPECT_EQ(UiProjection::groupLetter(PlcGroupIndex(1)), "B");
     EXPECT_EQ(UiProjection::motionStateName(6), "RelMove(6)");
+    EXPECT_EQ(UiProjection::motionLimitName(0), "无限位");
+    EXPECT_EQ(UiProjection::motionLimitName(1), "正软限位");
+    EXPECT_EQ(UiProjection::motionLimitName(2), "负软限位");
+    EXPECT_EQ(UiProjection::motionLimitName(3), "正硬限位");
+    EXPECT_EQ(UiProjection::motionLimitName(4), "负硬限位");
     EXPECT_EQ(UiProjection::gantryStateName(5), "故障");
     EXPECT_EQ(UiProjection::operationStateName(OperationState::Accepted), "等待 PLC");
     EXPECT_EQ(UiProjection::operationKindName(OperationKind::Jog), "Jog");

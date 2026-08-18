@@ -49,6 +49,12 @@ struct AxisUiState {
     int16_t motionLimit = 0;
     uint16_t alarmWord = 0;
 
+    // ---- 软限位（来自 RuntimeSnapshot.params，同一帧读取）----
+    float softNegLimit = 0.0f;              // 软件负限位 D(1160+2s)（EU）
+    float softPosLimit = 0.0f;              // 软件正限位 D(1192+2s)（EU）
+    uint16_t softLimitControl = 0;          // 软限位控制字 D(1228+s) bit0正 bit1负
+    bool softLimitTrusted = false;          // 参数区是否可信（缺读/失败=false）
+
     // ---- 定位目标预填值（来自 SetAbsTarget / SetRelTarget 命令，供摇杆/UDP/UI
     //      触发 Start*Move 时读取；见 §5.3「Set* 仅用于界面预填值」）----
     float absMoveTarget = 0.0f;             // 最近一次 SetAbsTarget 的目标（EU）

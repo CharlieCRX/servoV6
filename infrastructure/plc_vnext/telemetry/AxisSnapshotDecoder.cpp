@@ -53,4 +53,26 @@ contracts::AxisRuntimeSnapshot AxisSnapshotDecoder::decode(
     return snap;
 }
 
+contracts::AxisParameterSnapshot AxisSnapshotDecoder::decodeParams(
+    const codec::RawRegisterBlock& block, int slot) {
+    contracts::AxisParameterSnapshot s;
+    s.slot = static_cast<int16_t>(slot);
+
+    bool ok = true;
+    ok &= readFloat(block, layout::relZeroRecord(slot).value(), s.relZeroRecord);
+    ok &= readFloat(block, layout::absMoveDistance(slot).value(), s.absMoveDistance);
+    ok &= readFloat(block, layout::relMoveDistance(slot).value(), s.relMoveDistance);
+    ok &= readFloat(block, layout::softNegLimit(slot).value(), s.softNegLimit);
+    ok &= readFloat(block, layout::softPosLimit(slot).value(), s.softPosLimit);
+    auto c = block.getWords(layout::softLimitControl(slot).value(), 1);
+    if (c) {
+        s.softLimitControl = (*c)[0];  // WORD 原样保留
+    } else {
+        ok = false;
+    }
+
+    s.trusted = ok;
+    return s;
+}
+
 }  // namespace plc_vnext::telemetry

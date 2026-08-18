@@ -27,6 +27,28 @@ Rectangle {
     readonly property int effectiveState: viewModel ? viewModel.state : (vAxis.motionState ?? 0)
     readonly property string effectiveStateText: viewModel ? viewModel.stateText : (vAxis.motionStateName ?? "--")
     readonly property string effectiveStateDisplayText: motorStateDisplayText(root.effectiveState, root.effectiveStateText)
+
+    // ---- vnext 统一链路限位展示（只读快照）----
+    // motionLimit：D144 编码（0=无 1=正软 2=负软 3=正硬 4=负硬）。
+    readonly property int vMotionLimit: vnextActive ? (vAxis.motionLimit ?? 0) : 0
+    readonly property string vMotionLimitName: vnextActive ? (vAxis.motionLimitName ?? "无限位") : ""
+    readonly property bool vLimitActive: root.vMotionLimit > 0
+    // 限位时的撤离方向提示：负限位(2/4)只允许正向点动；正限位(1/3)只允许负向点动。
+    readonly property string vLimitEscapeHint: {
+        if (root.vMotionLimit === 2 || root.vMotionLimit === 4) return "仅可正向撤离"
+        if (root.vMotionLimit === 1 || root.vMotionLimit === 3) return "仅可反向撤离"
+        return ""
+    }
+    // "是否展示"：vnext 链路 + 该轴 HMI 可见 + 反馈可信（否则不显示限位状态）。
+    readonly property bool vLimitVisible: vnextActive && (vAxis.hmiVisible === true) && (vAxis.trusted === true)
+
+    // ---- vnext 软限位配置值（来自 RuntimeSnapshot.params，同一帧读取）----
+    readonly property double vSoftNegLimit: vnextActive ? (vAxis.softNegLimit ?? 0.0) : 0.0
+    readonly property double vSoftPosLimit: vnextActive ? (vAxis.softPosLimit ?? 0.0) : 0.0
+    readonly property bool vSoftLimitTrusted: vnextActive && (vAxis.softLimitTrusted === true)
+    // 底部限位滑动条是否展示（vnext）：参数区可信 + HMI 可见 + 反馈可信。
+    readonly property bool vSoftLimitBarVisible: root.vSoftLimitTrusted
+                                                 && (vAxis.hmiVisible === true) && (vAxis.trusted === true)
     readonly property bool connected: connectionViewModel ? connectionViewModel.connected
                                                           : (snapshotAdapter ? snapshotAdapter.connected : false)
     readonly property string connectionText: connectionViewModel ? connectionViewModel.statusText
@@ -397,6 +419,7 @@ Rectangle {
 
         Rectangle {
             id: trackBar
+            visible: viewModel != null || root.vSoftLimitBarVisible
             Layout.fillWidth: true
             height: 8 * Theme.scale
             radius: height / 2
@@ -405,8 +428,13 @@ Rectangle {
             border.width: 1
 
             readonly property double safePos: root.effectiveAbsPos
-            readonly property double safePLim: (viewModel && viewModel.posLimit < 999999) ? viewModel.posLimit : 1000.0
-            readonly property double safeNLim: (viewModel && viewModel.negLimit > -999999) ? viewModel.negLimit : -1000.0
+            // legacy 用 ViewModel 的真实限位；vnext 用参数区软限位（同帧读取）。
+            readonly property double safePLim: viewModel
+                ? ((viewModel.posLimit < 999999) ? viewModel.posLimit : 1000.0)
+                : root.vSoftPosLimit
+            readonly property double safeNLim: viewModel
+                ? ((viewModel.negLimit > -999999) ? viewModel.negLimit : -1000.0)
+                : root.vSoftNegLimit
 
             readonly property double progressRatio: {
                 let range = safePLim - safeNLim;
@@ -436,14 +464,57 @@ Rectangle {
 
         RowLayout {
             Layout.fillWidth: true
+            visible: viewModel != null || root.vSoftLimitBarVisible
             Text {
-                text: viewModel && viewModel.negLimit > -999999 ? "负限位: " + viewModel.negLimit : "负限位: 未设"
+                text: root.vnextActive
+                      ? ("负限位: " + root.vSoftNegLimit.toFixed(3))
+                      : (viewModel && viewModel.negLimit > -999999 ? "负限位: " + viewModel.negLimit : "负限位: 未设")
                 color: Theme.textDim
                 font.pixelSize: Theme.fontSmall
             }
             Item { Layout.fillWidth: true }
             Text {
-                text: viewModel && viewModel.posLimit < 999999 ? "正限位: " + viewModel.posLimit : "正限位: 未设"
+                text: root.vnextActive
+                      ? ("正限位: " + root.vSoftPosLimit.toFixed(3))
+                      : (viewModel && viewModel.posLimit < 999999 ? "正限位: " + viewModel.posLimit : "正限位: 未设")
+                color: Theme.textDim
+                font.pixelSize: Theme.fontSmall
+            }
+        }
+
+        // ===== vnext：限位状态指示灯（正确展示 + 是否展示）=====
+        RowLayout {
+            Layout.fillWidth: true
+            visible: root.vLimitVisible
+            spacing: 6 * Theme.scale
+            Layout.alignment: Qt.AlignCenter
+
+            Rectangle {
+                width: 12 * Theme.scale
+                height: 12 * Theme.scale
+                radius: width / 2
+                color: root.vLimitActive ? Theme.colorWarning : Theme.colorIdle
+                border.color: Qt.lighter(color, 1.5)
+                border.width: 1
+
+                // 限位触发时闪烁提示
+                SequentialAnimation on opacity {
+                    running: root.vLimitActive
+                    loops: Animation.Infinite
+                    NumberAnimation { from: 1.0; to: 0.3; duration: 600 }
+                    NumberAnimation { from: 0.3; to: 1.0; duration: 600 }
+                }
+            }
+            Text {
+                text: root.vLimitActive ? ("限位触发：" + root.vMotionLimitName) : "限位状态：无"
+                color: root.vLimitActive ? Theme.colorWarning : Theme.textDim
+                font.pixelSize: Theme.fontSmall
+                font.bold: root.vLimitActive
+            }
+            Item { Layout.fillWidth: true }
+            Text {
+                text: root.vLimitEscapeHint
+                visible: root.vLimitActive
                 color: Theme.textDim
                 font.pixelSize: Theme.fontSmall
             }

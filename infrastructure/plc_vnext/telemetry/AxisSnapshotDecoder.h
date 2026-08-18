@@ -11,6 +11,7 @@
 #pragma once
 
 #include "infrastructure/plc_vnext/codec/RawRegisterBlock.h"
+#include "infrastructure/plc_vnext/contracts/AxisParameterSnapshot.h"
 #include "infrastructure/plc_vnext/contracts/AxisRuntimeSnapshot.h"
 
 namespace plc_vnext::telemetry {
@@ -20,6 +21,11 @@ public:
     /// 解码 block 中下标为 slot（0..15）的槽位反馈。
     /// 任一字段读取失败 → 返回 trusted=false 的快照（字段默认值不冒充正常）。
     [[nodiscard]] static contracts::AxisRuntimeSnapshot decode(
+        const codec::RawRegisterBlock& block, int slot);
+
+    /// 解码 block 中下标为 slot 的参数区（RW）快照（含软限位 D1160/D1192/D1228）。
+    /// block 需覆盖参数区（D1064..D1243）；任一字段读取失败 → trusted=false。
+    [[nodiscard]] static contracts::AxisParameterSnapshot decodeParams(
         const codec::RawRegisterBlock& block, int slot);
 };
 

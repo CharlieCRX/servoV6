@@ -911,6 +911,11 @@ void MotionControlService::publishSnapshot() {
             a.motionState = src.motionState;
             a.motionLimit = src.motionLimit;
             a.alarmWord = src.alarmWord;
+            // 软限位（参数区，与运行反馈同帧读取）。
+            a.softNegLimit = rt.params[i].softNegLimit;
+            a.softPosLimit = rt.params[i].softPosLimit;
+            a.softLimitControl = rt.params[i].softLimitControl;
+            a.softLimitTrusted = rt.params[i].trusted;
             // If booted, resolve slot -> (group, role, hmiVisible, bound) via topology.
             if (const auto* axis = sysManager_->system().findBySlot(
                     *plc_vnext::contracts::PlcAxisSlot::tryCreate(static_cast<int>(i)))) {

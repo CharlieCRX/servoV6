@@ -15,6 +15,7 @@
 #include <array>
 #include <cstdint>
 
+#include "infrastructure/plc_vnext/contracts/AxisParameterSnapshot.h"
 #include "infrastructure/plc_vnext/contracts/AxisRuntimeSnapshot.h"
 #include "infrastructure/plc_vnext/contracts/GantryStatusSnapshot.h"
 #include "infrastructure/plc_vnext/contracts/SnapshotQuality.h"
@@ -30,6 +31,10 @@ constexpr std::size_t kRuntimeGroupCount = 2;
 struct RuntimeSnapshot {
     std::array<AxisRuntimeSnapshot, kRuntimeAxisCount> axes;
     std::array<GantryStatusSnapshot, kRuntimeGroupCount> gantry;
+    /// 各槽位参数区（RW）反馈快照（含软限位值 D1160/D1192/D1228）。
+    /// 与运行反馈 axes 同帧读取；参数区读取失败时对应元素 trusted=false，
+    /// 不因此把该轴运行反馈置不可信（软限位缺失不锁定运动）。
+    std::array<AxisParameterSnapshot, kRuntimeAxisCount> params;
 
     /// 整体质量（见 contracts::SnapshotQuality）。
     SnapshotQuality quality = SnapshotQuality::TransportFailed;
