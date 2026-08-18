@@ -835,5 +835,32 @@ TEST_F(MotionControlServiceTest, Phase3_UnboundAxisMoveFailsAndReleasesLease) {
     EXPECT_EQ(svc->queryOperation(id2)->state, OperationState::Failed);
 }
 
+TEST_F(MotionControlServiceTest, Phase3_AxisAtLimitRejectsPositioning) {
+    gw_.setTopologySnapshot(makeSixAxisTopology());
+    auto svc = makeService();
+
+    // 注入 Y(slot2) 触发负软限位（motionLimit=2），boot 时注入 domain feedback。
+    auto r = makeTrustedRuntimeSnapshot();
+    r.axes[2].motionLimit = 2;
+    runtime_.setRuntimeSnapshot(r);
+    svc->tick();   // boot + 注入 feedback（Y.motionLimit=2）
+
+    // 限位状态下发起定位（StartRelMove，目标 Y）→ 权威拒绝（Failed），
+    // 且不进入会话、不占租约（限位后只能点动撤离）。
+    auto cmd = startRelMove();
+    cmd.motion = MotionRequest{150.0f, 50.0f};
+    const auto id = svc->submit(cmd);
+    svc->tick();
+
+    const auto op = svc->queryOperation(id);
+    ASSERT_TRUE(op.has_value());
+    EXPECT_EQ(op->state, OperationState::Failed);
+    EXPECT_NE(op->diag.find("jog away"), std::string::npos);
+
+    // 失败已释放租约（轴不处于 leased）。
+    const auto snap = svc->store().snapshot();
+    EXPECT_FALSE(snap.axes[2].leased);
+}
+
 }  // namespace
 }  // namespace application_vnext::control

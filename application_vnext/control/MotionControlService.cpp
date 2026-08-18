@@ -723,6 +723,15 @@ void MotionControlService::execute(ControlCommand& cmd) {
                 failAndRelease("positioning speed must be positive");
                 return;
             }
+            // 权威拦截：目标轴已到达任意限位（motionLimit != 0）时禁止定位（位置移动）。
+            // 限位后只能通过点动撤离方向脱困；此拦截对 UI/摇杆/UDP 一律生效，
+            // 避免任何入口在限位状态下发起定位。
+            const auto* limAxis = sysManager_->system().find(
+                AxisKey{cmd.target.group, cmd.target.function});
+            if (limAxis && limAxis->feedback().motionLimit != 0) {
+                failAndRelease("axis at limit: jog away before positioning");
+                return;
+            }
             const float target = cmd.motion->target;
             const float speed  = cmd.motion->speed;
             const bool abs = (cmd.action == ControlAction::StartAbsMove);
