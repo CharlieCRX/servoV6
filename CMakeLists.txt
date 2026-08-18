@@ -94,6 +94,17 @@ qt_add_executable(appservoV6
 
 set_target_properties(appservoV6 PROPERTIES AUTOMOC ON)
 
+qt_add_resources(appservoV6 app_assets
+    PREFIX "/"
+    FILES
+        resources/app_icon.png
+)
+
+if(WIN32 AND NOT ANDROID)
+    target_sources(appservoV6 PRIVATE resources/app_icon.rc)
+    target_include_directories(appservoV6 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/resources)
+endif()
+
 if(SERVO_V6_UNIFIED_CONTROL)
     target_compile_definitions(appservoV6 PRIVATE SERVO_V6_UNIFIED_CONTROL=1)
 else()

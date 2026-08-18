@@ -34,6 +34,7 @@ qrc_*.cpp
 Thumbs.db
 *.res
 *.rc
+!resources/app_icon.rc
 /.qmake.cache
 /.qmake.stash
 

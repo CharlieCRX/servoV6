@@ -4,6 +4,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QQuickStyle>
+#include <QIcon>
 #include <QStandardPaths>
 #include <QDir>
 #include <vector>
@@ -123,6 +124,7 @@ struct LegacyStack {
 int main(int argc, char *argv[])
 {
     QGuiApplication app(argc, argv);
+    app.setWindowIcon(QIcon(QStringLiteral(":/resources/app_icon.png")));
 
     // ============================
     // 0. 初始化全局可观测性基础设施 (Logger)
