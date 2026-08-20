@@ -26,4 +26,7 @@ target_include_directories(domain_vnext
 )
 
 # 独立测试通道（target: domain_vnext_tests）
-add_subdirectory(tests)
+# tests 依赖 gtest（仅在桌面平台构建），Android 下跳过。
+if(NOT ANDROID)
+    add_subdirectory(tests)
+endif()

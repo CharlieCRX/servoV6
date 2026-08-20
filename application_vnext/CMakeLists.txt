@@ -49,4 +49,7 @@ target_link_libraries(application_vnext
 )
 
 # 独立测试通道（target: application_vnext_tests）
-add_subdirectory(tests)
+# tests 依赖 gtest（仅在桌面平台构建），Android 下跳过。
+if(NOT ANDROID)
+    add_subdirectory(tests)
+endif()

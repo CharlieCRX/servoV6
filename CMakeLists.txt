@@ -63,13 +63,26 @@ if(NOT ANDROID)
 
     enable_testing()
     add_subdirectory(external/googletest)
-    add_subdirectory(infrastructure/plc_vnext)   # 定义独立 STATIC 库 plc_vnext
-    add_subdirectory(domain_vnext)               # 定义独立 STATIC 库 domain_vnext
-    add_subdirectory(application_vnext)          # P5 app：SystemManager 迁移到 domain_vnext
     add_subdirectory(tests)
     add_subdirectory(tools)                      # 只读探针等开发/验收工具（阶段 1 补验）
 
 endif()
+
+# ==========================================
+# 2.5 vnext 模块（主 app 依赖链的必要组成部分）
+# ==========================================
+# 注意：不能放在 if(NOT ANDROID) 之内！
+#   - main.cpp / presentation / application 在 Android 平台也链接 vnext 库
+#     （presentation 的 UiControlAdapter、application 的 UdpCommandDispatcher、
+#      main.cpp 的 MotionControlService/GatewayControlRuntime 等）；
+#   - 若 Android 下不 add_subdirectory，application_vnext 目标不存在，
+#     CMake 会把 "application_vnext" 当作原始库名传给链接器，
+#     导致 ld.lld: error: unable to find library -lapplication_vnext。
+# 各子模块内部的 tests 子目录已用 if(NOT ANDROID) 保护（tests 依赖 gtest，
+# 而 gtest 仅在桌面平台构建）。
+add_subdirectory(infrastructure/plc_vnext)   # 定义独立 STATIC 库 plc_vnext
+add_subdirectory(domain_vnext)               # 定义独立 STATIC 库 domain_vnext
+add_subdirectory(application_vnext)          # P5 app：SystemManager 迁移到 domain_vnext
 
 # 子模块（infrastructure 必须在最前面，domain/application 依赖它）
 add_subdirectory(infrastructure)
