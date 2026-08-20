@@ -49,6 +49,7 @@ public:
     Q_INVOKABLE QString setAbsTarget(const QString& group, const QString& role, double value);
     Q_INVOKABLE QString setRelTarget(const QString& group, const QString& role, double value);
     Q_INVOKABLE QString setRelZero(const QString& group, const QString& role);
+    Q_INVOKABLE QString clearRelZero(const QString& group, const QString& role);
 
     // ---- 使能 ----
     Q_INVOKABLE QString enableAxis(const QString& group, const QString& role, bool on);

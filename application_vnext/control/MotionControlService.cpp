@@ -447,6 +447,7 @@ bool MotionControlService::isOneShotAction(ControlAction a) {
         case ControlAction::SetAbsTarget:
         case ControlAction::SetRelTarget:
         case ControlAction::SetRelZero:
+        case ControlAction::ClearRelZero:
         case ControlAction::EnableAxis:
         case ControlAction::EnableMotor:
         case ControlAction::ClearAlarmWord:
@@ -688,6 +689,7 @@ void MotionControlService::execute(ControlCommand& cmd) {
                 presetTargets_[{g.value(), static_cast<int>(fn)}][1] = cmd.value;
                 break;
             case ControlAction::SetRelZero:       r = sysManager_->setRelZero(g, fn); break;
+            case ControlAction::ClearRelZero:     r = sysManager_->clearRelZero(g, fn); break;
             case ControlAction::ClearAlarmWord:   r = sysManager_->clearAlarmWord(g, fn); break;
             default: break;
         }

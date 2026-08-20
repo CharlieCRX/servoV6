@@ -36,6 +36,8 @@ TEST(ControlCommandTest, ActionNameIsReadable) {
     EXPECT_STREQ(controlActionName(ControlAction::SetPositioningSpeed), "SetPositioningSpeed");
     EXPECT_STREQ(controlActionName(ControlAction::SetAbsTarget), "SetAbsTarget");
     EXPECT_STREQ(controlActionName(ControlAction::SetRelTarget), "SetRelTarget");
+    EXPECT_STREQ(controlActionName(ControlAction::SetRelZero), "SetRelZero");
+    EXPECT_STREQ(controlActionName(ControlAction::ClearRelZero), "ClearRelZero");
     EXPECT_STREQ(controlActionName(ControlAction::GantryEnableAndCouple), "GantryEnableAndCouple");
     EXPECT_STREQ(controlActionName(ControlAction::GantryDecoupleAndDisable), "GantryDecoupleAndDisable");
     EXPECT_STREQ(controlActionName(ControlAction::EmergencyStop), "EmergencyStop");

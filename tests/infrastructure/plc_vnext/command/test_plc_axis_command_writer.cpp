@@ -139,6 +139,21 @@ TEST(PlcAxisCommandWriterTest, WriteTrigger_SelfResetWritesOnOnce) {
     EXPECT_EQ(fake->writtenCoils().size(), 1u);
 }
 
+TEST(PlcAxisCommandWriterTest, WriteClearRelZero_MapsToSelfResetM16PlusSlot) {
+    auto fake = std::make_shared<fake::FakeModbusClient>();
+    command::PlcAxisCommandWriter writer(fake);
+    const auto slot = *PlcAxisSlot::tryCreate(4);
+
+    auto res = writer.write(slot, PlcAxisCommand::makeClearRelZero());
+    ASSERT_TRUE(res.ok());
+
+    auto coils = fake->writtenCoils();
+    ASSERT_EQ(coils.size(), 1u);
+    EXPECT_EQ(coils[0].address, layout::clearRelZero(4).value());
+    EXPECT_TRUE(coils[0].value);
+    EXPECT_EQ(layout::clearRelZero(4).value(), 20u);
+}
+
 // ─────────────────────────────────────────────
 // 触发命令：断线写失败不落盘、重连后不自动重写 ON（无重放）
 // ─────────────────────────────────────────────

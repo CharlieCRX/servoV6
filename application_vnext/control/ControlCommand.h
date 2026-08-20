@@ -56,7 +56,8 @@ enum class ControlAction {
     EnableAxis,
     EnableMotor,
 
-    SetRelZero,   // UDP cmd=5：将当前绝对位置设为相对零点（一次性写入，见 §5.3 Set* 语义）
+    SetRelZero,     // UDP cmd=5：将当前绝对位置设为相对零点（PLC 自复位）
+    ClearRelZero,   // 相对原点清除（M16+i，PLC 自复位）
 
     /// 告警码置零（M(208+i)，PLC 自复位，只写 ON）。用于轴告警（alarmWord != 0）
     /// 阻止运动后由 UI 手动确认清除，随后可重新使能/点动。
@@ -116,6 +117,7 @@ inline const char* controlActionName(ControlAction a) {
         case ControlAction::EnableAxis:          return "EnableAxis";
         case ControlAction::EnableMotor:         return "EnableMotor";
         case ControlAction::SetRelZero:          return "SetRelZero";
+        case ControlAction::ClearRelZero:        return "ClearRelZero";
         case ControlAction::ClearAlarmWord:      return "ClearAlarmWord";
         case ControlAction::GantryEnableAndCouple:   return "GantryEnableAndCouple";
         case ControlAction::GantryDecoupleAndDisable:return "GantryDecoupleAndDisable";

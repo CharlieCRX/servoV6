@@ -142,6 +142,11 @@ QString UiControlCommandAdapter::setRelZero(const QString& g, const QString& r) 
     if (!parseAxis(g, r, t)) return QString();
     return submitUi(t, application_vnext::control::ControlAction::SetRelZero);
 }
+QString UiControlCommandAdapter::clearRelZero(const QString& g, const QString& r) {
+    application_vnext::control::AxisTarget t;
+    if (!parseAxis(g, r, t)) return QString();
+    return submitUi(t, application_vnext::control::ControlAction::ClearRelZero);
+}
 QString UiControlCommandAdapter::enableAxis(const QString& g, const QString& r, bool on) {
     application_vnext::control::AxisTarget t;
     if (!parseAxis(g, r, t)) return QString();

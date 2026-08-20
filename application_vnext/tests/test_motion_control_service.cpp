@@ -807,6 +807,25 @@ TEST_F(MotionControlServiceTest, Phase3_OneShotWriteRespectsLease) {
     EXPECT_EQ(svc->queryOperation(id)->state, OperationState::Rejected);
 }
 
+TEST_F(MotionControlServiceTest, Phase3_ClearRelZeroWritesMappedPulse) {
+    gw_.setTopologySnapshot(makeSixAxisTopology());
+    auto svc = makeService();
+
+    ControlCommand clear;
+    clear.source = ControlSource::Ui;
+    clear.target.group = plc_vnext::contracts::PlcGroupIndex(0);
+    clear.target.function = domain_vnext::model::AxisFunction::Y;
+    clear.action = ControlAction::ClearRelZero;
+
+    const auto id = svc->submit(clear);
+    svc->tick();
+
+    const auto op = svc->queryOperation(id);
+    ASSERT_TRUE(op.has_value());
+    EXPECT_EQ(op->state, OperationState::Succeeded);
+    EXPECT_TRUE(wroteAxis(gw_, PlcAxisCommandKind::ClearRelZero, false));
+}
+
 TEST_F(MotionControlServiceTest, Phase3_LeaseProjectedIntoSnapshot) {
     gw_.setTopologySnapshot(makeSixAxisTopology());
     auto svc = makeService();

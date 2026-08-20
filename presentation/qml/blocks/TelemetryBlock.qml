@@ -400,13 +400,18 @@ Rectangle {
                 text: "⊗ 清除"
                 buttonSize: 65 * Theme.scale
                 baseColor: root.locked ? Theme.colorDisabled : Theme.panelBg
-                enabled: viewModel ? !root.locked : false
+                enabled: viewModel ? !root.locked : (root.commandAdapter && root.commandAdapter.available
+                                                      && !root.locked)
                 opacity: enabled ? 1.0 : 0.4
                 border.color: Theme.borderMain
                 border.width: 1
                 Layout.alignment: Qt.AlignRight
                 onClicked: {
-                    if (viewModel) viewModel.clearRelativeZero()
+                    if (viewModel) {
+                        viewModel.clearRelativeZero()
+                    } else if (commandAdapter && commandAdapter.available && enabled) {
+                        commandAdapter.clearRelZero(root.groupLetter, root.selectedAxis)
+                    }
                 }
             }
         }

@@ -91,6 +91,16 @@ TEST_F(UiControlCommandAdapterTest, SetPositioningSpeed_Positive_Submits) {
     EXPECT_TRUE(adapter_->lastError().isEmpty());
 }
 
+TEST_F(UiControlCommandAdapterTest, ClearRelZero_SubmitsUiCommand) {
+    const QString opId = adapter_->clearRelZero("A", "Y");
+    EXPECT_FALSE(opId.isEmpty());
+    const auto op = svc_->queryOperation(opId.toStdString());
+    ASSERT_TRUE(op.has_value());
+    EXPECT_EQ(op->source, ControlSource::Ui);
+    EXPECT_EQ(op->axis, "A.Y");
+    EXPECT_TRUE(adapter_->lastError().isEmpty());
+}
+
 TEST_F(UiControlCommandAdapterTest, StartRelMove_CarriesMotion) {
     const QString opId = adapter_->startRelMove("A", "Z", 10.0, 2.0);
     EXPECT_FALSE(opId.isEmpty());
