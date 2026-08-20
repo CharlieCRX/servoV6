@@ -738,22 +738,32 @@ void MotionControlService::execute(ControlCommand& cmd) {
             const float speed  = cmd.motion->speed;
             const bool abs = (cmd.action == ControlAction::StartAbsMove);
             if (logical) {
+                // 龙门逻辑轴位置移动：与点动对称的组合闭环（复刻 gantry-run-jog 语义），
+                // 顺序驱动「建立联动+使能(couple -> Ready) → 定位(move) → 解除+掉电(decouple -> Done)」。
+                // 修复原实现缺陷：只调用 beginAbs/beginRel（LifecycleManaged 跳过使能 + 依赖
+                // guard 已联动），未联动/未使能时位置移动直接失败（"gantry not coupled"/未使能）。
+                // 本闭环在 Moving 前由 GantryLifecyclePolicy 完成使能轴控+电机、Couple -> Ready，
+                // 运动完成后 Decouple + 掉电；已联动时 Coupling 段幂等跳过（与 GantryAutoJogSession 一致）。
                 gantryApi_->setPositioningSpeed(g, speed);
+                auto couple   = gantryApi_->beginEnableAndCouple(g);
+                auto decouple = gantryApi_->beginDecoupleAndDisable(g);
                 if (abs) {
                     gantryApi_->setAbsTarget(g, target);
                     auto p = gantryApi_->beginAbs(g);
                     p.setVerifyTarget(target);
-                    session = std::make_shared<
-                        session_adapter::PositioningSession<application_vnext::policy::AbsMovePolicy>>(
-                        *sysManager_, std::move(p), cmd.operationId, cmd.source,
+                    session = std::make_shared<session_adapter::GantryAutoMoveSession<
+                        application_vnext::policy::AbsMovePolicy>>(
+                        *sysManager_, g, std::move(couple), std::move(p), std::move(decouple),
+                        cmd.operationId, cmd.source,
                         cmd.target, required, OperationKind::Positioning);
                 } else {
                     gantryApi_->setRelTarget(g, target);
                     auto p = gantryApi_->beginRel(g);
                     p.setVerifyTarget(startPos(cmd) + target);
-                    session = std::make_shared<
-                        session_adapter::PositioningSession<application_vnext::policy::RelMovePolicy>>(
-                        *sysManager_, std::move(p), cmd.operationId, cmd.source,
+                    session = std::make_shared<session_adapter::GantryAutoMoveSession<
+                        application_vnext::policy::RelMovePolicy>>(
+                        *sysManager_, g, std::move(couple), std::move(p), std::move(decouple),
+                        cmd.operationId, cmd.source,
                         cmd.target, required, OperationKind::Positioning);
                 }
             } else {

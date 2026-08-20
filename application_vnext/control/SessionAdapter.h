@@ -274,5 +274,97 @@ private:
     bool stateLogged_ = false;
 };
 
+/// 龙门自动定位会话：与 GantryAutoJogSession 对称的「建立联动+使能 → 定位 → 解除+掉电」组合闭环。
+/// 修复龙门位置移动（StartAbsMove / StartRelMove）缺少点动同款初始配置的缺陷：
+///   原实现只调用 beginAbs/beginRel（LifecycleManaged 跳过使能 + 依赖 guard 已联动），
+///   未联动/未使能时位置移动直接失败（"gantry not coupled (state!=3)" / 未使能）。
+/// 本会话在 Moving 前先由 GantryLifecyclePolicy 完成「使能轴控 → 使能电机 → Couple → Ready」，
+/// 运动结束后再 Decouple + 掉电，与点动闭环语义一致。要求：目标为龙门逻辑轴 X。
+template <typename MovePolicy>
+class GantryAutoMoveSession : public SessionBase {
+public:
+    GantryAutoMoveSession(SystemManagerVnext& m, plc_vnext::contracts::PlcGroupIndex g,
+                          GantryLifecyclePolicy couple, MovePolicy move,
+                          GantryLifecyclePolicy decouple, std::string opId,
+                          ControlSource owner, AxisTarget target,
+                          std::vector<ControlResource> res, OperationKind kind)
+        : SessionBase(std::move(opId), owner, target, std::move(res), kind),
+          m_(&m), g_(g), couple_(std::move(couple)),
+          move_(std::move(move)), decouple_(std::move(decouple)) {}
+
+    void tick() override {
+        if (phase_ == Phase::Done) return;
+        switch (phase_) {
+        case Phase::Coupling:
+            // 已联动则跳过建立（幂等：couple 策略要求 state!=1 会报错，故直接定位）。
+            if (m_->gantryStatus(g_).rawState == 3) { phase_ = Phase::Moving; break; }
+            couple_.tick();
+            if (couple_.hasError()) { error_ = couple_.diag(); phase_ = Phase::Done; return; }
+            if (couple_.isDone()) { phase_ = Phase::Done; return; }   // 建立中被打断（已取消）：不定位、不解除
+            if (couple_.isReady()) phase_ = Phase::Moving;            // 联动成功 -> 定位
+            break;
+        case Phase::Moving:
+            move_.tick();
+            if (move_.hasError()) error_ = move_.diag();              // 运动异常：记录，仍进解除收口
+            // 无论正常结束还是运动异常，都必须进入解除收口（防止 Error 时 isDone()==false
+            // 导致会话卡死在 Moving、龙门保持联动+使能 + 租约永不释放）。
+            if (move_.isDone() || move_.hasError()) phase_ = Phase::Decoupling;
+            break;
+        case Phase::Decoupling:
+            decouple_.tick();
+            if (decouple_.hasError()) { error_ = decouple_.diag(); phase_ = Phase::Done; return; }
+            if (decouple_.isDone()) phase_ = Phase::Done;
+            break;
+        case Phase::Done:
+            break;
+        }
+    }
+
+    void requestStop() override {
+        stopping_ = true;
+        if (phase_ == Phase::Coupling) couple_.cancel();
+        else if (phase_ == Phase::Moving) issueMoveStop();   // 写 Stop*（自复位），PLC 停稳后 move_ 自然 Done
+        else if (phase_ == Phase::Decoupling) decouple_.cancel();
+    }
+    void cancel(std::string_view reason) override {
+        stopping_ = true;
+        cancelReason_ = std::string(reason);
+        if (phase_ == Phase::Coupling) couple_.cancel();
+        else if (phase_ == Phase::Moving) issueMoveStop();
+        else if (phase_ == Phase::Decoupling) decouple_.cancel();
+    }
+
+    bool isDone() const override { return phase_ == Phase::Done; }
+    bool hasError() const override { return !error_.empty(); }
+    std::string diag() const override { return error_; }
+    std::string currentStepName() const override {
+        switch (phase_) {
+            case Phase::Coupling:   return std::string("gantry-move[couple] ") + GantryLifecyclePolicy::stepName(couple_.currentStep());
+            case Phase::Moving:     return std::string("gantry-move[move] ") + MovePolicy::stepName(move_.currentStep());
+            case Phase::Decoupling: return std::string("gantry-move[decouple] ") + GantryLifecyclePolicy::stepName(decouple_.currentStep());
+            case Phase::Done:       return "gantry-move[done]";
+        }
+        return "gantry-move[?]";
+    }
+
+private:
+    /// 定位停止与 PositioningSession::issueStop 一致：写一次 Stop*（自复位脉冲）。
+    void issueMoveStop() {
+        if (moveStopIssued_) return;
+        moveStopIssued_ = true;
+        m_->stop(g_, domain_vnext::model::AxisFunction::X);
+    }
+
+    enum class Phase { Coupling, Moving, Decoupling, Done };
+    Phase phase_ = Phase::Coupling;
+    SystemManagerVnext* m_;
+    plc_vnext::contracts::PlcGroupIndex g_;
+    GantryLifecyclePolicy couple_;
+    MovePolicy move_;
+    GantryLifecyclePolicy decouple_;
+    std::string error_;
+    bool moveStopIssued_ = false;
+};
+
 
 }  // namespace application_vnext::control::session_adapter
