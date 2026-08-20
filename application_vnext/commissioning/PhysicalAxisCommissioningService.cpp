@@ -419,6 +419,23 @@ PhysicalAxisCommissioningService::moveRelative(
         return out;
     }
     out.target = delta;
+
+    // 0. 使能轴控 + 电机（与 jog() Step 1 一致：直接写物理 slot，不再重复过闸门，
+    //    避免把自身当成“另一个点动会话”而误判 Busy）。运动前必须轴控/电机均使能，
+    //    否则 motionState 停留在 0/1，触发后 PLC 不执行定位。
+    {
+        auto r1 = gateway_.writeAxis(
+            slot, plc_vnext::contracts::PlcAxisCommand::makeEnableAxis(true));
+        if (!r1.ok()) { out.diagnostic = "enableAxis write failed: " + r1.diagnostic; return out; }
+        auto r2 = gateway_.writeAxis(
+            slot, plc_vnext::contracts::PlcAxisCommand::makeEnableMotor(true));
+        if (!r2.ok()) {
+            gateway_.writeAxis(slot, plc_vnext::contracts::PlcAxisCommand::makeEnableAxis(false));
+            out.diagnostic = "enableMotor write failed: " + r2.diagnostic;
+            return out;
+        }
+    }
+
     if (!currentAbsPosition(slot, out.startPos)) { out.diagnostic = "read start pos failed"; return out; }
 
     // 写很小的相对目标，读回确认。
@@ -460,6 +477,23 @@ PhysicalAxisCommissioningService::moveAbsolute(
         return out;
     }
     out.target = target;
+
+    // 0. 使能轴控 + 电机（与 jog() Step 1 一致：直接写物理 slot，不再重复过闸门，
+    //    避免把自身当成“另一个点动会话”而误判 Busy）。运动前必须轴控/电机均使能，
+    //    否则 motionState 停留在 0/1，触发后 PLC 不执行定位。
+    {
+        auto r1 = gateway_.writeAxis(
+            slot, plc_vnext::contracts::PlcAxisCommand::makeEnableAxis(true));
+        if (!r1.ok()) { out.diagnostic = "enableAxis write failed: " + r1.diagnostic; return out; }
+        auto r2 = gateway_.writeAxis(
+            slot, plc_vnext::contracts::PlcAxisCommand::makeEnableMotor(true));
+        if (!r2.ok()) {
+            gateway_.writeAxis(slot, plc_vnext::contracts::PlcAxisCommand::makeEnableAxis(false));
+            out.diagnostic = "enableMotor write failed: " + r2.diagnostic;
+            return out;
+        }
+    }
+
     if (!currentAbsPosition(slot, out.startPos)) { out.diagnostic = "read start pos failed"; return out; }
 
     // 写绝对目标 P1，读回确认。
