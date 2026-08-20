@@ -71,6 +71,9 @@ contracts::CommunicationResult PlcAxisCommandWriter::write(
             return writeSelfReset(layout::clearRelZero(s));
         case PlcAxisCommandKind::SetRelZero:
             return writeSelfReset(layout::setRelZero(s));
+        // 告警码置零（M208+slot）：PLC 自复位，只写 ON（一次命令，无需回写 OFF）
+        case PlcAxisCommandKind::ClearAlarmWord:
+            return writeSelfReset(layout::clearAlarmWord(s));
     }
     return contracts::CommunicationResult{
         contracts::CommunicationResult::Status::ProtocolError, 0,

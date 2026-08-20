@@ -54,6 +54,11 @@ public:
     Q_INVOKABLE QString enableAxis(const QString& group, const QString& role, bool on);
     Q_INVOKABLE QString enableMotor(const QString& group, const QString& role, bool on);
 
+    // ---- 告警 ----
+    /// 告警码置零（M(208+i)，PLC 自复位）：清除该轴 alarmWord 阻塞。
+    /// 调用前 UI 应展示告警信息并让用户确认。
+    Q_INVOKABLE QString clearAlarmWord(const QString& group, const QString& role);
+
     // ---- 点动（按住/松开成对提交）----
     Q_INVOKABLE QString startJogForward(const QString& group, const QString& role);
     Q_INVOKABLE QString startJogBackward(const QString& group, const QString& role);

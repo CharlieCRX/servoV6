@@ -152,6 +152,11 @@ QString UiControlCommandAdapter::enableMotor(const QString& g, const QString& r,
     if (!parseAxis(g, r, t)) return QString();
     return submitUi(t, application_vnext::control::ControlAction::EnableMotor, 0.0, on);
 }
+QString UiControlCommandAdapter::clearAlarmWord(const QString& g, const QString& r) {
+    application_vnext::control::AxisTarget t;
+    if (!parseAxis(g, r, t)) return QString();
+    return submitUi(t, application_vnext::control::ControlAction::ClearAlarmWord);
+}
 QString UiControlCommandAdapter::startJogForward(const QString& g, const QString& r) {
     application_vnext::control::AxisTarget t;
     if (!parseAxis(g, r, t)) return QString();

@@ -72,6 +72,9 @@ public:
     AppVnextResult clearRelZero(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn);
     AppVnextResult setRelZero(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn);
     AppVnextResult clearAbsPosition(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn);
+    /// 告警码置零（M(208+i)，PLC 自复位，只写 ON）：清除该轴 alarmWord，
+    /// 用于告警阻塞运动（JogPolicy "axis alarm"）后手动确认恢复。
+    AppVnextResult clearAlarmWord(plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn);
 
     // ---- 兼容旧调用方：默认 A 组（g=0）包装，保留原签名 ----
     AppVnextResult enableAxis(domain_vnext::model::AxisFunction fn, bool on);
@@ -89,6 +92,7 @@ public:
     AppVnextResult clearRelZero(domain_vnext::model::AxisFunction fn);
     AppVnextResult setRelZero(domain_vnext::model::AxisFunction fn);
     AppVnextResult clearAbsPosition(domain_vnext::model::AxisFunction fn);
+    AppVnextResult clearAlarmWord(domain_vnext::model::AxisFunction fn);
 
     // ---- 安全（全局急停）----
     AppVnextResult requestEmergencyStop();      // EStopCommand{true}  (M224 锁存)
@@ -369,6 +373,10 @@ inline AppVnextResult SystemManagerVnext::clearAbsPosition(
     plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn) {
     return submitPulse(g.value(), fn, domain_vnext::model::AxisCommandKind::ClearAbsPosition);
 }
+inline AppVnextResult SystemManagerVnext::clearAlarmWord(
+    plc_vnext::contracts::PlcGroupIndex g, domain_vnext::model::AxisFunction fn) {
+    return submitPulse(g.value(), fn, domain_vnext::model::AxisCommandKind::ClearAlarmWord);
+}
 
 // ---- 默认 A 组（g=0）包装：保留旧接口签名，供现有调用方与测试使用 ----
 inline AppVnextResult SystemManagerVnext::enableAxis(domain_vnext::model::AxisFunction fn, bool on) {
@@ -415,6 +423,9 @@ inline AppVnextResult SystemManagerVnext::setRelZero(domain_vnext::model::AxisFu
 }
 inline AppVnextResult SystemManagerVnext::clearAbsPosition(domain_vnext::model::AxisFunction fn) {
     return clearAbsPosition(plc_vnext::contracts::PlcGroupIndex(0), fn);
+}
+inline AppVnextResult SystemManagerVnext::clearAlarmWord(domain_vnext::model::AxisFunction fn) {
+    return clearAlarmWord(plc_vnext::contracts::PlcGroupIndex(0), fn);
 }
 
 

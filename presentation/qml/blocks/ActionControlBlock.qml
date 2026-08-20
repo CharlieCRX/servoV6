@@ -32,6 +32,11 @@ Rectangle {
                                             && !snapshotAdapter.globallyLocked
                                             && vAxis.bound && vAxis.trusted
                                             && vAxis.hmiVisible && !vAxis.leased
+                                            && !root.alarmActive
+    // ★ 当前轴是否有告警（D160+slot 位集合非零：JogPolicy 会以 "axis alarm" 拒绝运动）
+    readonly property bool alarmActive: root.vnextActive && (root.vAxis.alarmWord ?? 0) > 0
+    // 当前告警是否已弹窗提示（避免每次快照刷新重复弹出）
+    property bool alarmDialogShown: false
     readonly property int effectiveState: viewModel ? viewModel.state : (vAxis.motionState ?? 0)
     readonly property double effectiveJogVelocity: viewModel ? viewModel.jogVelocity : (vAxis.manualSpeed ?? 0.0)
     readonly property double effectiveMoveVelocity: viewModel ? viewModel.moveVelocity : (vAxis.positioningSpeed ?? 0.0)
@@ -123,6 +128,36 @@ Rectangle {
                 font.pixelSize: Theme.fontSmall
                 font.bold: true
                 font.family: "Monospace"
+            }
+        }
+
+        // ==========================================
+        // 0.4 轴告警横幅（alarmWord != 0：JogPolicy 会拒绝运动）
+        // ==========================================
+        Rectangle {
+            Layout.fillWidth: true
+            height: root.alarmActive ? 36 * Theme.scale : 0
+            visible: root.alarmActive
+            color: "#B71C1C"
+            radius: 4 * Theme.scale
+
+            Text {
+                anchors.centerIn: parent
+                text: "⚠️ 轴告警 (0x" + (root.vAxis.alarmWord ?? 0).toString(16).toUpperCase()
+                      + ")  已锁定运动，请确认后清除"
+                color: "#FFFFFF"
+                font.pixelSize: Theme.fontSmall
+                font.bold: true
+                font.family: "Monospace"
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                onClicked: {
+                    alarmDialog.alarmCodeText = (root.vAxis.alarmWord ?? 0)
+                    alarmDialog.axisName = root.groupLetter + "." + root.currentAxis
+                    alarmDialog.open()
+                }
             }
         }
 
@@ -835,6 +870,95 @@ Rectangle {
                 text: "关 闭"
                 baseColor: Theme.colorIdle
                 onClicked: relTargetErrorDialog.close()
+            }
+        }
+    }
+
+    // ── ★ 轴告警确认弹窗：告警时提示并请求用户确认清理告警码 ──
+    Dialog {
+        id: alarmDialog
+        modal: true
+        anchors.centerIn: Overlay.overlay
+        width: 380 * Theme.scale
+        height: 300 * Theme.scale
+        title: "⚠️ 轴告警"
+
+        property string axisName: ""
+        property int alarmCodeText: 0
+
+        background: Rectangle {
+            color: Theme.panelBg
+            radius: 10 * Theme.scale
+            border.color: "#B71C1C"
+            border.width: 2 * Theme.scale
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 20 * Theme.scale
+            spacing: 12 * Theme.scale
+
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: "轴 " + alarmDialog.axisName + " 检测到告警码 0x"
+                      + alarmDialog.alarmCodeText.toString(16).toUpperCase()
+                      + "。告警会阻止所有运动（点动/定位），"
+                      + "请确认排除故障后清除告警码。"
+                color: Theme.textMain
+                font.pixelSize: Theme.fontNormal
+            }
+
+            Text {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: "⚠️ 清除告警码 = PLC 写 M(208+槽位) ON（PLC 自复位）。"
+                      + "仅在确认故障已排除后操作。"
+                color: Theme.colorWarning
+                font.pixelSize: Theme.fontSmall
+            }
+
+            Item { Layout.fillHeight: true }
+
+            RowLayout {
+                Layout.alignment: Qt.AlignHCenter
+                spacing: 12 * Theme.scale
+
+                IndustrialButton {
+                    text: "取 消"
+                    baseColor: Theme.colorDisabled
+                    onClicked: alarmDialog.close()
+                }
+
+                IndustrialButton {
+                    text: "确认清除告警"
+                    baseColor: "#B71C1C"
+                    onClicked: {
+                        if (root.commandAdapter) {
+                            root.commandAdapter.clearAlarmWord(root.groupLetter, root.currentAxis)
+                        }
+                        alarmDialog.close()
+                    }
+                }
+            }
+        }
+    }
+
+    // ── ★ 告警自动弹出检测：告警出现时自动弹窗（每次只弹一次，清除后重置）──
+    Connections {
+        target: snapshotAdapter
+        function onStateChanged() {
+            if (!root.vnextActive) { root.alarmDialogShown = false; return }
+            if (root.alarmActive) {
+                if (!root.alarmDialogShown) {
+                    root.alarmDialogShown = true
+                    alarmDialog.alarmCodeText = root.vAxis.alarmWord ?? 0
+                    alarmDialog.axisName = root.groupLetter + "." + root.currentAxis
+                    alarmDialog.open()
+                }
+            } else {
+                // 告警已清除：复位弹窗状态，下次告警可重新弹出
+                root.alarmDialogShown = false
             }
         }
     }

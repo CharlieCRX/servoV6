@@ -29,5 +29,8 @@ constexpr CoilAddress stopAbsMove(int slot)     { return CoilAddress(160  + slot
 constexpr CoilAddress clearRelZero(int slot)    { return CoilAddress(16   + slot); }  // M16..M31  相对原点清除
 constexpr CoilAddress clearAbsPosition(int slot){ return CoilAddress(32   + slot); }  // M32..M47  绝对位置清零
 constexpr CoilAddress setRelZero(int slot)      { return CoilAddress(176  + slot); }  // M176..M191 相对原点设置
+constexpr CoilAddress clearAlarmWord(int slot)  { return CoilAddress(208  + slot); }  // M208..M223 告警码置零（一次命令，PLC 自复位）
+// 注：resetAlarm (M112..M127 报警解除触发) 当前 PLC 未实现，映射层按能力拒绝，
+//     此处不提供地址函数（禁止正式 UI 使用，见地址表 §4）。
 
 }  // namespace plc_vnext::layout
