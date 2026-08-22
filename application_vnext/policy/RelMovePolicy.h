@@ -21,6 +21,8 @@
 #include "domain_vnext/model/AxisFunction.h"
 #include "domain_vnext/system/AxisRegistry.h"
 #include "infrastructure/plc_vnext/contracts/PlcAxisSlot.h"
+#include "infrastructure/plc_vnext/contracts/PlcGroupIndex.h"
+#include "infrastructure/logger/Logger.h"
 
 namespace application_vnext::policy {
 
@@ -51,6 +53,7 @@ public:
         m_fnValid = false;
         m_idleReachedTime = std::chrono::steady_clock::now();
         if (const auto* axis = m_->system().findBySlot(slot_)) {
+            m_group = axis->key().group;
             m_fn = axis->key().function;
             m_fnValid = true;
         }
@@ -74,6 +77,7 @@ public:
 
         const domain_vnext::system::Axis* axis = m_->system().findBySlot(slot_);
         if (!axis) { m_step = Step::Error; m_diag = "slot not registered"; disableMotor(); return; }
+        m_group = axis->key().group;
         m_fn = axis->key().function;
         m_fnValid = true;
 
@@ -90,7 +94,7 @@ public:
         if (power_ == PowerOwnership::LifecycleManaged && guard_) {
             const auto gr = guard_->evaluate();
             if (!gr.allowed) {
-                if (m_fnValid) m_->stop(m_fn);
+                if (m_fnValid) m_->stop(m_group, m_fn);
                 m_step = Step::Error;
                 m_diag = std::string("gantry permit lost: ") + gr.reason;
                 return;
@@ -114,8 +118,8 @@ public:
             if (!m_enableSent) {
                 // ms==0：轴控+电机都未使能 → 都下发；ms==1：仅电机未使能 → 只补电机。
                 bool ok = true;
-                if (ms == kMotionNotEnabled) ok = appResultOk(m_->enableAxis(m_fn, true));
-                if (ok) ok = appResultOk(m_->enableMotor(m_fn, true));
+                if (ms == kMotionNotEnabled) ok = appResultOk(m_->enableAxis(m_group, m_fn, true));
+                if (ok) ok = appResultOk(m_->enableMotor(m_group, m_fn, true));
                 if (!ok) { m_step = Step::Error; m_diag = "enable failed"; return; }
                 m_enableSent = true;
                 m_enableSentTime = now;
@@ -131,7 +135,15 @@ public:
 
         case Step::TriggeringMove:
             if (!m_moveTriggered) {
-                if (!appResultOk(m_->triggerRelMove(m_fn))) { m_step = Step::Error; m_diag = "trigger rejected"; return; }
+                const auto triggerResult = m_->triggerRelMove(m_group, m_fn);
+                if (!appResultOk(triggerResult)) {
+                    LOG_ERROR(LogLayer::APP, "RelPolicy",
+                              "[rel] trigger rejected group=" + std::to_string(m_group.value())
+                              + " fn=" + std::string(domain_vnext::model::axisFunctionName(m_fn))
+                              + " slot=" + std::to_string(slot_.value())
+                              + " motionState=" + std::to_string(ms));
+                    m_step = Step::Error; m_diag = "trigger rejected"; return;
+                }
                 m_moveTriggered = true;
                 m_triggerTime = now;
                 m_startPos = pos;
@@ -232,7 +244,7 @@ private:
     /// 运动完成收尾：复位领域 busy（Stop* 自复位，无副作用）+ 进入停稳确认窗 → 掉电。
     void onMoveCompleted() {
         if (m_sendStopAfterIdle && !m_stopNormalizeSent) {
-            m_->stop(m_fn);
+            m_->stop(m_group, m_fn);
             m_stopNormalizeSent = true;
         }
         m_stopIdleReachedTime = std::chrono::steady_clock::now();
@@ -241,12 +253,13 @@ private:
     void disableMotor() {
         if (m_disableSent) return;
         m_disableSent = true;
-        if (m_fnValid && power_ != PowerOwnership::LifecycleManaged) m_->enableMotor(m_fn, false);
+        if (m_fnValid && power_ != PowerOwnership::LifecycleManaged) m_->enableMotor(m_group, m_fn, false);
     }
 
     SystemManagerVnext* m_;
     plc_vnext::contracts::PlcAxisSlot slot_;
     Step m_step = Step::Initial;
+    plc_vnext::contracts::PlcGroupIndex m_group{0};
     domain_vnext::model::AxisFunction m_fn = domain_vnext::model::AxisFunction::X;
     bool m_fnValid = false;
     std::string m_diag;

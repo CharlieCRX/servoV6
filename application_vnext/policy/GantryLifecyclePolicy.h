@@ -169,7 +169,25 @@ inline GantryLifecyclePolicy::SubmitOutcome GantryLifecyclePolicy::submitOutcome
     // CommitUncertain：Command 已写、RequestSeq 结果未知，绝不能据此重发新序号，
     // 由调用方继续 poll() 观察 AckSeq 闭环（本策略进入等待态）。
     const auto* cf = appErrorOf<GantryCommFailed>(r);
-    if (cf && cf->result.committedUnknown()) return SubmitOutcome::Uncertain;
+    if (cf) {
+        LOG_ERROR(LogLayer::APP, "GantryLifecycle",
+                  "[gantry] submit communication failed group=" + std::to_string(g_.value())
+                  + " submitState=" + gantrySubmitStateName(cf->result.state)
+                  + " commStatus=" + communicationStatusName(cf->result.result.status)
+                  + " requestSeq=" + std::to_string(cf->result.requestSeq)
+                  + " diag=" + cf->result.result.diagnostic);
+        if (cf->result.committedUnknown()) return SubmitOutcome::Uncertain;
+    }
+    const auto* rr = appErrorOf<GantryRequestRejected>(r);
+    if (rr) {
+        LOG_ERROR(LogLayer::APP, "GantryLifecycle",
+                  "[gantry] submit request rejected group=" + std::to_string(g_.value())
+                  + " reason=" + gantryRequestResultName(rr->result));
+    } else if (appErrorOf<AppNotBooted>(r)) {
+        LOG_ERROR(LogLayer::APP, "GantryLifecycle",
+                  "[gantry] submit failed group=" + std::to_string(g_.value())
+                  + " reason=AppNotBooted");
+    }
     return SubmitOutcome::Failed;
 }
 

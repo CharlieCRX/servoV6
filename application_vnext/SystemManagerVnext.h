@@ -27,8 +27,59 @@
 #include "infrastructure/plc_vnext/contracts/AxisParameterSnapshot.h"
 #include "infrastructure/plc_vnext/contracts/PlcAxisSlot.h"
 #include "infrastructure/plc_vnext/contracts/PlcGroupIndex.h"
+#include "infrastructure/logger/Logger.h"
 
 namespace application_vnext {
+
+inline const char* gantryRequestResultName(
+    domain_vnext::state::GantryCouplingStateMachine::RequestResult r) {
+    using R = domain_vnext::state::GantryCouplingStateMachine::RequestResult;
+    switch (r) {
+        case R::Accepted: return "Accepted";
+        case R::RejectedUnconfigured: return "RejectedUnconfigured";
+        case R::RejectedFault: return "RejectedFault";
+        case R::RejectedStateConflict: return "RejectedStateConflict";
+        case R::RejectedNotReady: return "RejectedNotReady";
+        case R::RejectedNotDecoupled: return "RejectedNotDecoupled";
+    }
+    return "?";
+}
+
+inline const char* gantrySubmitStateName(plc_vnext::contracts::GantrySubmitState s) {
+    using S = plc_vnext::contracts::GantrySubmitState;
+    switch (s) {
+        case S::RejectedLocally: return "RejectedLocally";
+        case S::CommandNotWritten: return "CommandNotWritten";
+        case S::CommitUncertain: return "CommitUncertain";
+        case S::Submitted: return "Submitted";
+    }
+    return "?";
+}
+
+inline const char* communicationStatusName(plc_vnext::contracts::CommunicationResult::Status s) {
+    using S = plc_vnext::contracts::CommunicationResult::Status;
+    switch (s) {
+        case S::Sent: return "Sent";
+        case S::NetworkError: return "NetworkError";
+        case S::Timeout: return "Timeout";
+        case S::Busy: return "Busy";
+        case S::ProtocolError: return "ProtocolError";
+        case S::InvalidResponse: return "InvalidResponse";
+        case S::Disconnected: return "Disconnected";
+    }
+    return "?";
+}
+
+inline const char* gantryCommandKindName(plc_vnext::contracts::GantryCommandKind c) {
+    using C = plc_vnext::contracts::GantryCommandKind;
+    switch (c) {
+        case C::None: return "None";
+        case C::Couple: return "Couple";
+        case C::Decouple: return "Decouple";
+        case C::Reset: return "Reset";
+    }
+    return "?";
+}
 
 /// 组合根门面：应用层对 domain_vnext 的唯一入口。
 class SystemManagerVnext {
@@ -110,6 +161,10 @@ public:
     AppVnextResult gantryReset(plc_vnext::contracts::PlcGroupIndex g);
     void applyGantryConfig(plc_vnext::contracts::PlcGroupIndex g,
                            const domain_vnext::model::GantryParamModel& cfg) {
+        LOG_DEBUG(LogLayer::APP, "GantryConfig",
+                  "[gantry] apply config group=" + std::to_string(g.value())
+                  + " valid=" + std::to_string(cfg.valid ? 1 : 0)
+                  + " trusted=" + std::to_string(cfg.trusted ? 1 : 0));
         sys_.group(g).gantryCoupling().applyConfig(cfg);
     }
 
@@ -222,8 +277,21 @@ inline AppVnextResult SystemManagerVnext::requestReleaseEmergencyStop() {
 inline AppVnextResult SystemManagerVnext::gantryCouple(plc_vnext::contracts::PlcGroupIndex g) {
     if (!booted_) return AppNotBooted{};
     auto& sm = sys_.group(g).gantryCoupling();
+    const auto& st = gantryStatus(g);
+    LOG_INFO(LogLayer::APP, "GantryCommand",
+             "[gantry] request Couple group=" + std::to_string(g.value())
+             + " groupReady=" + std::to_string(sys_.group(g).isReady() ? 1 : 0)
+             + " smState=" + domain_vnext::model::gantryCouplingStateName(sm.state())
+             + " trusted=" + std::to_string(st.trusted ? 1 : 0)
+             + " rawState=" + std::to_string(st.rawState)
+             + " readyToCouple=" + std::to_string(st.readyToCouple ? 1 : 0)
+             + " fault=" + std::to_string(st.fault ? 1 : 0)
+             + " commandErrorCode=" + std::to_string(st.commandErrorCode));
     const auto rr = sm.requestCouple();
     if (rr != domain_vnext::state::GantryCouplingStateMachine::RequestResult::Accepted) {
+        LOG_ERROR(LogLayer::APP, "GantryCommand",
+                  "[gantry] request Couple rejected group=" + std::to_string(g.value())
+                  + " reason=" + gantryRequestResultName(rr));
         return GantryRequestRejected{rr};
     }
     return flushGantry(g, sm);
@@ -232,8 +300,19 @@ inline AppVnextResult SystemManagerVnext::gantryCouple(plc_vnext::contracts::Plc
 inline AppVnextResult SystemManagerVnext::gantryDecouple(plc_vnext::contracts::PlcGroupIndex g) {
     if (!booted_) return AppNotBooted{};
     auto& sm = sys_.group(g).gantryCoupling();
+    const auto& st = gantryStatus(g);
+    LOG_INFO(LogLayer::APP, "GantryCommand",
+             "[gantry] request Decouple group=" + std::to_string(g.value())
+             + " smState=" + domain_vnext::model::gantryCouplingStateName(sm.state())
+             + " trusted=" + std::to_string(st.trusted ? 1 : 0)
+             + " rawState=" + std::to_string(st.rawState)
+             + " readyToDecouple=" + std::to_string(st.readyToDecouple ? 1 : 0)
+             + " fault=" + std::to_string(st.fault ? 1 : 0));
     const auto rr = sm.requestDecouple();
     if (rr != domain_vnext::state::GantryCouplingStateMachine::RequestResult::Accepted) {
+        LOG_ERROR(LogLayer::APP, "GantryCommand",
+                  "[gantry] request Decouple rejected group=" + std::to_string(g.value())
+                  + " reason=" + gantryRequestResultName(rr));
         return GantryRequestRejected{rr};
     }
     return flushGantry(g, sm);
@@ -242,8 +321,14 @@ inline AppVnextResult SystemManagerVnext::gantryDecouple(plc_vnext::contracts::P
 inline AppVnextResult SystemManagerVnext::gantryReset(plc_vnext::contracts::PlcGroupIndex g) {
     if (!booted_) return AppNotBooted{};
     auto& sm = sys_.group(g).gantryCoupling();
+    LOG_INFO(LogLayer::APP, "GantryCommand",
+             "[gantry] request Reset group=" + std::to_string(g.value())
+             + " smState=" + domain_vnext::model::gantryCouplingStateName(sm.state()));
     const auto rr = sm.requestReset();
     if (rr != domain_vnext::state::GantryCouplingStateMachine::RequestResult::Accepted) {
+        LOG_ERROR(LogLayer::APP, "GantryCommand",
+                  "[gantry] request Reset rejected group=" + std::to_string(g.value())
+                  + " reason=" + gantryRequestResultName(rr));
         return GantryRequestRejected{rr};
     }
     return flushGantry(g, sm);
@@ -299,7 +384,19 @@ inline AppVnextResult SystemManagerVnext::flushGantry(
     domain_vnext::state::GantryCouplingStateMachine& sm) {
     if (sm.hasPendingRequest()) {
         const auto req = sm.popPendingRequest();
+        LOG_INFO(LogLayer::APP, "GantryCommand",
+                 "[gantry] submit request group=" + std::to_string(g.value())
+                 + " command=" + gantryCommandKindName(req.command)
+                 + " commandCode=" + std::to_string(req.commandCode())
+                 + " requestSeq=" + std::to_string(req.requestSeq));
         const auto res = driver_->submitGantryRequest(g, req);
+        LOG_INFO(LogLayer::APP, "GantryCommand",
+                 "[gantry] submit result group=" + std::to_string(g.value())
+                 + " command=" + gantryCommandKindName(req.command)
+                 + " requestSeq=" + std::to_string(req.requestSeq)
+                 + " submitState=" + gantrySubmitStateName(res.state)
+                 + " commStatus=" + communicationStatusName(res.result.status)
+                 + " diag=" + res.result.diagnostic);
         if (!res.ok()) return GantryCommFailed{res};
     }
     return std::monostate{};

@@ -42,18 +42,30 @@ Window {
         for (var i = 0; i < order.length; ++i) {
             if (axisAvailable(order[i])) {
                 currentAxis = order[i]
-                if (axisSelectionModel) axisSelectionModel.setCurrentAxisByName(order[i])
                 return
             }
         }
     }
 
+    function syncAxisSelectionModel() {
+        if (!axisSelectionModel) return
+        axisSelectionModel.setCurrentGroupByName(currentGroup)
+        axisSelectionModel.setCurrentAxisByName(currentAxis)
+    }
+
+    onCurrentGroupChanged: {
+        syncAxisSelectionModel()
+        selectFirstAvailableAxis()
+    }
+
+    onCurrentAxisChanged: syncAxisSelectionModel()
+
     // ★ 监听 C++ AxisSelectionModel，摇杆切换轴时同步更新 UI
     Connections {
         target: axisSelectionModel
         function onCurrentAxisChanged(axisId) {
-            // AxisId enum: Y=0, Z=1, R=2, X=3
-            var map = { 0: "Y", 1: "Z", 2: "R", 3: "X" };
+            // AxisId enum: Y=0, Z=1, R=2, X=3, X1=4, X2=5
+            var map = { 0: "Y", 1: "Z", 2: "R", 3: "X", 4: "X1", 5: "X2" };
             var newAxis = map[axisId] || "Y";
             console.log("[QML] axisSelectionModel.currentAxisChanged  axisId=" + axisId + " → " + newAxis);
             currentAxis = newAxis;
@@ -132,10 +144,6 @@ Window {
                 jogAxisSwitchLocked: mainWindow.jogAxisSwitchLocked  // ★ JOG 点动时禁用轴切换
                 onAxisChanged: (axisName) => {
                     currentAxis = axisName;
-                    // ★ 通知 C++ AxisSelectionModel，使 MotionController 的 m_currentAxis 同步
-                    if (axisSelectionModel) {
-                        axisSelectionModel.setCurrentAxisByName(axisName);
-                    }
                     console.log("[QML] 切换到组:", currentGroup, ", 轴:", axisName);
                 }
             }

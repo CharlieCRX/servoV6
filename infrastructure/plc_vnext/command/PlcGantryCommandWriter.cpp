@@ -10,6 +10,7 @@
 #include "infrastructure/plc_vnext/codec/EndianPolicy.h"
 #include "infrastructure/plc_vnext/codec/RegisterCodec.h"
 #include "infrastructure/plc_vnext/layout/GantryLayout.h"
+#include "infrastructure/logger/Logger.h"
 
 namespace plc_vnext::command {
 namespace {
@@ -18,6 +19,31 @@ namespace {
 // 与 plc_read_validate.py 自测断言一致：-65536 → {0x0000, 0xFFFF}。
 constexpr codec::EndianPolicy kCDAB{codec::ByteOrder::BigEndian,
                                     codec::WordOrder::LowWordFirst};
+
+const char* communicationStatusName(contracts::CommunicationResult::Status s) {
+    using S = contracts::CommunicationResult::Status;
+    switch (s) {
+        case S::Sent: return "Sent";
+        case S::NetworkError: return "NetworkError";
+        case S::Timeout: return "Timeout";
+        case S::Busy: return "Busy";
+        case S::ProtocolError: return "ProtocolError";
+        case S::InvalidResponse: return "InvalidResponse";
+        case S::Disconnected: return "Disconnected";
+    }
+    return "?";
+}
+
+const char* gantryCommandKindName(contracts::GantryCommandKind c) {
+    using C = contracts::GantryCommandKind;
+    switch (c) {
+        case C::None: return "None";
+        case C::Couple: return "Couple";
+        case C::Decouple: return "Decouple";
+        case C::Reset: return "Reset";
+    }
+    return "?";
+}
 
 }  // namespace
 
@@ -41,6 +67,10 @@ contracts::GantrySubmitResult PlcGantryCommandWriter::submitDetailed(
     // 组提交策略：由调用方按拓扑注入（如 B 组 Group[1].Valid=FALSE 时禁止提交）。
     // 本 writer 不内置拓扑校验，避免与 PLC 的 ConfigValid 校验逻辑重复（§9.3）。
     if (m_groupGate && !m_groupGate(g)) {
+        LOG_ERROR(LogLayer::HAL, "GantryWriter",
+                  "[gantry-writer] rejected by groupGate group=" + std::to_string(g.value())
+                  + " command=" + gantryCommandKindName(req.command)
+                  + " requestSeq=" + std::to_string(req.requestSeq));
         return {contracts::GantrySubmitState::RejectedLocally,
                 contracts::CommunicationResult{
                     contracts::CommunicationResult::Status::ProtocolError, 0,
@@ -51,6 +81,10 @@ contracts::GantrySubmitResult PlcGantryCommandWriter::submitDetailed(
     const int16_t code = static_cast<int16_t>(req.command);
     if (!isCommandCodeValid(code)) {
         // 本地拒绝（含 None=0），未发起任何写入。
+        LOG_ERROR(LogLayer::HAL, "GantryWriter",
+                  "[gantry-writer] invalid command group=" + std::to_string(g.value())
+                  + " commandCode=" + std::to_string(code)
+                  + " requestSeq=" + std::to_string(req.requestSeq));
         return {contracts::GantrySubmitState::RejectedLocally,
                 contracts::CommunicationResult{
                     contracts::CommunicationResult::Status::ProtocolError, 0,
@@ -60,6 +94,13 @@ contracts::GantrySubmitResult PlcGantryCommandWriter::submitDetailed(
     }
 
     const auto cmdLayout = layout::gantryCommand(g.value());
+    LOG_INFO(LogLayer::HAL, "GantryWriter",
+             "[gantry-writer] submit group=" + std::to_string(g.value())
+             + " command=" + gantryCommandKindName(req.command)
+             + " commandCode=" + std::to_string(code)
+             + " requestSeq=" + std::to_string(req.requestSeq)
+             + " commandAddress=D" + std::to_string(cmdLayout.command.value())
+             + " requestSeqAddress=D" + std::to_string(cmdLayout.requestSeq.value()));
 
     // 两笔有序事务必须成组原子：并发下保证 Command→RequestSeq 不被其它提交插入。
     // （单通道串行化的 ModbusIoExecutor 只保证单笔事务原子，不保证两笔成组；
@@ -70,6 +111,12 @@ contracts::GantrySubmitResult PlcGantryCommandWriter::submitDetailed(
     const auto cmdRes = m_client->writeSingleRegister(
         static_cast<uint16_t>(cmdLayout.command.value()),
         static_cast<uint16_t>(code));
+    LOG_INFO(LogLayer::HAL, "GantryWriter",
+             "[gantry-writer] write Command result group=" + std::to_string(g.value())
+             + " address=D" + std::to_string(cmdLayout.command.value())
+             + " value=" + std::to_string(code)
+             + " status=" + communicationStatusName(cmdRes.status)
+             + " diag=" + cmdRes.diagnostic);
     if (!cmdRes.ok()) {
         // Command 未写入：请求确定未提交，且不自动重发 Command。
         return {contracts::GantrySubmitState::CommandNotWritten, cmdRes,
@@ -81,8 +128,18 @@ contracts::GantrySubmitResult PlcGantryCommandWriter::submitDetailed(
     //    → CommitUncertain；writer 不自动重试、不重放，交由上层 ack reader 判定。
     const std::vector<uint16_t> seqWords =
         codec::RegisterCodec::encodeInt32(req.requestSeq, kCDAB);
+    LOG_INFO(LogLayer::HAL, "GantryWriter",
+             "[gantry-writer] write RequestSeq group=" + std::to_string(g.value())
+             + " address=D" + std::to_string(cmdLayout.requestSeq.value())
+             + " words=[" + std::to_string(seqWords[0]) + ","
+             + std::to_string(seqWords[1]) + "]");
     const auto seqRes = m_client->writeMultipleRegisters(
         static_cast<uint16_t>(cmdLayout.requestSeq.value()), seqWords);
+    LOG_INFO(LogLayer::HAL, "GantryWriter",
+             "[gantry-writer] write RequestSeq result group=" + std::to_string(g.value())
+             + " address=D" + std::to_string(cmdLayout.requestSeq.value())
+             + " status=" + communicationStatusName(seqRes.status)
+             + " diag=" + seqRes.diagnostic);
     if (!seqRes.ok()) {
         return {contracts::GantrySubmitState::CommitUncertain, seqRes,
                 req.requestSeq};

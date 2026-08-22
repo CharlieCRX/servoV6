@@ -571,7 +571,6 @@ int main(int argc, char *argv[])
             //   snapshotAdapter.refresh(): GUI 线程把统一快照投影到 QML（只读）。
             if (ustack->server)  ustack->server->tick();   // UDP 收包 → submit
             if (ustack->service) {
-                ustack->service->tick();  // 仲裁/执行（含本轮 UDP 命令）
                 // P0-A 占位：D1600 `GantryParam` 的 C++ 读路径尚未落地前，注入有效配置使
                 // 龙门联动准入通过（`GantryCouplingStateMachine::requestCouple` 要求
                 // configValid==true，否则会在写 GantryCommand=1 之前返回 RejectedNotReady）。
@@ -580,6 +579,9 @@ int main(int argc, char *argv[])
                 gcfg.valid = true;
                 ustack->service->applyGantryConfig(
                     plc_vnext::contracts::PlcGroupIndex(0), gcfg);
+                ustack->service->applyGantryConfig(
+                    plc_vnext::contracts::PlcGroupIndex(1), gcfg);
+                ustack->service->tick();  // 仲裁/执行（含本轮 UDP 命令）
             }
             snapshotAdapter.refresh();
         } else {

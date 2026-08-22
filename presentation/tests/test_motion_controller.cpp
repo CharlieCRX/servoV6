@@ -31,6 +31,7 @@
 #include "application_vnext/control/MotionControlService.h"
 #include "fake/FakeControlRuntime.h"
 
+#include "domain_vnext/model/GantryParam.h"
 #include "infrastructure/plc_vnext/fake/FakePlcRuntimeGateway.h"
 #include "infrastructure/plc_vnext/fake/PlcFixtureBuilder.h"
 
@@ -42,8 +43,10 @@ using application_vnext::control::ControlSource;
 using application_vnext::control::FakeControlRuntime;
 using application_vnext::control::MotionControlService;
 using application_vnext::control::OperationState;
+using plc_vnext::contracts::PlcAxisCommandKind;
 using plc_vnext::contracts::SafetySnapshot;
 using plc_vnext::fake::FakePlcRuntimeGateway;
+using plc_vnext::fake::makeGantryStatusSnapshot;
 using plc_vnext::fake::makeRole;
 using plc_vnext::fake::makeTrustedRuntimeSnapshot;
 using plc_vnext::fake::makeValidTopologySnapshot;
@@ -80,6 +83,27 @@ plc_vnext::contracts::TopologySnapshot makeSixAxisTopology() {
         makeRole(false, -1, 0, 0, 0, 0),
     };
     snap.groups[0] = ga;
+    return snap;
+}
+
+/// A/B 两组均绑定六功能的拓扑。B 组使用独立槽位，避免跨组重复 PlcAxisIndex。
+plc_vnext::contracts::TopologySnapshot makeDualGroupSixAxisTopology() {
+    auto snap = makeSixAxisTopology();
+    plc_vnext::contracts::TopologyGroup gb;
+    gb.valid = true;
+    gb.hmiVisible = true;
+    gb.groupCode = 1;
+    gb.roles = {
+        makeRole(true, 5, 6, 0, 0, 1),      // X1
+        makeRole(true, 6, 7, 0, 0, 2),      // X2
+        makeRole(true, 7, 8, 0, 0, 3),      // Y
+        makeRole(true, 8, 9, 0, 0, 3),      // Z
+        makeRole(true, 9, 10, 0, 0, 4),     // R
+        makeRole(true, 14, 0, 2, 0, 5),     // X 逻辑轴
+        makeRole(false, -1, 0, 0, 0, 0),
+        makeRole(false, -1, 0, 0, 0, 0),
+    };
+    snap.groups[1] = gb;
     return snap;
 }
 
@@ -179,6 +203,118 @@ TEST_F(MotionControllerTest, HoldSubmitsJoystickStartJogAndAccepted) {
         }
     }
     EXPECT_TRUE(found) << "Joystick 源 A.Y 点动操作应出现在快照中";
+}
+
+// ---------- 测试 1b：切到 B 组后，点动逻辑 X 走 B.X / group=1 ----------
+
+TEST_F(MotionControllerTest, GroupBLogicalXJogTargetsGroupOneGantry) {
+    gw_.setTopologySnapshot(makeDualGroupSixAxisTopology());
+    auto r = makeTrustedRuntimeSnapshot();
+    r.axes[14].motionState = 2;  // B.X 逻辑轴已电机使能空闲，生命周期可进入 Couple 提交。
+    r.gantry[1] = makeGantryStatusSnapshot(1, /*state=*/1, /*ackSeq=*/0,
+                                           /*commandResult=*/0,
+                                           /*x1InGear=*/false,
+                                           /*x2InGear=*/false);
+    runtime_.setRuntimeSnapshot(r);
+    svc_ = std::make_unique<MotionControlService>(*driver_, runtime_);
+    svc_->tick();
+    domain_vnext::model::GantryParamModel cfg;
+    cfg.valid = true;
+    svc_->applyGantryConfig(plc_vnext::contracts::PlcGroupIndex(1), cfg);
+
+    AxisSelectionModel axisModel;
+    GamepadInputInterpreter interpreter;
+    MotionController mc(&interpreter, &axisModel, svc_.get());
+
+    axisModel.setCurrentGroupByName(QStringLiteral("Machine_B"));
+    axisModel.setCurrentAxisByName(QStringLiteral("X"));
+    mc.setJogActiveDirection(1);
+
+    for (int i = 0; i < 80 && gw_.gantrySubmissions().empty(); ++i) {
+        svc_->tick();
+    }
+
+    bool foundBOperation = false;
+    std::string bOpDiag;
+    int bOpState = -1;
+    for (const auto& op : svc_->store().snapshot().operations) {
+        if (op.source == ControlSource::Joystick && op.axis == "B.X") {
+            foundBOperation = true;
+            bOpDiag = op.diag;
+            bOpState = static_cast<int>(op.state);
+            break;
+        }
+    }
+    EXPECT_TRUE(foundBOperation) << "B 组 UI/摇杆点动逻辑 X 必须提交为 B.X，而不是 A.X";
+
+    const auto submissions = gw_.gantrySubmissions();
+    ASSERT_FALSE(submissions.empty())
+        << "B.X 逻辑轴点动应提交 B 组龙门生命周期请求"
+        << " opState=" << bOpState << " diag=" << bOpDiag;
+    EXPECT_EQ(submissions.front().group.value(), 1);
+}
+
+// ---------- 测试 1c：B 组逻辑 X 绝对定位触发必须写 B.X(slot14)，不能落回 A.X(slot13) ----------
+
+TEST_F(MotionControllerTest, GroupBLogicalXAbsMoveTriggersSlot14) {
+    gw_.setTopologySnapshot(makeDualGroupSixAxisTopology());
+    auto r = makeTrustedRuntimeSnapshot();
+    r.axes[14].motionState = 2;
+    r.gantry[1] = makeGantryStatusSnapshot(1, /*state=*/1, /*ackSeq=*/0,
+                                           /*commandResult=*/0,
+                                           /*x1InGear=*/false,
+                                           /*x2InGear=*/false);
+    runtime_.setRuntimeSnapshot(r);
+    svc_ = std::make_unique<MotionControlService>(*driver_, runtime_);
+    svc_->tick();
+    domain_vnext::model::GantryParamModel cfg;
+    cfg.valid = true;
+    svc_->applyGantryConfig(plc_vnext::contracts::PlcGroupIndex(1), cfg);
+
+    application_vnext::control::ControlCommand move;
+    move.source = ControlSource::Ui;
+    move.target.group = plc_vnext::contracts::PlcGroupIndex(1);
+    move.target.function = domain_vnext::model::AxisFunction::X;
+    move.action = ControlAction::StartAbsMove;
+    move.motion = application_vnext::control::MotionRequest{100.0f, 5.0f};
+    svc_->submit(move);
+
+    for (int i = 0; i < 80 && gw_.gantrySubmissions().empty(); ++i) {
+        svc_->tick();
+    }
+    const auto submissions = gw_.gantrySubmissions();
+    ASSERT_FALSE(submissions.empty());
+    ASSERT_EQ(submissions.front().group.value(), 1);
+
+    r.gantry[1].state = 3;
+    r.gantry[1].internalStep = 80;
+    r.gantry[1].ackSeq = submissions.front().req.requestSeq;
+    r.gantry[1].commandResult = 2;
+    r.gantry[1].commandErrorCode = 0;
+    r.gantry[1].x1InGear = true;
+    r.gantry[1].x2InGear = true;
+    r.gantry[1].logicalControlAllowed = true;
+    r.gantry[1].memberControlAllowed = false;
+    r.gantry[1].readyToCouple = false;
+    r.gantry[1].readyToDecouple = true;
+    r.axes[14].motionState = 2;
+    runtime_.setRuntimeSnapshot(r);
+
+    svc_->tick();  // Coupling -> Moving, move PostEnableDelay starts.
+    std::this_thread::sleep_for(std::chrono::milliseconds(450));
+    svc_->tick();  // PostEnableDelay -> TriggeringMove
+    svc_->tick();  // TriggeringMove -> write TriggerAbsMove
+
+    bool triggerSlot14 = false;
+    bool triggerSlot13 = false;
+    for (const auto& w : gw_.writtenAxis()) {
+        if (w.cmd.kind == PlcAxisCommandKind::TriggerAbsMove) {
+            if (w.slot.value() == 14) triggerSlot14 = true;
+            if (w.slot.value() == 13) triggerSlot13 = true;
+        }
+    }
+    EXPECT_TRUE(triggerSlot14) << "B.X 绝对定位应触发 B 组逻辑轴 slot14";
+    EXPECT_FALSE(triggerSlot13) << "B.X 绝对定位不得落回 A 组逻辑轴 slot13";
 }
 
 // ---------- 测试 2：松开 → StopJog 只停本会话（owner 过滤） ----------

@@ -283,12 +283,28 @@ TEST(PlcRuntimeGatewayTest, DoesNotTouchSystemContext) {
 }
 
 // ─────────────────────────────────────────────
-// B 组默认拒绝：Gateway 缺省 gate 只放行 Group 0（当前 PLC 事实 B 组未开放）。
-// "B 组禁用"不依赖调用方记得传 gate，而是 Gateway 的默认安全策略。
+// B 组默认放行：Gateway 缺省 gate 放行协议定义的 Group 0/1。是否开放控制
+// 由 AxisTopology 驱动的上层系统模型判定；维护场景可显式注入 gate 禁用某组。
 // ─────────────────────────────────────────────
-TEST(PlcRuntimeGatewayTest, SubmitGantryRequest_Group1_DefaultRejected) {
+TEST(PlcRuntimeGatewayTest, SubmitGantryRequest_Group1_DefaultAllowed) {
     auto fake = std::make_shared<fake::FakeModbusClient>();
-    PlcRuntimeGateway gateway(fake);  // 不传 gate → 默认只放行 Group 0
+    PlcRuntimeGateway gateway(fake);
+
+    auto g1 = PlcGroupIndex::tryCreate(1);
+    ASSERT_TRUE(g1.has_value());
+
+    auto res = gateway.submitGantryRequest(*g1, GantryRequest::couple(1));
+    EXPECT_TRUE(res.ok()) << res.diagnostic;
+    ASSERT_EQ(fake->writtenRegisters().size(), 1u);
+    ASSERT_EQ(fake->writtenMulti().size(), 1u);
+    EXPECT_EQ(fake->writtenRegisters()[0].address, layout::gantryCommand(1).command.value());
+    EXPECT_EQ(fake->writtenMulti()[0].startAddress,
+              layout::gantryCommand(1).requestSeq.value());
+}
+
+TEST(PlcRuntimeGatewayTest, SubmitGantryRequest_Group1_ExplicitGateCanReject) {
+    auto fake = std::make_shared<fake::FakeModbusClient>();
+    PlcRuntimeGateway gateway(fake, [](PlcGroupIndex g) { return g.value() == 0; });
 
     auto g1 = PlcGroupIndex::tryCreate(1);
     ASSERT_TRUE(g1.has_value());
@@ -296,7 +312,6 @@ TEST(PlcRuntimeGatewayTest, SubmitGantryRequest_Group1_DefaultRejected) {
     auto res = gateway.submitGantryRequest(*g1, GantryRequest::couple(1));
     EXPECT_FALSE(res.ok());
     EXPECT_EQ(res.status, contracts::CommunicationResult::Status::ProtocolError);
-    // 本地拒绝：零写入。
     EXPECT_TRUE(fake->writtenRegisters().empty());
     EXPECT_TRUE(fake->writtenMulti().empty());
 }

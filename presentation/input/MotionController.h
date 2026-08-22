@@ -97,7 +97,7 @@ private:
     /// @brief Position 模式下的 Motion 事件处理（仅 Released 时触发移动）
     void handlePositionMotion(const InputEvent& event);
 
-    /// @brief 把 AxisId 映射为统一业务目标（A 组 + 功能角色），用于构造命令
+    /// @brief 把当前组 + AxisId 映射为统一业务目标，用于构造命令
     application_vnext::control::AxisTarget currentAxisTarget() const;
 
     /// @brief 提交一条 Joystick 源命令到协调层（service 为空时仅日志、不写 PLC）

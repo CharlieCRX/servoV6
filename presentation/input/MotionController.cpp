@@ -18,6 +18,7 @@ MotionController::MotionController(GamepadInputInterpreter* interpreter,
     : QObject(parent)
     , m_axisModel(axisModel)
     , m_service(service)
+    , m_currentAxis(axisModel ? axisModel->currentAxis() : AxisId::Y)
 {
     const bool ok1 = connect(interpreter, &GamepadInputInterpreter::inputEvent, 
                              this, &MotionController::onInputEvent);
@@ -231,7 +232,9 @@ void MotionController::pressMotion(MotionDirection dir)
 application_vnext::control::AxisTarget MotionController::currentAxisTarget() const
 {
     application_vnext::control::AxisTarget t;
-    t.group = joystickGroup();
+    if (m_axisModel) {
+        t.group = m_axisModel->currentGroup();
+    }
     switch (m_currentAxis) {
         case AxisId::Y:  t.function = domain_vnext::model::AxisFunction::Y; break;
         case AxisId::Z:  t.function = domain_vnext::model::AxisFunction::Z; break;

@@ -6,16 +6,17 @@
 #include <string>
 #include <utility>
 
+#include "infrastructure/plc_vnext/contracts/RuntimeSnapshot.h"
 #include "infrastructure/plc_vnext/contracts/SnapshotQuality.h"
 #include "infrastructure/plc_vnext/layout/SystemCoilLayout.h"
 
 namespace plc_vnext {
 namespace {
 
-// 默认龙门组准入策略：当前 PLC 事实仅 A 组（Group 0）开放。
-// 用于 Gateway 未显式注入 gate 时的默认值，防止"B 组禁用"只依赖调用方记得传。
+// 默认龙门组准入策略：放行协议定义的 A/B 两组。拓扑有效性由
+// MotionControlService/SystemManagerVnext 在业务层判定，writer 不复制拓扑规则。
 bool defaultGantryGroupGate(contracts::PlcGroupIndex g) {
-    return g.value() == 0;
+    return g.value() >= 0 && g.value() < static_cast<int>(contracts::kRuntimeGroupCount);
 }
 
 }  // namespace

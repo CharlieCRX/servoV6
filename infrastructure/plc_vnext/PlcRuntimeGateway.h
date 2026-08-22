@@ -15,9 +15,9 @@
 //   - 龙门提交用 executeGroup 把 Command→RequestSeq 包成全局临界区，保证单轴写 /
 //     telemetry 读 / 其它龙门提交不会插入其间。
 //
-// B 组默认拒绝（评审修补②）：当前 PLC 事实仅 A 组（Group 0）开放；Gateway 默认
-// groupGate 只放行 Group 0，除非调用方显式注入其它策略，防止"依赖调用方记得传
-// gate"。
+// 组准入边界：Gateway 缺省放行协议定义的 A/B 两组（Group 0/1）。是否开放控制
+// 由上层按 AxisTopology 构建的系统模型判定；如需维护窗口临时禁用某组，可显式
+// 注入 groupGate。
 // ============================================================================
 #pragma once
 
@@ -40,7 +40,7 @@ class PlcRuntimeGateway : public IPlcRuntimeGateway {
 public:
     /// 注入 transport client（测试用 FakeModbusClient）。Gateway 内部创建唯一的
     /// ModbusIoExecutor 作为所有 reader/writer 的共享串行化通道。groupGate 用于
-    /// 龙门组的提交准入；缺省（空函数）时**默认只放行 Group 0**（B 组禁用）。
+    /// 龙门组的提交准入；缺省（空函数）时放行协议定义的 Group 0/1。
     explicit PlcRuntimeGateway(
         transport::IModbusClientPtr client,
         command::PlcGantryCommandWriter::GroupGate groupGate = {});

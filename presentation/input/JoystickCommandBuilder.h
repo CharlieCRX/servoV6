@@ -19,7 +19,8 @@
 
 namespace presentation::input::joystick {
 
-/// 摇杆作用的分组：AxisSelectionModel 为单组（Machine_A）模型，恒为 A 组。
+/// 默认摇杆分组。真实 MotionController 会从 AxisSelectionModel 读取当前 A/B 组；
+/// 本 helper 仅供旧测试和显式构造 A 组命令时使用。
 inline plc_vnext::contracts::PlcGroupIndex joystickGroup() {
     return plc_vnext::contracts::PlcGroupIndex(0);
 }

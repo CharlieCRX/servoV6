@@ -81,8 +81,32 @@ void AxisSelectionModel::setCurrentAxisByName(const QString& name)
     setCurrentAxis(id);
 }
 
+void AxisSelectionModel::setCurrentGroupByName(const QString& name)
+{
+    plc_vnext::contracts::PlcGroupIndex group(0);
+    if (name == QStringLiteral("Machine_A") || name == QStringLiteral("A")) {
+        group = plc_vnext::contracts::PlcGroupIndex(0);
+    } else if (name == QStringLiteral("Machine_B") || name == QStringLiteral("B")) {
+        group = plc_vnext::contracts::PlcGroupIndex(1);
+    } else {
+        qDebug() << "[AxisModel] unknown group name=" << name;
+        return;
+    }
+
+    if (m_currentGroup == group) return;
+    m_currentGroup = group;
+    qDebug() << "[AxisModel] currentGroup=" << currentGroupName();
+    emit currentGroupChanged();
+}
+
 QString AxisSelectionModel::currentAxisName() const
 {
     if (m_axes.empty()) return QStringLiteral("?");
     return QString::fromLatin1(axisIdToString(currentAxis()));
+}
+
+QString AxisSelectionModel::currentGroupName() const
+{
+    return m_currentGroup.value() == 1 ? QStringLiteral("Machine_B")
+                                       : QStringLiteral("Machine_A");
 }
