@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 option(SERVO_V6_UNIFIED_CONTROL "Run the app through the vnext MotionControlService stack" ON)
 option(SERVO_V6_ENABLE_VNEXT_UDP "Enable the vnext UDP command server in unified mode" OFF)
+option(SERVO_V6_DEPLOY_WINDOWS_RUNTIME "Deploy Qt runtime files next to the Windows executable after build" ON)
 
 # ==========================================
 # 1. 先引入 Qt 环境 (务必加上 Qml)
@@ -168,3 +169,18 @@ target_link_libraries(appservoV6
         domain
         presentation
 )
+
+if(WIN32 AND NOT ANDROID AND SERVO_V6_DEPLOY_WINDOWS_RUNTIME)
+    if(TARGET Qt6::windeployqt)
+        add_custom_command(TARGET appservoV6 POST_BUILD
+            COMMAND Qt6::windeployqt
+                --compiler-runtime
+                --qmldir "${CMAKE_CURRENT_SOURCE_DIR}"
+                "$<TARGET_FILE:appservoV6>"
+            COMMENT "Deploying Qt runtime files for appservoV6"
+            VERBATIM
+        )
+    else()
+        message(WARNING "Qt6::windeployqt target is unavailable; appservoV6.exe may need Qt DLLs copied manually.")
+    endif()
+endif()
