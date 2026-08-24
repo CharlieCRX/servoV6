@@ -103,10 +103,10 @@ public:
 
         // ── 步骤 5：按 cmd 路由（构建 ControlCommand 或从快照查询）──
         switch (cmd) {
-            case UdpCmd::MOVE_TO_REL_TARGET:  // cmd=0 -> StartAbsMove
-                return submitMotion(req, *fn, *gIdx, /*abs=*/true);
-            case UdpCmd::MOVE_OFFSET:         // cmd=1 -> StartRelMove
-                return submitMotion(req, *fn, *gIdx, /*abs=*/false);
+            case UdpCmd::MOVE_TO_REL_TARGET:  // cmd=0 -> 相对位置目标，换算绝对后 StartAbsMove
+                return submitMotion(req, *fn, *gIdx, /*relTarget=*/true);
+            case UdpCmd::MOVE_OFFSET:         // cmd=1 -> 相对偏移，换算绝对后 StartAbsMove
+                return submitMotion(req, *fn, *gIdx, /*relTarget=*/false);
             case UdpCmd::GET_REL_POSITION:    // cmd=2 -> 快照查询
                 return queryAxisField(req, *fn, *gIdx,
                     [](const AxisUiState& a) {
@@ -147,7 +147,20 @@ public:
         reply[QString::fromUtf8(UdpField::STATE)] = QString::fromUtf8(
             operationStateName(op->state));
         reply[QString::fromUtf8(UdpField::MOTION)] = op->motionState;
-        reply[QString::fromUtf8(UdpField::POS)] = static_cast<double>(op->position);
+        // ★ 返回相对位置（R 轴 UDP 语义）：从统一快照取该轴 relPosition（PLC 反馈），
+        //   而非 OperationEntry.position（其为绝对位置）。
+        float posRel = op->position;
+        {
+            const auto snap = m_service.store().snapshot();
+            for (const auto& a : snap.axes) {
+                if (!a.bound) continue;
+                const std::string key =
+                    (a.group.value() == 0 ? "A." : "B.") + std::string(
+                        domain_vnext::model::axisFunctionName(a.role));
+                if (key == op->axis) { posRel = a.relPosition; break; }
+            }
+        }
+        reply[QString::fromUtf8(UdpField::POS)] = static_cast<double>(posRel);
         reply[QString::fromUtf8(UdpField::DIAG)] = QString::fromStdString(op->diag);
         QJsonDocument doc(reply);
         return doc.toJson(QJsonDocument::Compact).toStdString();
@@ -168,27 +181,40 @@ private:
         return nullptr;
     }
 
-    /// 运动启动命令（cmd=0 / cmd=1）：构建 Start*Move 并提交，立即回 Queued + operationId。
+    /// 运动启动命令（cmd=0 / cmd=1）：统一换算为「绝对位置目标」后走 StartAbsMove，
+    /// 立即回 Queued + operationId。
+    /// ★ R 轴 UDP 语义（servoV6 定位按绝对位置执行）：
+    ///   - cmd=0 MOVE_TO_REL_TARGET：`target` 是「相对位置目标」
+    ///        → 绝对目标 = 相对原点(relZeroRecord) + target
+    ///   - cmd=1 MOVE_OFFSET：`offset` 是「相对当前偏移」
+    ///        → 绝对目标 = 当前绝对位置(absPosition) + offset
     /// 定位速度必填（Phase 4 P0：协调层权威校验 speed>0）：优先取请求中的 `speed`，
     /// 否则回退到快照中该轴当前 positioningSpeed；仍 <=0 则拒绝提交（绝不写 0 速度）。
     std::string submitMotion(const QJsonObject& req, domain_vnext::model::AxisFunction fn,
-                             int gIdx, bool isAbs) {
-        const char* field = isAbs ? UdpField::TARGET : UdpField::OFFSET;
-        const char* cmdName = isAbs ? "cmd=0 (MOVE_TO_REL_TARGET)" : "cmd=1 (MOVE_OFFSET)";
+                             int gIdx, bool isRelTarget) {
+        const char* field = isRelTarget ? UdpField::TARGET : UdpField::OFFSET;
+        const char* cmdName = isRelTarget ? "cmd=0 (MOVE_TO_REL_TARGET)" : "cmd=1 (MOVE_OFFSET)";
         if (!req.contains(QString::fromUtf8(field))) {
             return UdpResponseBuilder::buildError(req,
                 std::string("missing required field '") + field + "' for " + cmdName);
         }
-        const float target = static_cast<float>(
+        const float input = static_cast<float>(
             req[QString::fromUtf8(field)].toDouble());
+
+        // 快照：既用于定位速度回退，也用于相对→绝对换算基准。
+        const auto snap = m_service.store().snapshot();
+        const AxisUiState* a = findAxis(snap, gIdx, fn);
+        if (!a) {
+            return UdpResponseBuilder::buildError(req,
+                "axis not found/bound in unified snapshot");
+        }
 
         // 定位速度：请求可带 `speed`，否则回退到快照中的定位速度。
         float speed = 0.0f;
         if (req.contains(QString::fromUtf8(UdpField::SPEED))) {
             speed = static_cast<float>(req[QString::fromUtf8(UdpField::SPEED)].toDouble());
         } else {
-            const auto snap = m_service.store().snapshot();
-            if (const auto* a = findAxis(snap, gIdx, fn)) speed = a->positioningSpeed;
+            speed = a->positioningSpeed;
         }
         if (speed <= 0.0f) {
             return UdpResponseBuilder::buildError(req,
@@ -196,17 +222,27 @@ private:
                 + " (provide 'speed' or preset via SET_MOVE_SPEED)");
         }
 
+        // ★ 相对 → 绝对换算（R 轴 UDP 语义）。
+        float absTarget;
+        if (isRelTarget) {
+            absTarget = a->relZeroRecord + input;  // 相对位置目标 → 绝对目标
+        } else {
+            absTarget = a->absPosition + input;    // 相对当前偏移 → 绝对目标
+        }
+
         application_vnext::control::ControlCommand c;
         c.source = application_vnext::control::ControlSource::Udp;
         c.target.group = plc_vnext::contracts::PlcGroupIndex(gIdx);
         c.target.function = fn;
-        c.action = isAbs ? application_vnext::control::ControlAction::StartAbsMove
-                       : application_vnext::control::ControlAction::StartRelMove;
-        c.motion = application_vnext::control::MotionRequest{target, speed};
+        c.action = application_vnext::control::ControlAction::StartAbsMove;  // 统一绝对移动
+        c.motion = application_vnext::control::MotionRequest{absTarget, speed};
 
         const std::string opId = m_service.submit(std::move(c));
         LOG_INFO(LogLayer::APP, "UdpDispatcher",
-                 std::string("[") + cmdName + "] submitted, opId=" + opId);
+                 std::string("[") + cmdName + "] input=" + std::to_string(input)
+                 + " -> absTarget=" + std::to_string(absTarget)
+                 + " (relZero=" + std::to_string(a->relZeroRecord)
+                 + ", abs=" + std::to_string(a->absPosition) + ") submitted, opId=" + opId);
         return queuedReply(req, opId);
     }
 

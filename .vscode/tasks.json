@@ -22,7 +22,7 @@
                 "-DCMAKE_CXX_COMPILER=${config:servo.mingwBinDir}/g++.exe",
                 "-DCMAKE_PREFIX_PATH=${config:servo.qtPrefixPath}",
                 "-DSERVO_V6_UNIFIED_CONTROL=ON",
-                "-DSERVO_V6_ENABLE_VNEXT_UDP=OFF"
+                "-DSERVO_V6_ENABLE_VNEXT_UDP=ON"
             ],
             "options": {
                 "env": {

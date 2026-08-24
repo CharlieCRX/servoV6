@@ -30,6 +30,8 @@
 
 #include "infrastructure/plc_vnext/fake/FakePlcRuntimeGateway.h"
 #include "infrastructure/plc_vnext/fake/PlcFixtureBuilder.h"
+#include "infrastructure/plc_vnext/contracts/PlcCommand.h"
+#include "infrastructure/plc_vnext/contracts/PlcAxisSlot.h"
 
 namespace {
 
@@ -254,6 +256,60 @@ TEST_F(UdpCommandDispatcherTest, SetMoveSpeedRejectsZeroAndNegative) {
         EXPECT_EQ(reply[QString::fromUtf8(UdpField::RESULT)].toInt(), 0) << "speed=" << speedVal;
         EXPECT_EQ(svc_->queuedCount(), 0u) << "speed=" << speedVal;  // 拒绝且不入队
     }
+}
+
+// ---------- 测试 9：R 轴 UDP 位置语义 —— 相对目标/偏移 → 绝对位置目标换算 ----------
+// 用户语义：servoV6 定位按绝对位置执行，而 UDP R 轴关心的是相对位置。
+//   relZeroRecord=20, absPosition=50 → relPosition=30。
+//   cmd=0 move 50（相对位置目标）→ 绝对目标 = relZeroRecord + 50 = 70
+//   cmd=1 offset 10（相对当前偏移）→ 绝对目标 = absPosition + 10 = 60
+// 经 StartAbsMove 执行时写 SetAbsTarget，从 FakePlcRuntimeGateway::writtenAxis() 读回断言。
+
+namespace {
+bool isRSlot(const plc_vnext::contracts::PlcAxisSlot& s) {
+    const auto slot4 = plc_vnext::contracts::PlcAxisSlot::tryCreate(4);
+    return slot4.has_value() && s.value() == slot4->value();
+}
+float writtenAbsTarget(const FakePlcRuntimeGateway& gw) {
+    for (const auto& w : gw.writtenAxis()) {
+        if (isRSlot(w.slot) &&
+            w.cmd.kind == plc_vnext::contracts::PlcAxisCommandKind::SetAbsTarget) {
+            return w.cmd.realValue;
+        }
+    }
+    return 0.0f;
+}
+}  // namespace
+
+TEST_F(UdpCommandDispatcherTest, MoveToRelTargetConvertsToAbsTarget) {
+    // 脚本化 R 轴：absPosition=50, relZeroRecord=20（relPosition=30）。
+    auto r = makeTrustedRuntimeSnapshot();
+    r.axes[4].absPosition = 50.0f;
+    r.axes[4].relPosition = 30.0f;
+    r.params[4].relZeroRecord = 20.0f;
+    runtime_.setRuntimeSnapshot(r);
+    svc_->tick();  // 发布新快照（注入领域并投影）
+
+    const auto reply = parse(dispatcher_->dispatch(
+        R"({"cmd":0,"motor":2,"group":"Machine_A","target":50,"speed":5})"));
+    ASSERT_EQ(reply[QString::fromUtf8(UdpField::RESULT)].toInt(), 1);
+    svc_->tick();  // 唯一 tick 仲裁并执行：StartAbsMove 写 SetAbsTarget
+    EXPECT_FLOAT_EQ(writtenAbsTarget(gw_), 70.0f);  // relZero(20) + target(50)
+}
+
+TEST_F(UdpCommandDispatcherTest, MoveOffsetConvertsToAbsTarget) {
+    auto r = makeTrustedRuntimeSnapshot();
+    r.axes[4].absPosition = 50.0f;
+    r.axes[4].relPosition = 30.0f;
+    r.params[4].relZeroRecord = 20.0f;
+    runtime_.setRuntimeSnapshot(r);
+    svc_->tick();
+
+    const auto reply = parse(dispatcher_->dispatch(
+        R"({"cmd":1,"motor":2,"group":"Machine_A","offset":10,"speed":5})"));
+    ASSERT_EQ(reply[QString::fromUtf8(UdpField::RESULT)].toInt(), 1);
+    svc_->tick();  // 执行：StartAbsMove 写 SetAbsTarget
+    EXPECT_FLOAT_EQ(writtenAbsTarget(gw_), 60.0f);  // absPosition(50) + offset(10)
 }
 
 }  // namespace
