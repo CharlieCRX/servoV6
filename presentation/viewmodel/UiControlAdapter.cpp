@@ -33,6 +33,8 @@ QVariantMap axisToMap(const AxisUiView& a) {
     m["locked"] = a.locked;
     m["absPosition"] = static_cast<double>(a.absPosition);
     m["relPosition"] = static_cast<double>(a.relPosition);
+    m["relZeroRecord"] = static_cast<double>(a.relZeroRecord);
+    m["relZeroTrusted"] = a.relZeroTrusted;
     m["manualSpeed"] = static_cast<double>(a.manualSpeed);
     m["positioningSpeed"] = static_cast<double>(a.positioningSpeed);
     m["absMoveTarget"] = static_cast<double>(a.absMoveTarget);

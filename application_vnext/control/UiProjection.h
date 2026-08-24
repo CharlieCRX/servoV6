@@ -39,6 +39,8 @@ struct AxisUiView {
     bool locked = true;               // 普通轴操作是否应被锁定（不可用）
     float absPosition = 0.0f;
     float relPosition = 0.0f;
+    float relZeroRecord = 0.0f;       // PLC 相对原点记录 D(1064+2s)
+    bool relZeroTrusted = false;      // 参数区是否可信
     float manualSpeed = 0.0f;
     float positioningSpeed = 0.0f;
     float absMoveTarget = 0.0f;       // 最近一次 SetAbsTarget 预填目标（§5.3）
@@ -225,6 +227,8 @@ inline AxisUiView UiProjection::projectAxis(const AxisUiState& a,
     v.locked = !a.trusted || globallyLocked || emergencyStop || !safetyTrusted;
     v.absPosition = a.absPosition;
     v.relPosition = a.relPosition;
+    v.relZeroRecord = a.relZeroRecord;
+    v.relZeroTrusted = a.relZeroTrusted;
     v.manualSpeed = a.manualSpeed;
     v.positioningSpeed = a.positioningSpeed;
     v.absMoveTarget = a.absMoveTarget;

@@ -36,6 +36,8 @@ ControlStateSnapshot makeBaselineSnapshot() {
     ax.trusted = true;
     ax.absPosition = 12.5f;
     ax.relPosition = 3.25f;
+    ax.relZeroRecord = 0.0f;
+    ax.relZeroTrusted = true;
     ax.manualSpeed = 40.f;
     ax.positioningSpeed = 80.f;
     ax.motionState = 2;          // MotorIdle
@@ -60,6 +62,8 @@ TEST(UiProjection, AxisCarriesGroupRoleHmiVisibleWithoutUiDerivation) {
     EXPECT_FALSE(v.locked);          // 可信 + 未锁定 + 未急停 + 安全可信 -> 可用
     EXPECT_FLOAT_EQ(v.absPosition, 12.5f);
     EXPECT_FLOAT_EQ(v.relPosition, 3.25f);
+    EXPECT_FLOAT_EQ(v.relZeroRecord, 0.0f);
+    EXPECT_TRUE(v.relZeroTrusted);
     EXPECT_EQ(v.motionState, 2);
     EXPECT_EQ(v.motionStateName, "MotorIdle(2)");
 }
@@ -183,12 +187,16 @@ TEST(UiProjection, AxisCarriesMotionLimitName) {
 TEST(UiProjection, AxisCarriesSoftLimits) {
     auto snap = makeBaselineSnapshot();
     auto& ax = snap.axes[0];
+    ax.relZeroRecord = 42.0f;
+    ax.relZeroTrusted = true;
     ax.softNegLimit = -100.0f;
     ax.softPosLimit = 200.0f;
     ax.softLimitControl = 0x03u;
     ax.softLimitTrusted = true;
 
     const auto proj = UiProjection::project(snap, false);
+    EXPECT_FLOAT_EQ(proj.axes[0].relZeroRecord, 42.0f);
+    EXPECT_TRUE(proj.axes[0].relZeroTrusted);
     EXPECT_FLOAT_EQ(proj.axes[0].softNegLimit, -100.0f);
     EXPECT_FLOAT_EQ(proj.axes[0].softPosLimit, 200.0f);
     EXPECT_EQ(proj.axes[0].softLimitControl, 0x03u);

@@ -43,6 +43,8 @@ struct AxisUiState {
     bool trusted = false;                   // 本次反馈是否可信
     float absPosition = 0.0f;
     float relPosition = 0.0f;
+    float relZeroRecord = 0.0f;
+    bool relZeroTrusted = false;
     float manualSpeed = 0.0f;
     float positioningSpeed = 0.0f;
     int16_t motionState = 0;                // 见 AxisMotionCommon 常量（0..6）

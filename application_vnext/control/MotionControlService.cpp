@@ -953,6 +953,8 @@ void MotionControlService::publishSnapshot() {
             a.positioningSpeed = src.positioningSpeed;
             a.absPosition = src.absPosition;
             a.relPosition = src.relPosition;
+            a.relZeroRecord = rt.params[i].relZeroRecord;
+            a.relZeroTrusted = rt.params[i].trusted;
             a.motionState = src.motionState;
             a.motionLimit = src.motionLimit;
             a.alarmWord = src.alarmWord;

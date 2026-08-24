@@ -65,10 +65,16 @@ RuntimeSnapshot makeBaselineRuntime() {
     snap.axes[0] = makeAxisSnapshot(0, /*manual=*/40, /*positioning=*/80,
                                     /*abs=*/12.5f, /*rel=*/3.25f,
                                     /*motionState=*/2, /*motionLimit=*/0, /*alarm=*/0);
+    snap.params[0].slot = 0;
+    snap.params[0].relZeroRecord = 0.0f;
+    snap.params[0].trusted = true;
     snap.axes[1] = makeAxisSnapshot(1);
     snap.axes[13] = makeAxisSnapshot(13, /*manual=*/10, /*positioning=*/20,
                                      /*abs=*/23.5f, /*rel=*/23.5f,
                                      /*motionState=*/1, /*motionLimit=*/0, /*alarm=*/0);
+    snap.params[13].slot = 13;
+    snap.params[13].relZeroRecord = 0.0f;
+    snap.params[13].trusted = true;
     snap.gantry[0] = makeGantryStatusSnapshot(0, /*state=*/3, /*ack=*/9,
                                               /*cmdResult=*/2,
                                               /*x1InGear=*/true, /*x2InGear=*/true);
@@ -122,6 +128,8 @@ TEST_F(UiControlAdapterIntegrationTest, ProjectsRealServiceSnapshot) {
     EXPECT_FALSE(ax["locked"].toBool());
     EXPECT_DOUBLE_EQ(ax["absPosition"].toDouble(), 12.5);
     EXPECT_DOUBLE_EQ(ax["relPosition"].toDouble(), 3.25);
+    EXPECT_DOUBLE_EQ(ax["relZeroRecord"].toDouble(), 0.0);
+    EXPECT_TRUE(ax["relZeroTrusted"].toBool());
     EXPECT_EQ(ax["motionState"].toInt(), 2);
     EXPECT_EQ(ax["motionStateName"].toString(), "MotorIdle(2)");
 

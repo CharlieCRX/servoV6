@@ -70,13 +70,16 @@ Rectangle {
     // 分组切换信号
     signal groupChanged(string newGroup)
 
-    // 相对零点位置 = 绝对位置 - 相对位置（即设置零点时的绝对坐标）
+    // vnext 链路直接展示 PLC 参数区的相对原点记录，避免用逻辑轴 abs-rel 反推。
+    readonly property bool relZeroTrusted: root.vnextActive ? (vAxis.relZeroTrusted ?? false) : true
     readonly property double relZeroPosition: {
+        if (root.vnextActive) return root.relZeroTrusted ? (vAxis.relZeroRecord ?? 0.0) : 0.0
         return root.effectiveAbsPos - root.effectiveRelPos
     }
 
     // 相对零点位置不为 0 时才展示清除行
-    readonly property bool hasRelativeZero: Math.abs(root.relZeroPosition) > 0.0005
+    readonly property bool hasRelativeZero: root.relZeroTrusted
+                                            && Math.abs(root.relZeroPosition) > 0.0005
 
     // R轴（旋转轴）判定
     readonly property bool isRAxis: selectedAxis === "R"
