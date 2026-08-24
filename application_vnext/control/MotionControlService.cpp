@@ -99,6 +99,24 @@ std::string topologyAxisMap(const application_vnext::SystemManagerVnext& manager
     return first ? "(none)" : oss.str();
 }
 
+LogContext axisTargetLogContext(const AxisTarget& target, const std::string& opId) {
+    return LogContext{
+        target.group.value() == 0 ? "A" : "B",
+        std::string(domain_vnext::model::axisFunctionName(target.function)),
+        opId.empty() ? "op" : opId
+    };
+}
+
+LogContext axisNameLogContext(const std::string& axis, const std::string& opId) {
+    const auto dot = axis.find('.');
+    if (dot != std::string::npos && dot > 0 && dot + 1 < axis.size()) {
+        return LogContext{axis.substr(0, dot), axis.substr(dot + 1),
+                          opId.empty() ? "op" : opId};
+    }
+    return LogContext{"APP", axis.empty() ? "MotionControl" : axis,
+                      opId.empty() ? "op" : opId};
+}
+
 /// whether it is "estop / release / stop": not dropped by TTL, handled before read.
 bool isUrgent(ControlAction a) {
     switch (a) {
@@ -227,12 +245,13 @@ std::string MotionControlService::submit(ControlCommand cmd) {
         queued = queue_.size();
         operations_[opId] = std::move(entry);
     }
-    LOG_INFO(LogLayer::APP, "MotionControl",
-             "queued opId=" + opId
-             + " source=" + sourceName
-             + " action=" + actionName
-             + " target=" + targetName
-             + " queueSize=" + std::to_string(queued));
+    Logger::logWithContext(LogLevel::INFO, LogLayer::APP, "MotionControl",
+                           axisTargetLogContext(cmd.target, opId),
+                           "queued opId=" + opId
+                           + " source=" + sourceName
+                           + " action=" + actionName
+                           + " target=" + targetName
+                           + " queueSize=" + std::to_string(queued));
     return opId;
 }
 
@@ -341,11 +360,12 @@ void MotionControlService::handleUrgent(const std::vector<ControlCommand>& cmds)
             }
         }
         if (logged) {
-            LOG_INFO(LogLayer::APP, "MotionControl",
-                     "opId=" + p.operationId
-                     + " axis=" + axisForLog
-                     + " state=Queued->" + operationStateName(st)
-                     + " diag=" + diag);
+            Logger::logWithContext(LogLevel::INFO, LogLayer::APP, "MotionControl",
+                                   axisNameLogContext(axisForLog, p.operationId),
+                                   "opId=" + p.operationId
+                                   + " axis=" + axisForLog
+                                   + " state=Queued->" + operationStateName(st)
+                                   + " diag=" + diag);
         }
     }
 
@@ -482,7 +502,8 @@ void MotionControlService::setOpState(const std::string& id, OperationState st, 
             << " state=" << operationStateName(oldState)
             << "->" << operationStateName(st);
         if (!finalDiag.empty()) oss << " diag=" << finalDiag;
-        LOG_INFO(LogLayer::APP, "MotionControl", oss.str());
+        Logger::logWithContext(LogLevel::INFO, LogLayer::APP, "MotionControl",
+                               axisNameLogContext(axis, id), oss.str());
     }
 }
 
@@ -656,12 +677,13 @@ void MotionControlService::execute(ControlCommand& cmd) {
     // requiredResources() 已把 function==X 的运动命令判为龙门资源集合，这里必须保持一致。
     const bool logical = (fn == AxisFunction::X);
 
-    LOG_INFO(LogLayer::APP, "MotionControl",
-             "[execute] opId=" + cmd.operationId
-             + " action=" + controlActionName(cmd.action)
-             + " target=" + axisTargetName(cmd.target)
-             + " route=" + std::string(logical ? "gantry" : "single-axis")
-             + " group=" + std::to_string(g.value()));
+    Logger::logWithContext(LogLevel::INFO, LogLayer::APP, "MotionControl",
+                           axisTargetLogContext(cmd.target, cmd.operationId),
+                           "[execute] opId=" + cmd.operationId
+                           + " action=" + controlActionName(cmd.action)
+                           + " target=" + axisTargetName(cmd.target)
+                           + " route=" + std::string(logical ? "gantry" : "single-axis")
+                           + " group=" + std::to_string(g.value()));
 
     // 一次性写入（Set*/Enable*）：直接落地，成功即 Succeeded（无会话、无租约）。
     if (isOneShotAction(cmd.action)) {

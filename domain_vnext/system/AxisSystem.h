@@ -23,6 +23,8 @@ namespace domain_vnext::system {
 /// 领域组合根。
 class AxisSystem {
 public:
+    AxisSystem() { configureGroupContexts(); }
+
     AxisRegistry& registry() { return registry_; }
     const AxisRegistry& registry() const { return registry_; }
 
@@ -68,9 +70,15 @@ public:
     void reset() {
         registry_.clear();
         groups_ = {GroupModel{}, GroupModel{}};
+        configureGroupContexts();
     }
 
 private:
+    void configureGroupContexts() {
+        groups_[0].setLogGroup(plc_vnext::contracts::PlcGroupIndex(0));
+        groups_[1].setLogGroup(plc_vnext::contracts::PlcGroupIndex(1));
+    }
+
     AxisRegistry registry_;
     std::array<GroupModel, 2> groups_;
     state::SafetyStateMachine safety_;

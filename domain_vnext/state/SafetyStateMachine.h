@@ -10,8 +10,10 @@
 #pragma once
 
 #include <optional>
+#include <string>
 
 #include "domain_vnext/model/SafetyState.h"
+#include "infrastructure/logger/Logger.h"
 
 namespace domain_vnext::state {
 
@@ -24,6 +26,18 @@ enum class SafetyRejection {
     NotSynchronized,            // 尚未同步 PLC 真实安全状态，拒绝所有请求
     NotEmergencyStopped,        // 尝试解除急停但系统并未处于急停状态
 };
+
+inline const char* safetyRejectionName(SafetyRejection r) {
+    switch (r) {
+        case SafetyRejection::None: return "None";
+        case SafetyRejection::SystemSafetyLocked: return "SystemSafetyLocked";
+        case SafetyRejection::AlreadyInState: return "AlreadyInState";
+        case SafetyRejection::InvalidStateTransition: return "InvalidStateTransition";
+        case SafetyRejection::NotSynchronized: return "NotSynchronized";
+        case SafetyRejection::NotEmergencyStopped: return "NotEmergencyStopped";
+    }
+    return "?";
+}
 
 /// 急停命令：active=true 写 M224 锁存保持；false 写 M225 上升沿解除。
 struct EStopCommand {
@@ -68,40 +82,65 @@ private:
 };
 
 inline SafetyRejection SafetyStateMachine::requestEmergencyStop() {
+    const auto ctx = LogContext{"System", "Safety", "estop"};
     // 尚未同步 PLC 状态，拒绝所有操作
     if (state_ == model::SafetyState::NotSynchronized) {
+        Logger::logWithContext(LogLevel::WARN, LogLayer::DOM, "SafetyState", ctx,
+                               "requestEmergencyStop rejected reason=NotSynchronized");
         return SafetyRejection::NotSynchronized;
     }
     // 幂等：已在急停流程中
     if (state_ == model::SafetyState::EmergencyStopping ||
         state_ == model::SafetyState::EmergencyStopped) {
+        Logger::logWithContext(LogLevel::WARN, LogLayer::DOM, "SafetyState", ctx,
+                               std::string("requestEmergencyStop rejected reason=AlreadyInState state=")
+                               + model::safetyStateName(state_));
         return SafetyRejection::AlreadyInState;
     }
     // 冲突：正在解除急停，不允许反向操作
     if (state_ == model::SafetyState::ReleasingEmergencyStop) {
+        Logger::logWithContext(LogLevel::WARN, LogLayer::DOM, "SafetyState", ctx,
+                               "requestEmergencyStop rejected reason=InvalidStateTransition state=ReleasingEmergencyStop");
         return SafetyRejection::InvalidStateTransition;
     }
     // 通过：Running -> 生成急停意图
+    const auto before = state_;
     pending_ = EStopCommand{true};
     state_ = model::SafetyState::EmergencyStopping;
+    Logger::logWithContext(LogLevel::INFO, LogLayer::DOM, "SafetyState", ctx,
+                           std::string("requestEmergencyStop accepted state=")
+                           + model::safetyStateName(before)
+                           + "->" + model::safetyStateName(state_));
     return SafetyRejection::None;
 }
 
 inline SafetyRejection SafetyStateMachine::requestReleaseEmergencyStop() {
+    const auto ctx = LogContext{"System", "Safety", "estop"};
     // 尚未同步 PLC 状态，拒绝所有操作
     if (state_ == model::SafetyState::NotSynchronized) {
+        Logger::logWithContext(LogLevel::WARN, LogLayer::DOM, "SafetyState", ctx,
+                               "requestReleaseEmergencyStop rejected reason=NotSynchronized");
         return SafetyRejection::NotSynchronized;
     }
     // 前置条件：只有 EmergencyStopped 状态才能解除
     if (state_ != model::SafetyState::EmergencyStopped) {
+        Logger::logWithContext(LogLevel::WARN, LogLayer::DOM, "SafetyState", ctx,
+                               std::string("requestReleaseEmergencyStop rejected reason=NotEmergencyStopped state=")
+                               + model::safetyStateName(state_));
         return SafetyRejection::NotEmergencyStopped;
     }
+    const auto before = state_;
     pending_ = EStopCommand{false};
     state_ = model::SafetyState::ReleasingEmergencyStop;
+    Logger::logWithContext(LogLevel::INFO, LogLayer::DOM, "SafetyState", ctx,
+                           std::string("requestReleaseEmergencyStop accepted state=")
+                           + model::safetyStateName(before)
+                           + "->" + model::safetyStateName(state_));
     return SafetyRejection::None;
 }
 
 inline void SafetyStateMachine::applyFeedback(bool plcEmergencyStopped) {
+    const auto before = state_;
     switch (state_) {
         case model::SafetyState::NotSynchronized:
             // 首次同步：PLC Feedback 是唯一真相来源
@@ -129,6 +168,14 @@ inline void SafetyStateMachine::applyFeedback(bool plcEmergencyStopped) {
                 state_ = model::SafetyState::EmergencyStopped;
             }
             break;
+    }
+    if (before != state_) {
+        Logger::logWithContext(LogLevel::INFO, LogLayer::DOM, "SafetyState",
+                               LogContext{"System", "Safety", "feedback"},
+                               std::string("feedback emergencyStop=")
+                               + std::to_string(plcEmergencyStopped)
+                               + " state=" + model::safetyStateName(before)
+                               + "->" + model::safetyStateName(state_));
     }
 }
 

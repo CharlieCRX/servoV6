@@ -24,6 +24,10 @@ add_library(infrastructure STATIC
     # ★ 游戏手柄 JNI 桥接层
     joystick/AndroidGamepadJoystick.h
     joystick/AndroidGamepadJoystick.cpp
+
+    # ★ Qt/qDebug/QML console.log -> Logger.h 统一桥接
+    logger/QtLogBridge.h
+    logger/QtLogBridge.cpp
 )
 
 set_target_properties(infrastructure PROPERTIES AUTOMOC ON)

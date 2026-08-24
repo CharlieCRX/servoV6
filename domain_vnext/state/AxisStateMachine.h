@@ -9,6 +9,10 @@
 // ============================================================================
 #pragma once
 
+#include <string>
+#include <utility>
+
+#include "domain_vnext/logging/DomainLogger.h"
 #include "domain_vnext/model/AxisCommand.h"
 #include "domain_vnext/model/GantryStatus.h"
 #include "domain_vnext/state/CommandOutbox.h"
@@ -30,6 +34,11 @@ public:
     explicit AxisStateMachine(bool requiresGantrySync = false)
         : requiresGantrySync_(requiresGantrySync) {}
 
+    void setLogContext(std::string group, std::string axis) {
+        logGroup_ = std::move(group);
+        logAxis_ = std::move(axis);
+    }
+
     /// 意图入口：校验通过则写入 outbox（并同步更新本地忙状态）。
     SubmitResult submit(const model::AxisCommand& intent, CommandOutbox& outbox);
 
@@ -47,6 +56,8 @@ private:
     bool systemLocked_ = false;
     bool busy_ = false;
     model::GantryCouplingState gantry_ = model::GantryCouplingState::Unconfigured;
+    std::string logGroup_ = "DOMAIN";
+    std::string logAxis_ = "Axis";
 };
 
 inline bool AxisStateMachine::isNewMotion(const model::AxisCommand& cmd) {
@@ -83,19 +94,44 @@ inline void AxisStateMachine::applyBusy(const model::AxisCommand& cmd) {
 
 inline AxisStateMachine::SubmitResult AxisStateMachine::submit(
     const model::AxisCommand& intent, CommandOutbox& outbox) {
+    const auto ctx = LogContext{logGroup_, logAxis_, "axis-sm"};
     if (isNewMotion(intent)) {
         if (systemLocked_) {
+            Logger::logWithContext(LogLevel::WARN, LogLayer::DOM, "AxisState",
+                                   ctx,
+                                   std::string("submit rejected reason=SystemLocked command=")
+                                   + logging::axisCommandKindName(intent.kind)
+                                   + " gantry=" + model::gantryCouplingStateName(gantry_)
+                                   + " busy=" + std::to_string(busy_));
             return SubmitResult::RejectedSystemLocked;
         }
         if (requiresGantrySync_ && gantry_ == model::GantryCouplingState::Unconfigured) {
+            Logger::logWithContext(LogLevel::WARN, LogLayer::DOM, "AxisState",
+                                   ctx,
+                                   std::string("submit rejected reason=GantryUnconfigured command=")
+                                   + logging::axisCommandKindName(intent.kind)
+                                   + " gantry=" + model::gantryCouplingStateName(gantry_));
             return SubmitResult::RejectedGantryLocked;
         }
         if (busy_) {
+            Logger::logWithContext(LogLevel::WARN, LogLayer::DOM, "AxisState",
+                                   ctx,
+                                   std::string("submit rejected reason=AxisBusy command=")
+                                   + logging::axisCommandKindName(intent.kind)
+                                   + " gantry=" + model::gantryCouplingStateName(gantry_));
             return SubmitResult::RejectedAxisBusy;
         }
     }
     applyBusy(intent);
     outbox.push(intent);
+    Logger::logWithContext(LogLevel::INFO, LogLayer::DOM, "AxisState",
+                           ctx,
+                           std::string("submit accepted command=")
+                           + logging::axisCommandKindName(intent.kind)
+                           + " level=" + std::to_string(intent.level)
+                           + " value=" + std::to_string(intent.value)
+                           + " busy=" + std::to_string(busy_)
+                           + " gantry=" + model::gantryCouplingStateName(gantry_));
     return SubmitResult::Accepted;
 }
 

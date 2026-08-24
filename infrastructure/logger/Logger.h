@@ -14,6 +14,8 @@
 #include <atomic>
 #include <vector>
 #include <cstdint>
+#include <string_view>
+#include <utility>
 
 struct LoggerConfig {
     bool enableConsole = true;
@@ -58,6 +60,7 @@ public:
 
         if (!m_running) {
             m_running = true;
+            m_initialized = true;
             m_worker = std::thread(&Logger::processQueue);
         }
     }
@@ -75,9 +78,17 @@ public:
             m_fileStream.flush();
             m_fileStream.close();
         }
+        m_initialized = false;
     }
 
     static void log(LogLevel level, LogLayer layer, const std::string& module, const std::string& msg) {
+        logWithContext(level, layer, module, TraceScope::current(), msg);
+    }
+
+    static void logWithContext(LogLevel level, LogLayer layer, const std::string& module,
+                               LogContext ctx, const std::string& msg) {
+        if (!m_initialized.load()) return;
+
         // 级别过滤：控制台与文件各自独立
         bool toConsole = m_config.enableConsole && (level >= m_config.minConsoleLevel);
         bool toFile    = m_config.enableFile    && (level >= m_config.minFileLevel);
@@ -87,7 +98,7 @@ public:
         auto time = std::chrono::system_clock::to_time_t(now);
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
 
-        LogContext ctx = TraceScope::current();
+        ctx = normalizeContext(layer, module, std::move(ctx));
 
         std::stringstream ss;
         ss << "[" << std::put_time(std::localtime(&time), "%H:%M:%S") << "." << std::setfill('0') << std::setw(3) << ms.count() << "]"
@@ -104,6 +115,10 @@ public:
         m_cv.notify_one(); 
     }
 
+    static bool isInitialized() {
+        return m_initialized.load();
+    }
+
 private:
     inline static LoggerConfig m_config;
     inline static std::ofstream m_fileStream;
@@ -113,6 +128,39 @@ private:
     inline static std::queue<LogEntry> m_queue;
     inline static std::thread m_worker;
     inline static std::atomic<bool> m_running{false};
+    inline static std::atomic<bool> m_initialized{false};
+
+    static bool missing(std::string_view v) {
+        return v.empty() || v == "N/A";
+    }
+
+    static const char* defaultTraceFor(LogLayer layer) {
+        switch (layer) {
+            case LogLayer::UI:  return "ui";
+            case LogLayer::APP: return "app";
+            case LogLayer::DOM: return "domain";
+            case LogLayer::HAL: return "io";
+        }
+        return "log";
+    }
+
+    static std::string defaultGroupFor(LogLayer layer) {
+        switch (layer) {
+            case LogLayer::UI:  return "UI";
+            case LogLayer::APP: return "APP";
+            case LogLayer::DOM: return "DOMAIN";
+            case LogLayer::HAL: return "HAL";
+        }
+        return "LOG";
+    }
+
+    static LogContext normalizeContext(LogLayer layer, const std::string& module,
+                                       LogContext ctx) {
+        if (missing(ctx.group)) ctx.group = defaultGroupFor(layer);
+        if (missing(ctx.axis)) ctx.axis = module.empty() ? "General" : module;
+        if (missing(ctx.traceId)) ctx.traceId = defaultTraceFor(layer);
+        return ctx;
+    }
 
     static void processQueue() {
         while (true) {

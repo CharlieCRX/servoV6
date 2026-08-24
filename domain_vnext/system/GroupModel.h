@@ -15,6 +15,7 @@
 #include <utility>
 #include <vector>
 
+#include "domain_vnext/logging/DomainLogger.h"
 #include "domain_vnext/model/AxisFunction.h"
 #include "domain_vnext/state/GantryCouplingStateMachine.h"
 #include "domain_vnext/system/AxisRegistry.h"
@@ -24,6 +25,11 @@ namespace domain_vnext::system {
 /// 一组（A/B）的领域功能视图。
 class GroupModel {
 public:
+    void setLogGroup(plc_vnext::contracts::PlcGroupIndex g) {
+        group_ = g;
+        gantry_.setLogGroup(logging::groupName(g));
+    }
+
     void setValid(bool v) { valid_ = v; }
     bool valid() const { return valid_; }
 
@@ -66,6 +72,7 @@ public:
 private:
     std::map<model::AxisFunction, Axis*> members_;
     state::GantryCouplingStateMachine gantry_;
+    plc_vnext::contracts::PlcGroupIndex group_{0};
     bool valid_ = false;
     bool hmiVisible_ = false;
     bool degraded_ = false;

@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "domain_vnext/logging/DomainLogger.h"
 #include "domain_vnext/model/AxisKey.h"
 #include "domain_vnext/model/AxisParameterSet.h"
 #include "domain_vnext/state/AxisStateMachine.h"
@@ -36,7 +37,10 @@ public:
          bool hmiVisible, bool requiresGantrySync)
         : key_(key), slot_(slot), motorNo_(motorNo), axisClass_(axisClass),
           motionMode_(motionMode), hmiVisible_(hmiVisible),
-          sm_(requiresGantrySync) {}
+          sm_(requiresGantrySync) {
+        sm_.setLogContext(logging::groupName(key_.group),
+                          logging::axisName(key_.function));
+    }
 
     const model::AxisKey& key() const { return key_; }
     plc_vnext::contracts::PlcAxisSlot slot() const { return slot_; }
@@ -53,6 +57,9 @@ public:
     // --- 反馈注入（P4，由 FeedbackDispatcher 接入）---
     /// 注入运行反馈前 7 项（来自 AxisRuntimeSnapshot，只读）。trusted 由该快照决定。
     void applyFeedback(const plc_vnext::contracts::AxisRuntimeSnapshot& snap) {
+        const auto oldMotionState = feedback_.motionState;
+        const auto oldTrusted = feedback_.trusted;
+        const bool hadFeedback = feedbackSeen_;
         feedback_.manualSpeed = snap.manualSpeed;
         feedback_.positioningSpeed = snap.positioningSpeed;
         feedback_.absPosition = snap.absPosition;
@@ -61,6 +68,20 @@ public:
         feedback_.motionLimit = snap.motionLimit;
         feedback_.alarmWord = snap.alarmWord;
         feedback_.trusted = snap.trusted;
+        feedbackSeen_ = true;
+
+        if (!hadFeedback || oldMotionState != feedback_.motionState ||
+            oldTrusted != feedback_.trusted) {
+            Logger::logWithContext(
+                LogLevel::INFO, LogLayer::DOM, "AxisFeedback",
+                logging::context(key_.group, key_.function, "feedback"),
+                "slot=" + std::to_string(slot_.value())
+                + " motionState=" + std::to_string(feedback_.motionState)
+                + " trusted=" + std::to_string(feedback_.trusted)
+                + " pos=" + std::to_string(feedback_.absPosition)
+                + " limit=" + std::to_string(feedback_.motionLimit)
+                + " alarm=0x" + std::to_string(feedback_.alarmWord));
+        }
     }
     /// 注入参数区 8~13（来自 AxisParameterSnapshot，只读）。trusted 与运行反馈做与。
     void applyParameters(const plc_vnext::contracts::AxisParameterSnapshot& snap) {
@@ -85,6 +106,7 @@ private:
     state::AxisStateMachine sm_;
     state::CommandOutbox outbox_;
     model::AxisParameterSet feedback_;
+    bool feedbackSeen_ = false;
 };
 
 /// 全局 16 槽位轴实体注册表。

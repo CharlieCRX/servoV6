@@ -34,6 +34,7 @@
 #include "presentation/viewmodel/UiControlCommandAdapter.h"  // ★ UI-1：UI 唯一可写入口（ControlCommand source=Ui）
 #include "infrastructure/joystick/AndroidGamepadJoystick.h"
 #include "infrastructure/logger/Logger.h"
+#include "infrastructure/logger/QtLogBridge.h"
 // ★ Phase 5：UDP 链路统一协调层最小接线（MotionControlService + 生产 IControlRuntime）
 #include "application_vnext/PlcRuntimeDriverAdapter.h"
 #include "application_vnext/control/GatewayControlRuntime.h"
@@ -145,6 +146,7 @@ int main(int argc, char *argv[])
 
     logCfg.logDirectory = QString("%1/logs").arg(logBasePath).toStdString();
     Logger::init(logCfg);
+    logger::installQtMessageHandler();
 
     LOG_INFO(LogLayer::APP, "System", "========================================");
     LOG_INFO(LogLayer::APP, "System", "servoV6 Application Starting...");
@@ -666,6 +668,7 @@ int main(int argc, char *argv[])
 
     int result = app.exec();
 
+    logger::uninstallQtMessageHandler();
     Logger::shutdown();
     return result;
 }
