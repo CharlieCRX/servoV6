@@ -7,6 +7,9 @@
 #include <QIcon>
 #include <QStandardPaths>
 #include <QDir>
+#include <QElapsedTimer>
+#include <QThread>
+#include <QMetaObject>
 #include <vector>
 
 #include "application/SystemManager.h"
@@ -47,6 +50,7 @@
 #include <iomanip>
 #include <memory>
 #include <optional>
+#include <chrono>
 
 // ════════════════════════════════════════════════════
 // windows.h 通过 Asio 间接引入，定义了 ERROR 和 NO_ERROR 宏，与 LogLevel::ERROR 冲突
@@ -82,6 +86,38 @@ static std::string formatAxisSummary(QtAxisViewModel& vm)
     if (vm.errorCount() > 0)
         oss << " errs=" << vm.errorCount();
     return oss.str();
+}
+
+static void submitLifecycleStopAll(application_vnext::control::MotionControlService* service,
+                                   const char* reason)
+{
+    if (!service) return;
+
+    using application_vnext::control::AxisTarget;
+    using application_vnext::control::ControlAction;
+    using application_vnext::control::ControlCommand;
+    using application_vnext::control::ControlSource;
+    using domain_vnext::model::AxisFunction;
+    using plc_vnext::contracts::PlcGroupIndex;
+
+    LOG_WARN(LogLayer::APP, "Lifecycle",
+        std::string("application inactive: submit StopMotion for all axes reason=") + reason);
+
+    const AxisFunction functions[] = {
+        AxisFunction::X, AxisFunction::X1, AxisFunction::X2,
+        AxisFunction::Y, AxisFunction::Z, AxisFunction::R,
+    };
+
+    for (int group = 0; group <= 1; ++group) {
+        for (AxisFunction fn : functions) {
+            ControlCommand cmd;
+            cmd.source = ControlSource::Ui;
+            cmd.target = AxisTarget{PlcGroupIndex(group), fn};
+            cmd.action = ControlAction::StopMotion;
+            cmd.ttl = std::chrono::milliseconds{2000};
+            service->submit(cmd);
+        }
+    }
 }
 
 // ★ Phase 6：统一控制链路的长生命周期持有者（组合根）。
@@ -552,6 +588,44 @@ int main(int argc, char *argv[])
 
     engine.loadFromModule("servoV6", "Main");
 
+    QThread controlThread;
+    QTimer* controlTimer = nullptr;
+    if constexpr (kUnifiedLoopEnabled) {
+        controlTimer = new QTimer;
+        controlTimer->setInterval(20);
+        controlTimer->setTimerType(Qt::PreciseTimer);
+        controlTimer->moveToThread(&controlThread);
+
+        QObject::connect(&controlThread, &QThread::started,
+                         controlTimer,
+                         qOverload<>(&QTimer::start));
+        QObject::connect(controlTimer, &QTimer::timeout, controlTimer, [&]() {
+            QElapsedTimer tickTimer;
+            tickTimer.start();
+
+            if (ustack && ustack->service) {
+                // P0-A 占位：D1600 `GantryParam` 的 C++ 读路径尚未落地前，注入有效配置使
+                // 龙门联动准入通过；待实现真实 D1600 读取后替换为真实参数。
+                domain_vnext::model::GantryParamModel gcfg;
+                gcfg.valid = true;
+                ustack->service->applyGantryConfig(
+                    plc_vnext::contracts::PlcGroupIndex(0), gcfg);
+                ustack->service->applyGantryConfig(
+                    plc_vnext::contracts::PlcGroupIndex(1), gcfg);
+                ustack->service->tick();
+            }
+
+            const qint64 elapsedMs = tickTimer.elapsed();
+            if (elapsedMs > 120) {
+                LOG_WARN_EVERY_MS(1000, LogLayer::APP, "ControlLoop",
+                    "worker tick slow elapsedMs=" + std::to_string(elapsedMs));
+            }
+        });
+        controlThread.setObjectName(QStringLiteral("servo-vnext-control"));
+        controlThread.start();
+        LOG_INFO(LogLayer::APP, "ControlLoop", "vnext control loop moved to worker thread");
+    }
+
     // ============================
     // 6. 全局 Tick Loop —— ★ Phase 6 统一调度循环
     //    单一 QTimer（20ms，文档 §5.2 要求 20~50ms）驱动；两模式互斥，任一时刻只有
@@ -562,28 +636,15 @@ int main(int argc, char *argv[])
     // ============================
     QTimer systemClock;
     QObject::connect(&systemClock, &QTimer::timeout, [&]() {
+        QElapsedTimer tickTimer;
+        tickTimer.start();
+
         if constexpr (kUnifiedLoopEnabled) {
             // ---- Phase 6 Unified 唯一控制循环 ----
-            //   server.tick() 先于 service.tick()：UDP 收包 → submit 本轮即入队，
-            //   同一 tick 内即可被仲裁/执行（收包 → submit → 统一 tick 顺序）。
-            //   service.tick(): 取命令 → 急停/停止优先（读前）→ 读 runtime/safety/连接
-            //     （每 tick 唯一一次 runtime 读）→ 更新领域与全局锁定 → 过期 → 仲裁/执行
-            //     → tick 会话（含 JogPolicy 心跳，按单调时钟 deadline 维持，无独立心跳线程）
-            //     → 发布不可变快照。
-            //   snapshotAdapter.refresh(): GUI 线程把统一快照投影到 QML（只读）。
-            if (ustack->server)  ustack->server->tick();   // UDP 收包 → submit
-            if (ustack->service) {
-                // P0-A 占位：D1600 `GantryParam` 的 C++ 读路径尚未落地前，注入有效配置使
-                // 龙门联动准入通过（`GantryCouplingStateMachine::requestCouple` 要求
-                // configValid==true，否则会在写 GantryCommand=1 之前返回 RejectedNotReady）。
-                // 与 plc_vnext_motion_probe 一致；待实现真实 D1600 读取后替换为真实参数。
-                domain_vnext::model::GantryParamModel gcfg;
-                gcfg.valid = true;
-                ustack->service->applyGantryConfig(
-                    plc_vnext::contracts::PlcGroupIndex(0), gcfg);
-                ustack->service->applyGantryConfig(
-                    plc_vnext::contracts::PlcGroupIndex(1), gcfg);
-                ustack->service->tick();  // 仲裁/执行（含本轮 UDP 命令）
+            //   service.tick() 已移到 controlThread，避免同步 PLC I/O 阻塞 Android UI 线程。
+            //   GUI 线程只处理轻量 UDP 收包（若启用）与快照投影，保持渲染/触摸响应。
+            if constexpr (kEnableUdpVnext) {
+                if (ustack->server) ustack->server->tick();   // UDP 收包 → submit
             }
             snapshotAdapter.refresh();
         } else {
@@ -632,8 +693,32 @@ int main(int argc, char *argv[])
             // 6g. ★ Phase 2：统一状态快照投影（GUI 线程内读 ControlStateStore，只读）
             snapshotAdapter.refresh();
         }
+
+        const qint64 elapsedMs = tickTimer.elapsed();
+        if (elapsedMs > 120) {
+            LOG_WARN_EVERY_MS(1000, LogLayer::APP, "MainLoop",
+                "systemClock tick slow elapsedMs=" + std::to_string(elapsedMs)
+                + " unified=" + std::to_string(kUnifiedLoopEnabled ? 1 : 0));
+        }
     });
     systemClock.start(20);  // ★ Phase 6：统一调度循环 20ms（文档 §5.2：20~50ms）
+
+    bool lifecycleStopSubmitted = false;
+    QObject::connect(&app, &QGuiApplication::applicationStateChanged,
+                     [&](Qt::ApplicationState state) {
+        LOG_WARN(LogLayer::UI, "Lifecycle",
+            "applicationStateChanged state=" + std::to_string(static_cast<int>(state)));
+        if (state == Qt::ApplicationActive) {
+            lifecycleStopSubmitted = false;
+            return;
+        }
+        if (lifecycleStopSubmitted) return;
+        lifecycleStopSubmitted = true;
+        if constexpr (kUnifiedLoopEnabled) {
+            submitLifecycleStopAll(ustack ? ustack->service.get() : nullptr,
+                                   "application state changed");
+        }
+    });
 
     // 7. 周期性状态摘要（每秒输出一次）
     QTimer summaryClock;
@@ -667,6 +752,18 @@ int main(int argc, char *argv[])
     summaryClock.start(1000);  // 1s 周期
 
     int result = app.exec();
+
+    if constexpr (kUnifiedLoopEnabled) {
+        if (controlTimer) {
+            QMetaObject::invokeMethod(controlTimer, [controlTimer]() {
+                controlTimer->stop();
+                delete controlTimer;
+            }, Qt::BlockingQueuedConnection);
+            controlTimer = nullptr;
+        }
+        controlThread.quit();
+        controlThread.wait();
+    }
 
     logger::uninstallQtMessageHandler();
     Logger::shutdown();

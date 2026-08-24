@@ -3,6 +3,7 @@
 #include "AxisSelectionModel.h"
 #include "GamepadInputInterpreter.h"
 #include "application_vnext/control/MotionControlService.h"
+#include "infrastructure/logger/Logger.h"
 #include "presentation/input/JoystickCommandBuilder.h"
 
 #include <QDebug>
@@ -28,7 +29,11 @@ MotionController::MotionController(GamepadInputInterpreter* interpreter,
                              this, &MotionController::onCurrentAxisChanged);
     qDebug() << "[MotionCtrl] connect currentAxisChanged -> onCurrentAxisChanged:" << ok2;
 
-    if (!ok1 || !ok2) {
+    const bool ok3 = connect(axisModel, &AxisSelectionModel::currentGroupChanged,
+                             this, &MotionController::onCurrentGroupChanged);
+    qDebug() << "[MotionCtrl] connect currentGroupChanged -> onCurrentGroupChanged:" << ok3;
+
+    if (!ok1 || !ok2 || !ok3) {
         qWarning() << "[MotionCtrl] Signal-slot connection failed; motion control is disabled";
     } else {
         qDebug() << "[MotionCtrl] Ready. currentAxis=" << axisModel->currentAxisName()
@@ -74,22 +79,24 @@ void MotionController::setJogActiveDirection(int dir)
     const auto target = currentAxisTarget();
 
     if (m_jogActiveDirection == 1 || m_jogActiveDirection == -1) {
-        qDebug() << "[MotionCtrl] setJogActiveDirection: submitting StopJog";
-        submit(makeStopJogCommand(target));
+        stopActiveJog("setJogActiveDirection");
+        if (dir == 0) {
+            qDebug() << "[MotionCtrl] jogActiveDirection changed to" << dir;
+            return;
+        }
     }
 
-    m_jogActiveDirection = dir;
-
     if (dir == 1) {
-        qDebug() << "[MotionCtrl] setJogActiveDirection: submitting StartJogForward";
-        submit(makeJogForwardCommand(target));
+        startJogForTarget(target, dir, "setJogActiveDirection");
     } else if (dir == -1) {
-        qDebug() << "[MotionCtrl] setJogActiveDirection: submitting StartJogBackward";
-        submit(makeJogBackwardCommand(target));
+        startJogForTarget(target, dir, "setJogActiveDirection");
+    } else {
+        m_jogActiveDirection = 0;
+        m_activeJogTarget.reset();
+        emit jogActiveDirectionChanged();
     }
 
     qDebug() << "[MotionCtrl] jogActiveDirection changed to" << dir;
-    emit jogActiveDirectionChanged();
 }
 
 void MotionController::toggleMode()
@@ -205,11 +212,30 @@ void MotionController::onCurrentAxisChanged(AxisId newAxis)
              << "mode=" << (m_controlMode == 0 ? "JOG" : "Position");
 
     if (m_motionActive && m_controlMode == 0) {
-        releaseCurrentMotion();
         m_currentAxis = newAxis;
-        pressMotion(m_activeMotionDir);
+        retargetActiveJog("axis changed");
     } else {
         m_currentAxis = newAxis;
+    }
+}
+
+void MotionController::onCurrentGroupChanged()
+{
+    const QString groupName = m_axisModel ? m_axisModel->currentGroupName()
+                                          : QStringLiteral("?");
+    qDebug() << "[MotionCtrl] onCurrentGroupChanged group=" << groupName
+             << "motionActive=" << m_motionActive
+             << "mode=" << (m_controlMode == 0 ? "JOG" : "Position")
+             << "dir=" << m_jogActiveDirection;
+
+    LOG_INFO(LogLayer::UI, "MotionCtrl",
+             "currentGroupChanged group=" + groupName.toStdString()
+             + " motionActive=" + std::to_string(m_motionActive)
+             + " mode=" + std::string(m_controlMode == 0 ? "JOG" : "Position")
+             + " jogDir=" + std::to_string(m_jogActiveDirection));
+
+    if (m_motionActive && m_controlMode == 0) {
+        retargetActiveJog("group changed");
     }
 }
 
@@ -227,6 +253,73 @@ void MotionController::pressMotion(MotionDirection dir)
              << "dir=" << (dir == MotionDirection::Forward ? "Forward" : "Backward");
 
     setJogActiveDirection(dir == MotionDirection::Forward ? 1 : -1);
+}
+
+void MotionController::stopActiveJog(const char* reason)
+{
+    if (m_jogActiveDirection == 0) return;
+
+    const auto target = m_activeJogTarget.value_or(currentAxisTarget());
+    qDebug() << "[MotionCtrl] stopActiveJog reason=" << reason
+             << "axis=" << QString::fromStdString(application_vnext::control::axisTargetName(target));
+    LOG_INFO(LogLayer::UI, "MotionCtrl",
+             "stopActiveJog reason=" + std::string(reason ? reason : "")
+             + " target=" + application_vnext::control::axisTargetName(target));
+
+    submit(makeStopJogCommand(target));
+    m_activeJogTarget.reset();
+    m_jogActiveDirection = 0;
+    emit jogActiveDirectionChanged();
+}
+
+void MotionController::startJogForTarget(
+    const application_vnext::control::AxisTarget& target,
+    int dir,
+    const char* reason)
+{
+    if (dir == 1) {
+        qDebug() << "[MotionCtrl] startJogForTarget: submitting StartJogForward reason="
+                 << reason
+                 << "axis=" << QString::fromStdString(application_vnext::control::axisTargetName(target));
+        submit(makeJogForwardCommand(target));
+    } else if (dir == -1) {
+        qDebug() << "[MotionCtrl] startJogForTarget: submitting StartJogBackward reason="
+                 << reason
+                 << "axis=" << QString::fromStdString(application_vnext::control::axisTargetName(target));
+        submit(makeJogBackwardCommand(target));
+    } else {
+        return;
+    }
+
+    LOG_INFO(LogLayer::UI, "MotionCtrl",
+             "startJog reason=" + std::string(reason ? reason : "")
+             + " target=" + application_vnext::control::axisTargetName(target)
+             + " dir=" + std::to_string(dir));
+    m_activeJogTarget = target;
+    m_jogActiveDirection = dir;
+    emit jogActiveDirectionChanged();
+}
+
+void MotionController::retargetActiveJog(const char* reason)
+{
+    if (m_jogActiveDirection == 0) return;
+
+    const int dir = m_jogActiveDirection;
+    const auto oldTarget = m_activeJogTarget.value_or(currentAxisTarget());
+    const auto newTarget = currentAxisTarget();
+    qDebug() << "[MotionCtrl] retargetActiveJog reason=" << reason
+             << "old=" << QString::fromStdString(application_vnext::control::axisTargetName(oldTarget))
+             << "new=" << QString::fromStdString(application_vnext::control::axisTargetName(newTarget))
+             << "dir=" << dir;
+    LOG_INFO(LogLayer::UI, "MotionCtrl",
+             "retargetActiveJog reason=" + std::string(reason ? reason : "")
+             + " old=" + application_vnext::control::axisTargetName(oldTarget)
+             + " new=" + application_vnext::control::axisTargetName(newTarget)
+             + " dir=" + std::to_string(dir));
+
+    stopActiveJog(reason);
+    m_jogReleaseTimer.invalidate();
+    startJogForTarget(newTarget, dir, reason);
 }
 
 application_vnext::control::AxisTarget MotionController::currentAxisTarget() const

@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QElapsedTimer>
+#include <optional>
 #include "InputEvent.h"
 #include "domain/entity/AxisId.h"
 
@@ -79,6 +80,9 @@ public slots:
     /// @brief 轴切换时：先向旧轴提交 StopJog，再对新轴重放当前摇杆方向
     void onCurrentAxisChanged(AxisId newAxis);
 
+    /// @brief 组切换时：先向旧组提交 StopJog，再对新组重放当前摇杆方向
+    void onCurrentGroupChanged();
+
 signals:
     void controlModeChanged();
     void isAbsoluteChanged();
@@ -90,6 +94,17 @@ private:
 
     /// @brief 对当前轴发起指定方向的 jog（StartJogForward 或 StartJogBackward）
     void pressMotion(MotionDirection dir);
+
+    /// @brief 停止当前已提交的活跃 jog 目标；优先使用 m_activeJogTarget，避免切组后停错组
+    void stopActiveJog(const char* reason);
+
+    /// @brief 对指定目标发起指定方向的 jog，并记录为活跃目标
+    void startJogForTarget(const application_vnext::control::AxisTarget& target,
+                           int dir,
+                           const char* reason);
+
+    /// @brief 当前摇杆仍保持按住时，把活跃 jog 从旧目标迁移到当前选择目标
+    void retargetActiveJog(const char* reason);
 
     /// @brief JOG 模式下的 Motion 事件处理
     void handleJogMotion(const InputEvent& event);
@@ -121,6 +136,7 @@ private:
 
     // ── JOG 活跃方向（QML 按钮视觉反馈）──
     int m_jogActiveDirection = 0;  // 0=无点动, 1=前进活跃, -1=后退活跃
+    std::optional<application_vnext::control::AxisTarget> m_activeJogTarget;
 
     // ── 快速摆动检测（防误触） ──
     // 当方向 Released 后极短时间内又收到反向 Pressed → 视为取消操作，拒绝启动新方向

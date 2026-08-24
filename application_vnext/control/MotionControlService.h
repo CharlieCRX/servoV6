@@ -29,6 +29,7 @@
 #include <vector>
 
 #include <array>
+#include <atomic>
 
 #include "application_vnext/control/ControlCommand.h"
 #include "application_vnext/control/ControlStateStore.h"
@@ -95,7 +96,7 @@ public:
 
     // ---- 测试钩子（Phase 1 断言用）----
     /// 当前全局锁定状态（boot + 首读可信后才释放）。
-    bool globallyLocked() const { return globallyLocked_; }
+    bool globallyLocked() const { return globallyLocked_.load(); }
     /// 尚未被 tick 取走的排队命令数（submit 后 tick 前为 1）。
     std::size_t queuedCount() const;
 
@@ -152,7 +153,7 @@ private:
     // 由 execute 记录、publishSnapshot 投影到快照 axis.absMoveTarget/relMoveTarget，
     // 供摇杆/UDP/UI 触发 Start*Move 时读取（见 §5.3「Set* 仅用于界面预填值」）。
     std::map<std::pair<int, int>, std::array<float, 2>> presetTargets_;
-    bool globallyLocked_ = true;     // 初始锁定，boot 成功 + 首读可信后才释放
+    std::atomic_bool globallyLocked_{true};  // 初始锁定，boot 成功 + 首读可信后才释放
     bool bootOk_ = false;            // 经 bootFromTopology 成功初始化（topology 读取+校验通过）
     std::size_t bootRetryCount_ = 0; // 连续 boot 失败次数（指数退避用）
     std::chrono::steady_clock::time_point bootRetryDeadline_{};  // 退避期间不再尝试

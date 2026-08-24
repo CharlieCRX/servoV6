@@ -19,19 +19,19 @@ Rectangle {
         return snapshotAdapter ? snapshotAdapter.axisFor(groupLetter, currentAxis) : ({})
     }
     readonly property bool vnextActive: viewModel === null
-                                        && snapshotAdapter
-                                        && commandAdapter
-                                        && commandAdapter.available
+                                        && !!snapshotAdapter
+                                        && !!commandAdapter
+                                        && !!commandAdapter.available
     readonly property bool vnextControlAxis: currentAxis === "Y" || currentAxis === "Z"
                                              || currentAxis === "R" || currentAxis === "X"
                                              || currentAxis === "X1" || currentAxis === "X2"
     readonly property bool vnextCanControl: vnextActive && vnextControlAxis
-                                            && snapshotAdapter.connected
-                                            && snapshotAdapter.safetyTrusted
+                                            && !!snapshotAdapter.connected
+                                            && !!snapshotAdapter.safetyTrusted
                                             && !snapshotAdapter.emergencyStop
                                             && !snapshotAdapter.globallyLocked
-                                            && vAxis.bound && vAxis.trusted
-                                            && vAxis.hmiVisible && !vAxis.leased
+                                            && !!vAxis.bound && !!vAxis.trusted
+                                            && !!vAxis.hmiVisible && !vAxis.leased
                                             && !root.alarmActive
     // ★ 当前轴是否有告警（D160+slot 位集合非零：JogPolicy 会以 "axis alarm" 拒绝运动）
     readonly property bool alarmActive: root.vnextActive && (root.vAxis.alarmWord ?? 0) > 0

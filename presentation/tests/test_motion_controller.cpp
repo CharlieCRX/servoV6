@@ -412,6 +412,41 @@ TEST_F(MotionControllerTest, CrossAxisSwitchStopsOldAndStartsNew) {
     EXPECT_TRUE(zRunning) << "跨轴后新轴 Z 的 StartJog 应进入 Running";
 }
 
+// ---------- 测试 3b：跨组切换 → 旧组 StopJog + 新组 StartJog，无需右摇杆回中 ----------
+
+TEST_F(MotionControllerTest, CrossGroupSwitchWhileHoldingJogStopsOldAndStartsNew) {
+    gw_.setTopologySnapshot(makeDualGroupSixAxisTopology());
+    auto r = makeTrustedRuntimeSnapshot();
+    r.axes[13].motionState = 2;
+    r.axes[14].motionState = 2;
+    runtime_.setRuntimeSnapshot(r);
+    svc_ = std::make_unique<MotionControlService>(*driver_, runtime_);
+    svc_->tick();
+
+    AxisSelectionModel axisModel;
+    GamepadInputInterpreter interpreter;
+    MotionController mc(&interpreter, &axisModel, svc_.get());
+    axisModel.setCurrentAxisByName(QStringLiteral("X"));
+
+    mc.onInputEvent(motionEvent(MotionDirection::Forward, MotionEventType::Pressed));
+    ASSERT_EQ(svc_->queuedCount(), 1u);
+
+    axisModel.setCurrentGroupByName(QStringLiteral("Machine_B"));
+    EXPECT_EQ(svc_->queuedCount(), 3u)
+        << "切组时应追加 StopJog(A.X) + StartJog(B.X)，右摇杆无需回中再推";
+
+    svc_->tick();
+
+    int axOps = 0;
+    int bxOps = 0;
+    for (const auto& op : svc_->store().snapshot().operations) {
+        if (op.source == ControlSource::Joystick && op.axis == "A.X") ++axOps;
+        if (op.source == ControlSource::Joystick && op.axis == "B.X") ++bxOps;
+    }
+    EXPECT_GE(axOps, 2) << "旧 A.X 应包含原 StartJog 与切组 StopJog";
+    EXPECT_GE(bxOps, 1) << "新 B.X 应立即收到重放 StartJog";
+}
+
 // ---------- 测试 4：SetAbsTarget 预填目标投影到快照（Position 摇杆目标来源 §5.3） ----------
 
 TEST_F(MotionControllerTest, SetAbsTargetProjectsToSnapshot) {
