@@ -25,6 +25,19 @@ Rectangle {
     readonly property bool vnextControlAxis: currentAxis === "Y" || currentAxis === "Z"
                                              || currentAxis === "R" || currentAxis === "X"
                                              || currentAxis === "X1" || currentAxis === "X2"
+
+    // ★ PLC 实时运动状态回显（依据快照 motionState = PLC 反馈 D128）：
+    //   0=未使能 1=轴控开电机关 2=电机空闲 3=正向点动 4=反向点动 5=绝对定位中 6=相对定位中。
+    //   这些是「PLC 侧真实状态」，无论运动由谁发起（UI/摇杆/UDP/PLC 本地点动），
+    //   UI 都据此回显按钮按下态并在运动期间锁定普通操作，实现 UI 状态与 PLC 统一。
+    readonly property bool vJogForwardActive:  root.vnextActive && (root.vAxis.motionState ?? 0) === 3
+    readonly property bool vJogBackwardActive: root.vnextActive && (root.vAxis.motionState ?? 0) === 4
+    readonly property bool vPositioningActive: root.vnextActive
+                                               && ((root.vAxis.motionState ?? 0) === 5
+                                                   || (root.vAxis.motionState ?? 0) === 6)
+    // 轴正在运动（点动或定位中）：期间普通操作一律锁定，仅停止/急停可用。
+    readonly property bool vMoving: root.vnextActive && (root.vAxis.motionState ?? 0) >= 3
+
     readonly property bool vnextCanControl: vnextActive && vnextControlAxis
                                             && !!snapshotAdapter.connected
                                             && !!snapshotAdapter.safetyTrusted
@@ -32,6 +45,7 @@ Rectangle {
                                             && !snapshotAdapter.globallyLocked
                                             && !!vAxis.bound && !!vAxis.trusted
                                             && !!vAxis.hmiVisible && !vAxis.leased
+                                            && !root.vMoving          // PLC 正在移动 → 锁定普通控制
                                             && !root.alarmActive
     // ★ 当前轴是否有告警（D160+slot 位集合非零：JogPolicy 会以 "axis alarm" 拒绝运动）
     readonly property bool alarmActive: root.vnextActive && (root.vAxis.alarmWord ?? 0) > 0
@@ -323,7 +337,10 @@ Rectangle {
                     // 鼠标触发 onCanceled -> 立刻 StopJog，导致“按住无法持续点动”。
                     enabled: (motionController && motionController.jogActiveDirection === 1)
                              || (root.jogEnabled && (motionController ? motionController.jogActiveDirection !== -1 : true))
-                    isActive: motionController ? motionController.jogActiveDirection === 1 : false
+                    // ★ PLC 状态回显：无论点动由谁发起（UI/摇杆/UDP/PLC 本地点动），
+                    //   只要 PLC 反馈正在正向点动(motionState==3)，前进按钮即点亮为"按下"视觉。
+                    isActive: (motionController ? motionController.jogActiveDirection === 1 : false)
+                              || root.vJogForwardActive
                     onPressed: {
                         if(motionController && root.jogEnabled) motionController.jogActiveDirection = 1
                     }
@@ -344,7 +361,9 @@ Rectangle {
                     Layout.alignment: Qt.AlignHCenter
                     enabled: (motionController && motionController.jogActiveDirection === -1)
                              || (root.jogEnabled && (motionController ? motionController.jogActiveDirection !== 1 : true))
-                    isActive: motionController ? motionController.jogActiveDirection === -1 : false
+                    // ★ PLC 状态回显：只要 PLC 反馈正在反向点动(motionState==4)，后退按钮即点亮。
+                    isActive: (motionController ? motionController.jogActiveDirection === -1 : false)
+                              || root.vJogBackwardActive
                     onPressed: {
                         if(motionController && root.jogEnabled) motionController.jogActiveDirection = -1
                     }
@@ -585,7 +604,7 @@ Rectangle {
                     Layout.alignment: Qt.AlignHCenter
                     visible: root.isAbsolute
                     text: root.isReadyForTrigger ? "绝对定位" : (
-                        root.effectiveLoading ? "运行中..." : "不可用"
+                        (root.effectiveLoading || root.vPositioningActive) ? "运行中..." : "不可用"
                     )
                     isCircle: false
                     buttonSize: 170 * Theme.scale
@@ -608,7 +627,7 @@ Rectangle {
                     Layout.alignment: Qt.AlignHCenter
                     visible: !root.isAbsolute
                     text: root.isReadyForTrigger ? "相对定位" : (
-                        root.effectiveLoading ? "运行中..." : "不可用"
+                        (root.effectiveLoading || root.vPositioningActive) ? "运行中..." : "不可用"
                     )
                     isCircle: false
                     buttonSize: 170 * Theme.scale

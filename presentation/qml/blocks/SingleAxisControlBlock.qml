@@ -31,9 +31,25 @@ Rectangle {
     readonly property bool globallyLocked: snapshotAdapter ? snapshotAdapter.globallyLocked : false
     // 普通动作可用性（龙门成员轴/逻辑 X 一律不可运动，即使拓扑 bound）。
     readonly property bool isIndependent: role === "Y" || role === "Z" || role === "R"
+
+    // ★ PLC 实时运动状态回显（快照 motionState = PLC 反馈 D128）：
+    //   0=未使能 1=轴控开电机关 2=电机空闲 3=正向点动 4=反向点动 5=绝对定位中 6=相对定位中。
+    readonly property bool jogForwardActive: (ax.motionState ?? 0) === 3
+    readonly property bool jogBackwardActive: (ax.motionState ?? 0) === 4
+    readonly property bool positioningActive: (ax.motionState ?? 0) === 5 || (ax.motionState ?? 0) === 6
+    // 轴正在运动（点动或定位中）：普通操作（使能/参数/定位）锁定，仅停止/急停可用。
+    readonly property bool moving: (ax.motionState ?? 0) >= 3
+
     readonly property bool canControl: connected && safetyTrusted && !emergencyStop
                                        && !globallyLocked && ax.bound && ax.trusted
                                        && ax.hmiVisible && !ax.leased && isIndependent
+                                       && !moving          // PLC 正在移动 → 锁定普通操作
+    // 点动按钮可用性：定位中(motionState 5/6)锁定；PLC 点动中(3/4)仍须保持可用，
+    // 以便用户松开触发 stopJog 停止（与"按住持续点动"语义一致）。
+    readonly property bool canJog: connected && safetyTrusted && !emergencyStop
+                                   && !globallyLocked && ax.bound && ax.trusted
+                                   && ax.hmiVisible && !ax.leased && isIndependent
+                                   && !positioningActive
     readonly property bool canSubmit: commandAdapter !== null && commandAdapter !== undefined
 
     color: Theme.panelBg
@@ -118,14 +134,16 @@ Rectangle {
             Text { text: "绝对目标"; color: Theme.textDim; font.pixelSize: Theme.fontSmall }
             TextField { id: absTarget; text: "0"; enabled: canControl; implicitWidth: 70 * Theme.scale }
             Button {
-                text: "绝对定位"
+                // ★ PLC 状态回显：PLC 正在绝对定位(motionState==5) → 显示"运行中..."
+                text: positioningActive ? "定位中..." : "绝对定位"
                 enabled: canControl && canSubmit
                 onClicked: commandAdapter.startAbsMove(groupLetter, role, Number(absTarget.text), Number(positioningSpeed.text))
             }
             Text { text: "相对增量"; color: Theme.textDim; font.pixelSize: Theme.fontSmall }
             TextField { id: relDelta; text: "0"; enabled: canControl; implicitWidth: 70 * Theme.scale }
             Button {
-                text: "相对定位"
+                // ★ PLC 状态回显：PLC 正在相对定位(motionState==6) → 显示"运行中..."
+                text: positioningActive ? "定位中..." : "相对定位"
                 enabled: canControl && canSubmit
                 onClicked: commandAdapter.startRelMove(groupLetter, role, Number(relDelta.text), Number(positioningSpeed.text))
             }
@@ -136,7 +154,9 @@ Rectangle {
             spacing: 8 * Theme.scale
             Button {
                 text: "正转"
-                enabled: canControl && canSubmit
+                enabled: canJog && canSubmit
+                // ★ PLC 状态回显：PLC 反馈正在正向点动(motionState==3) → 按钮显示按下感。
+                highlighted: jogForwardActive
                 onPressedChanged: {
                     if (pressed) commandAdapter.startJogForward(groupLetter, role)
                     else commandAdapter.stopJog(groupLetter, role)
@@ -144,7 +164,9 @@ Rectangle {
             }
             Button {
                 text: "反转"
-                enabled: canControl && canSubmit
+                enabled: canJog && canSubmit
+                // ★ PLC 状态回显：PLC 反馈正在反向点动(motionState==4) → 按钮显示按下感。
+                highlighted: jogBackwardActive
                 onPressedChanged: {
                     if (pressed) commandAdapter.startJogBackward(groupLetter, role)
                     else commandAdapter.stopJog(groupLetter, role)
