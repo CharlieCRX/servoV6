@@ -52,6 +52,14 @@ Rectangle {
                                    && !positioningActive
     readonly property bool canSubmit: commandAdapter !== null && commandAdapter !== undefined
 
+    // ★ 界面速度上限（所有轴统一 30：直线轴 mm/s，旋转轴 R °/s）：
+    //   超过上限按上限（30）处理，非法/负数按 0（后端仍会拒绝非正速度）。
+    function clampSpeed(v) {
+        var n = Number(v)
+        if (!isFinite(n) || n < 0) return 0.0
+        return Math.min(Theme.maxAxisSpeed, n)
+    }
+
     color: Theme.panelBg
     radius: 10 * Theme.scale
     border.color: Theme.borderMain
@@ -106,7 +114,7 @@ Rectangle {
             }
         }
 
-        // ---------- 速度 ----------
+        // ---------- 速度（★ 所有轴上限定速 30：手动/点动速度与定位速度）----------
         GridLayout {
             columns: 4
             Text { text: "手动速度"; color: Theme.textDim; font.pixelSize: Theme.fontSmall }
@@ -114,7 +122,12 @@ Rectangle {
             Button {
                 text: "设置手动速度"
                 enabled: canControl && canSubmit
-                onClicked: commandAdapter.setManualSpeed(groupLetter, role, Number(manualSpeed.text))
+                onClicked: {
+                    // ★ 超过上限按上限（30）设置，并把生效值回写输入框
+                    var v = clampSpeed(manualSpeed.text)
+                    manualSpeed.text = v
+                    commandAdapter.setManualSpeed(groupLetter, role, v)
+                }
             }
             Text { text: commandAdapter ? commandAdapter.lastError : ""; color: Theme.colorError; font.pixelSize: Theme.fontSmall }
 
@@ -123,12 +136,18 @@ Rectangle {
             Button {
                 text: "设置定位速度"
                 enabled: canControl && canSubmit
-                onClicked: commandAdapter.setPositioningSpeed(groupLetter, role, Number(positioningSpeed.text))
+                onClicked: {
+                    // ★ 超过上限按上限（30）设置，并把生效值回写输入框
+                    var v = clampSpeed(positioningSpeed.text)
+                    positioningSpeed.text = v
+                    commandAdapter.setPositioningSpeed(groupLetter, role, v)
+                }
             }
-            Text { text: (ax.positioningSpeed ?? 0).toFixed(1); color: Theme.colorIdle; font.pixelSize: Theme.fontSmall }
+            // ★ 反馈值也按上限显示（PLC 侧若存在超限值，界面统一按 30 呈现）
+            Text { text: clampSpeed(ax.positioningSpeed ?? 0).toFixed(1); color: Theme.colorIdle; font.pixelSize: Theme.fontSmall }
         }
 
-        // ---------- 定位 ----------
+        // ---------- 定位（★ 定位速度同为界面上限内，最大 30）----------
         RowLayout {
             spacing: 6 * Theme.scale
             Text { text: "绝对目标"; color: Theme.textDim; font.pixelSize: Theme.fontSmall }
@@ -137,7 +156,8 @@ Rectangle {
                 // ★ PLC 状态回显：PLC 正在绝对定位(motionState==5) → 显示"运行中..."
                 text: positioningActive ? "定位中..." : "绝对定位"
                 enabled: canControl && canSubmit
-                onClicked: commandAdapter.startAbsMove(groupLetter, role, Number(absTarget.text), Number(positioningSpeed.text))
+                onClicked: commandAdapter.startAbsMove(groupLetter, role, Number(absTarget.text),
+                                                       clampSpeed(positioningSpeed.text))
             }
             Text { text: "相对增量"; color: Theme.textDim; font.pixelSize: Theme.fontSmall }
             TextField { id: relDelta; text: "0"; enabled: canControl; implicitWidth: 70 * Theme.scale }
@@ -145,7 +165,8 @@ Rectangle {
                 // ★ PLC 状态回显：PLC 正在相对定位(motionState==6) → 显示"运行中..."
                 text: positioningActive ? "定位中..." : "相对定位"
                 enabled: canControl && canSubmit
-                onClicked: commandAdapter.startRelMove(groupLetter, role, Number(relDelta.text), Number(positioningSpeed.text))
+                onClicked: commandAdapter.startRelMove(groupLetter, role, Number(relDelta.text),
+                                                       clampSpeed(positioningSpeed.text))
             }
         }
 

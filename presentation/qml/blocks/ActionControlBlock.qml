@@ -13,6 +13,15 @@ Rectangle {
     property string groupLetter: "A"
     property string currentAxis: ""        // 当前选中的轴名（用于龙门逻辑判断）
 
+    // ★ 界面速度上限（所有轴统一：直线轴 mm/s，旋转轴 R °/s）：
+    //   合法输入 → 原值；超过上限 → 按 Theme.maxAxisSpeed(30) 处理；非法/负数 → 0。
+    //   本函数同时用于"显示"与"写入"，保证界面既不会显示也不会下发超限速度。
+    function clampSpeed(v) {
+        var n = Number(v)
+        if (!isFinite(n) || n < 0) return 0.0
+        return Math.min(Theme.maxAxisSpeed, n)
+    }
+
     readonly property int snapshotRevision: snapshotAdapter ? snapshotAdapter.revision : 0
     readonly property var vAxis: {
         root.snapshotRevision
@@ -52,8 +61,10 @@ Rectangle {
     // 当前告警是否已弹窗提示（避免每次快照刷新重复弹出）
     property bool alarmDialogShown: false
     readonly property int effectiveState: viewModel ? viewModel.state : (vAxis.motionState ?? 0)
-    readonly property double effectiveJogVelocity: viewModel ? viewModel.jogVelocity : (vAxis.manualSpeed ?? 0.0)
-    readonly property double effectiveMoveVelocity: viewModel ? viewModel.moveVelocity : (vAxis.positioningSpeed ?? 0.0)
+    // ★ 点动 / 定位速度一律经 clampSpeed 收敛到界面上限（最大 30），
+    //   即使用 PLC 反馈回显到超限值，界面也只按上限展示与使用。
+    readonly property double effectiveJogVelocity: root.clampSpeed(viewModel ? viewModel.jogVelocity : (vAxis.manualSpeed ?? 0.0))
+    readonly property double effectiveMoveVelocity: root.clampSpeed(viewModel ? viewModel.moveVelocity : (vAxis.positioningSpeed ?? 0.0))
     readonly property double effectiveAbsTarget: viewModel ? viewModel.absMoveTarget : (vAxis.absMoveTarget ?? 0.0)
     readonly property double effectiveRelTarget: viewModel ? viewModel.relMoveTarget : (vAxis.relMoveTarget ?? 0.0)
     readonly property bool effectiveLoading: viewModel ? viewModel.isLoading : (vAxis.leased ?? false)
@@ -732,14 +743,17 @@ Rectangle {
         unit: root.isRAxis ? "°/s" : "mm/s"
         allowNegative: false
         allowDecimal: true
-        maxValue: 1000.0
+        maxValue: Theme.maxAxisSpeed   // ★ 界面速度上限：所有轴最大 30
+        clampToMax: true               // ★ 输入超过 30 即按 30（而非忽略按键）
         maxDecimals: 2
         inputText: "0.00"
         onConfirmed: (value) => {
+            // ★ 超过上限按上限（30）设置；非法输入按 0（后端会拒绝非正速度）。
+            var v = root.clampSpeed(value)
             if (root.viewModel) {
-                root.viewModel.setJogVelocity(parseFloat(value))
+                root.viewModel.setJogVelocity(v)
             } else if (root.vnextCanControl) {
-                root.commandAdapter.setManualSpeed(root.groupLetter, root.currentAxis, parseFloat(value))
+                root.commandAdapter.setManualSpeed(root.groupLetter, root.currentAxis, v)
             }
         }
     }
@@ -751,14 +765,17 @@ Rectangle {
         unit: root.isRAxis ? "°/s" : "mm/s"
         allowNegative: false
         allowDecimal: true
-        maxValue: 1000.0
+        maxValue: Theme.maxAxisSpeed   // ★ 界面速度上限：所有轴最大 30
+        clampToMax: true               // ★ 输入超过 30 即按 30（而非忽略按键）
         maxDecimals: 2
         inputText: "0.00"
         onConfirmed: (value) => {
+            // ★ 超过上限按上限（30）设置；非法输入按 0（后端会拒绝非正速度）。
+            var v = root.clampSpeed(value)
             if (root.viewModel) {
-                root.viewModel.setMoveVelocity(parseFloat(value))
+                root.viewModel.setMoveVelocity(v)
             } else if (root.vnextCanControl) {
-                root.commandAdapter.setPositioningSpeed(root.groupLetter, root.currentAxis, parseFloat(value))
+                root.commandAdapter.setPositioningSpeed(root.groupLetter, root.currentAxis, v)
             }
         }
     }

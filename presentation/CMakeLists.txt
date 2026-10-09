@@ -10,6 +10,9 @@ add_library(presentation
     viewmodel/ViewModelError.h
     viewmodel/EmergencyStopViewModel.h
 
+    # ★ 界面速度上限（点动 / 定位速度，所有轴统一 30）
+    viewmodel/AxisSpeedLimit.h
+
     # ★ Phase 2：统一状态快照 -> Qt/QML 只读适配器（读 ControlStateStore 投影）
     viewmodel/UiControlAdapter.h
     viewmodel/UiControlAdapter.cpp

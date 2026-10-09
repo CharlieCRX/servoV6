@@ -2,6 +2,9 @@
 #include <QString>
 #include <QVariantMap>
 
+#include "infrastructure/logger/Logger.h"
+#include "presentation/viewmodel/AxisSpeedLimit.h"
+
 // =============================================================================
 // 构造
 // =============================================================================
@@ -137,11 +140,26 @@ void QtAxisViewModel::triggerRelMove() {
 }
 
 void QtAxisViewModel::setJogVelocity(double v) {
-    if (m_core) m_core->setJogVelocity(v);
+    // ★ 界面速度上限：QML 侧（NumPad）已钳制，这里再兜底一次——
+    //   任何 QML 写入超过 30（mm/s 或 °/s）的点动速度都按 30 生效。
+    const double clamped = presentation::clampAxisSpeed(v);
+    if (clamped != v) {
+        LOG_WARN(LogLayer::UI, "AxisVM",
+                 "jogVelocity clamped to UI limit: requested=" + std::to_string(v)
+                     + " applied=" + std::to_string(clamped));
+    }
+    if (m_core) m_core->setJogVelocity(clamped);
 }
 
 void QtAxisViewModel::setMoveVelocity(double v) {
-    if (m_core) m_core->setMoveVelocity(v);
+    // ★ 界面速度上限：任何超过 30（mm/s 或 °/s）的定位速度都按 30 生效。
+    const double clamped = presentation::clampAxisSpeed(v);
+    if (clamped != v) {
+        LOG_WARN(LogLayer::UI, "AxisVM",
+                 "moveVelocity clamped to UI limit: requested=" + std::to_string(v)
+                     + " applied=" + std::to_string(clamped));
+    }
+    if (m_core) m_core->setMoveVelocity(clamped);
 }
 
 void QtAxisViewModel::stop() {

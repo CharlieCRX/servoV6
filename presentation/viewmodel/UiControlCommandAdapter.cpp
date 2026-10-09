@@ -14,6 +14,7 @@
 #include "domain_vnext/model/AxisFunction.h"
 #include "infrastructure/logger/Logger.h"
 #include "infrastructure/plc_vnext/contracts/PlcGroupIndex.h"
+#include "presentation/viewmodel/AxisSpeedLimit.h"
 
 namespace {
 
@@ -38,6 +39,20 @@ std::string uiCommandLog(application_vnext::control::AxisTarget target,
 
 void logUiRejected(const QString& error) {
     LOG_WARN(LogLayer::UI, "UiControl", error.toStdString());
+}
+
+/// ★ 界面速度上限：把 UI 传入的速度钳制到 kMaxAxisSpeed（30 mm/s 或 °/s），
+///   超出即按上限下发；被钳制时记录一行 WARN 便于追溯。
+///   非正速度原样返回，仍由既有「速度必须为正」校验拒绝。
+double clampUiSpeed(const char* what, double v) {
+    const double clamped = presentation::clampAxisSpeed(v);
+    if (clamped != v) {
+        LOG_WARN(LogLayer::UI, "UiControl",
+                 std::string("speed clamped to UI limit: ") + what
+                     + " requested=" + std::to_string(v)
+                     + " applied=" + std::to_string(presentation::kMaxAxisSpeed));
+    }
+    return clamped;
 }
 
 }  // namespace
@@ -117,7 +132,9 @@ QString UiControlCommandAdapter::submitUi(application_vnext::control::AxisTarget
 QString UiControlCommandAdapter::setManualSpeed(const QString& g, const QString& r, double v) {
     application_vnext::control::AxisTarget t;
     if (!parseAxis(g, r, t)) return QString();
-    return submitUi(t, application_vnext::control::ControlAction::SetManualSpeed, v);
+    // ★ 点动（手动）速度受界面上限约束：超过 30（mm/s 或 °/s）一律按 30 下发。
+    return submitUi(t, application_vnext::control::ControlAction::SetManualSpeed,
+                    clampUiSpeed("setManualSpeed", v));
 }
 QString UiControlCommandAdapter::setPositioningSpeed(const QString& g, const QString& r,
                                                      double v) {
@@ -125,7 +142,9 @@ QString UiControlCommandAdapter::setPositioningSpeed(const QString& g, const QSt
     if (v <= 0.0) { setLastError("定位速度必须为正"); return QString(); }
     application_vnext::control::AxisTarget t;
     if (!parseAxis(g, r, t)) return QString();
-    return submitUi(t, application_vnext::control::ControlAction::SetPositioningSpeed, v);
+    // ★ 定位速度受界面上限约束：超过 30（mm/s 或 °/s）一律按 30 下发。
+    return submitUi(t, application_vnext::control::ControlAction::SetPositioningSpeed,
+                    clampUiSpeed("setPositioningSpeed", v));
 }
 QString UiControlCommandAdapter::setAbsTarget(const QString& g, const QString& r, double v) {
     application_vnext::control::AxisTarget t;
@@ -182,16 +201,20 @@ QString UiControlCommandAdapter::startAbsMove(const QString& g, const QString& r
     if (speed <= 0.0) { setLastError("定位速度必须为正"); return QString(); }
     application_vnext::control::AxisTarget t;
     if (!parseAxis(g, r, t)) return QString();
+    // ★ 定位速度受界面上限约束：超过 30（mm/s 或 °/s）一律按 30 下发。
     return submitUi(t, application_vnext::control::ControlAction::StartAbsMove,
-                    0.0, false, /*hasMotion=*/true, target, speed);
+                    0.0, false, /*hasMotion=*/true, target,
+                    clampUiSpeed("startAbsMove", speed));
 }
 QString UiControlCommandAdapter::startRelMove(const QString& g, const QString& r,
                                               double delta, double speed) {
     if (speed <= 0.0) { setLastError("定位速度必须为正"); return QString(); }
     application_vnext::control::AxisTarget t;
     if (!parseAxis(g, r, t)) return QString();
+    // ★ 定位速度受界面上限约束：超过 30（mm/s 或 °/s）一律按 30 下发。
     return submitUi(t, application_vnext::control::ControlAction::StartRelMove,
-                    0.0, false, /*hasMotion=*/true, delta, speed);
+                    0.0, false, /*hasMotion=*/true, delta,
+                    clampUiSpeed("startRelMove", speed));
 }
 QString UiControlCommandAdapter::stopMotion(const QString& g, const QString& r) {
     application_vnext::control::AxisTarget t;

@@ -24,4 +24,10 @@ QtObject {
     readonly property color colorDisabled: "#607D8B"  // 掉电灰暗
     readonly property color colorError: "#FF1744"     // 警报红
     readonly property color colorWarning: "#FFEA00"   // 警告黄
+
+    // === 5. 运动参数上限（界面硬约束，所有轴统一）===
+    // 点动速度 / 定位速度上限：直线轴 mm/s，旋转轴 R 为 °/s。
+    // 界面输入超过该值时一律按该上限设置；
+    // C++ 侧同一上限见 presentation/viewmodel/AxisSpeedLimit.h（两处必须同步）。
+    readonly property real maxAxisSpeed: 30.0
 }

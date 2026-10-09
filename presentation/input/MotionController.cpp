@@ -5,6 +5,7 @@
 #include "application_vnext/control/MotionControlService.h"
 #include "infrastructure/logger/Logger.h"
 #include "presentation/input/JoystickCommandBuilder.h"
+#include "presentation/viewmodel/AxisSpeedLimit.h"
 
 #include <QDebug>
 
@@ -192,15 +193,23 @@ void MotionController::handlePositionMotion(const InputEvent& event)
         return;
     }
 
+    // ★ 界面速度上限：摇杆定位速度取自 PLC 反馈快照，仍受界面统一上限约束
+    //   （所有轴最大 30 mm/s 或 °/s）；超出即按上限下发，绝不透传超限速度。
+    const float cappedSpeed = static_cast<float>(presentation::clampAxisSpeed(speed));
+    if (cappedSpeed != speed) {
+        qWarning() << "[MotionCtrl] Position speed clamped to UI limit. axis=" << axisName
+                   << "requested=" << speed << "applied=" << cappedSpeed;
+    }
+
     if (m_isAbsolute) {
         qDebug() << "[MotionCtrl] Position released: submitting StartAbsMove axis="
-                 << axisName << "target=" << absTarget << "speed=" << speed;
-        submit(makePositionCommand(target, /*abs=*/true, absTarget, speed));
+                 << axisName << "target=" << absTarget << "speed=" << cappedSpeed;
+        submit(makePositionCommand(target, /*abs=*/true, absTarget, cappedSpeed));
     } else {
         const float step = static_cast<float>(m_relStep);
         qDebug() << "[MotionCtrl] Position released: submitting StartRelMove axis="
-                 << axisName << "step=" << step << "speed=" << speed;
-        submit(makePositionCommand(target, /*abs=*/false, step, speed));
+                 << axisName << "step=" << step << "speed=" << cappedSpeed;
+        submit(makePositionCommand(target, /*abs=*/false, step, cappedSpeed));
     }
 }
 

@@ -11,6 +11,10 @@ Popup {
     property bool allowDecimal: true        // 是否允许小数点
     property bool allowNegative: false      // 是否允许负号
     property real maxValue: 99999.99        // 最大值限制
+    // ★ true = 输入超过 maxValue 时自动按 maxValue 收敛（"超过最大值就按最大值设置"）；
+    //   false（默认）= 保持原有语义：超过 maxValue 的按键/输入被忽略。
+    //   速度类输入（点动速度 / 定位速度）设为 true，实现"超过 30 即按 30"。
+    property bool clampToMax: false
     property int maxDecimals: 2             // 最大小数位数
     property string unit: ""                // 单位文本（如 "mm"、"mm/s"）
     property string title: "数字键盘"       // 键盘标题
@@ -46,6 +50,11 @@ Popup {
         if (isNaN(val)) {
             inputText = "0"
         } else {
+            // ★ 上限保护：预填值（如来自 PLC 反馈）超过 maxValue 时按上限显示，
+            //   保证"超过最大值就按最大值设置"在界面上一目了然。
+            if (val > maxValue) {
+                val = maxValue
+            }
             inputText = internal._formatValue(val)
         }
         internal._buildDisplay()
@@ -111,6 +120,11 @@ Popup {
                 var candidate = inputText + String(digit)
                 var val = parseFloat(candidate)
                 if (!isNaN(val) && val > maxValue) {
+                    // ★ 超过最大值：clampToMax 时直接按最大值显示，否则忽略本次按键
+                    if (clampToMax) {
+                        inputText = _formatValue(maxValue)
+                        _buildDisplay()
+                    }
                     return
                 }
                 inputText = candidate
@@ -128,6 +142,11 @@ Popup {
             var candidate = inputText + "00"
             var val = parseFloat(candidate)
             if (!isNaN(val) && val > maxValue) {
+                // ★ 超过最大值：clampToMax 时直接按最大值显示，否则忽略本次按键
+                if (clampToMax) {
+                    inputText = _formatValue(maxValue)
+                    _buildDisplay()
+                }
                 return
             }
             inputText = candidate

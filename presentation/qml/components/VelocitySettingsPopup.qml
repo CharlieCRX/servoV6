@@ -16,6 +16,14 @@ Popup {
     property string currentAxis: ""
     readonly property bool isRAxis: currentAxis === "R"
 
+    // ★ 界面速度上限（所有轴统一 30：直线轴 mm/s，旋转轴 R °/s）：
+    //   超过上限按上限；非法/负数按 0。显示与写入共用，保证界面不下发超限速度。
+    function clampSpeed(v) {
+        var n = Number(v)
+        if (!isFinite(n) || n < 0) return 0.0
+        return Math.min(Theme.maxAxisSpeed, n)
+    }
+
     // 弹窗基本属性
     modal: true
     dim: true
@@ -25,16 +33,16 @@ Popup {
     height: 280 * Theme.scale
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
-    // 🌟 每次打开弹窗时，从底层读取最新速度填充到输入框
+    // 🌟 每次打开弹窗时，从底层读取最新速度填充到输入框（★ 超过上限按上限显示）
     onOpened: {
         if (viewModel) {
             if (speedType === "jog") {
                 popupTitle.text = "⚙️ 点动速度设置"
-                numPad.inputText = viewModel.jogVelocity.toString()
+                numPad.inputText = root.clampSpeed(viewModel.jogVelocity).toString()
                 speedLabel.text = "点动速度 (Jog):"
             } else {
                 popupTitle.text = "⚙️ 定位速度设置"
-                numPad.inputText = viewModel.moveVelocity.toString()
+                numPad.inputText = root.clampSpeed(viewModel.moveVelocity).toString()
                 speedLabel.text = "定位速度 (Pos):"
             }
         }
@@ -121,7 +129,8 @@ Popup {
                 baseColor: Theme.colorIdle
                 onClicked: {
                     if (viewModel) {
-                        var value = parseFloat(numPad.inputText)
+                        // ★ 超过界面速度上限（30）按上限设置
+                        var value = root.clampSpeed(numPad.inputText)
                         if (speedType === "jog") {
                             viewModel.setJogVelocity(value)
                         } else {
@@ -141,7 +150,8 @@ Popup {
         unit: root.isRAxis ? "°/s" : "mm/s"
         allowNegative: false
         allowDecimal: true
-        maxValue: 1000.0
+        maxValue: Theme.maxAxisSpeed   // ★ 界面速度上限：所有轴最大 30
+        clampToMax: true               // ★ 输入超过 30 即按 30（而非忽略按键）
         maxDecimals: 2
         inputText: "0.00"
     }
