@@ -184,3 +184,81 @@ if(WIN32 AND NOT ANDROID AND SERVO_V6_DEPLOY_WINDOWS_RUNTIME)
         message(WARNING "Qt6::windeployqt target is unavailable; appservoV6.exe may need Qt DLLs copied manually.")
     endif()
 endif()
+
+if(ANDROID)
+    # -----------------------------------------------------------------
+    # 背景（Android 构建失败的根因）：
+    #   CMake 的 FindEGL / FindGLESv2 / FindVulkan（被 Qt6 的 WrapEGL /
+    #   GLESv2 / WrapVulkanHeaders 等 find 模块间接调用）会把 NDK sysroot
+    #   下的 **C 库头目录**
+    #       <ndk>/toolchains/llvm/prebuilt/<host>/sysroot/usr/include
+    #   写进 imported target 的 INTERFACE_INCLUDE_DIRECTORIES。
+    #   CMake 对 imported target 的 include 目录使用 -isystem 传递，而
+    #   -isystem 的搜索顺序排在 clang 内建目录（含 libc++ 的 c++/v1）
+    #   之前，于是 c++/v1/cstdint 中的 #include_next <stdint.h> 命中了
+    #   bionic 的 stdint.h 而不是 libc++ 自己的包装头，libc++ 随即 #error：
+    #     <cstdint> tried including <stdint.h> but didn't find libc++'s
+    #     <stdint.h> header
+    #   （<cmath> / <cstdlib> 同理，并连带 std::signbit / std::isnan 报错）
+    #
+    #   具体链路：appservoV6 -> Qt6::Quick -> Qt6::Gui ->
+    #   WrapVulkanHeaders::WrapVulkanHeaders（Vulkan_INCLUDE_DIR 恰好就是
+    #   上面那个 C 库头目录）。因此 presentation / infrastructure 等只依赖
+    #   Qt6::Core 的目标编译正常，只有 appservoV6（及其 qmlcache /
+    #   qmltyperegistrations）全部失败。
+    #
+    # 处理：把这些目录从相关 imported target 上摘掉。clang 通过 --sysroot
+    #   本来就内建搜索该目录，无需（也不能）再用编译选项重复指定。
+    # -----------------------------------------------------------------
+    set(_servo_v6_ndk_include_targets
+        EGL::EGL
+        GLESv2::GLESv2
+        WrapVulkanHeaders::WrapVulkanHeaders
+        WrapEGL::WrapEGL
+        WrapGLESv2::WrapGLESv2
+        WrapOpenGL::WrapOpenGL
+        OpenGL::OpenGL
+        OpenGL::GL
+        OpenGL::GLES2
+        OpenGL::GLES3
+        OpenGL::EGL
+        OpenGL::GLX
+        OpenGL::GLU
+    )
+
+    # 再合并当前目录（顶层，find_package(Qt6) 所在目录）已导入的全部 target，
+    # 避免遗漏 Qt 内部其它包装目标。
+    get_property(_servo_v6_imported_targets DIRECTORY PROPERTY IMPORTED_TARGETS)
+    if(_servo_v6_imported_targets)
+        list(APPEND _servo_v6_ndk_include_targets ${_servo_v6_imported_targets})
+    endif()
+    list(REMOVE_DUPLICATES _servo_v6_ndk_include_targets)
+
+    foreach(_target IN LISTS _servo_v6_ndk_include_targets)
+        if(TARGET "${_target}")
+            get_target_property(_dirs
+                "${_target}"
+                INTERFACE_INCLUDE_DIRECTORIES
+            )
+
+            if(_dirs)
+                set(_filtered_dirs "${_dirs}")
+
+                list(FILTER _filtered_dirs EXCLUDE
+                    REGEX "[/\\\\]sysroot[/\\\\][Uu][Ss][Rr][/\\\\]include[/\\\\]?$"
+                )
+
+                if(NOT "${_dirs}" STREQUAL "${_filtered_dirs}")
+                    set_property(TARGET "${_target}" PROPERTY
+                        INTERFACE_INCLUDE_DIRECTORIES
+                        "${_filtered_dirs}"
+                    )
+
+                    message(STATUS
+                        "Removed redundant NDK include from ${_target}"
+                    )
+                endif()
+            endif()
+        endif()
+    endforeach()
+endif()
